@@ -300,3 +300,190 @@ class QdrantService:
         except Exception as e:
             self.logger.error(f"Failed to get collection info for {collection_name}: {e}")
             return {"error": str(e), "collection_name": collection_name}
+    
+    def collection_exists(self, collection_name: str) -> bool:
+        """
+        Check if a collection exists.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            True if collection exists, False otherwise
+        """
+        try:
+            collections = self.client.get_collections()
+            existing_names = [col.name for col in collections.collections]
+            return collection_name in existing_names
+        except Exception as e:
+            self.logger.error(f"Error checking if collection exists: {e}")
+            return False
+    
+    def create_metadata_collection(self, collection_name: str) -> bool:
+        """
+        Create a collection optimized for metadata storage.
+        
+        This creates a collection with minimal vector configuration
+        since metadata collections primarily use payload functionality.
+        
+        Args:
+            collection_name: Name of the metadata collection
+            
+        Returns:
+            True if collection was created successfully
+        """
+        try:
+            if self.collection_exists(collection_name):
+                self.logger.info(f"Metadata collection '{collection_name}' already exists")
+                return True
+            
+            from qdrant_client.http.models import VectorParams, Distance
+            
+            self.client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=1,  # Minimal vector size for metadata collections
+                    distance=Distance.COSINE
+                )
+            )
+            
+            self.logger.info(f"Created metadata collection: {collection_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create metadata collection '{collection_name}': {e}")
+            return False
+    
+    def delete_collection(self, collection_name: str) -> bool:
+        """
+        Delete a collection.
+        
+        Args:
+            collection_name: Name of the collection to delete
+            
+        Returns:
+            True if collection was deleted successfully
+        """
+        try:
+            if not self.collection_exists(collection_name):
+                self.logger.info(f"Collection '{collection_name}' does not exist")
+                return True
+            
+            self.client.delete_collection(collection_name)
+            self.logger.info(f"Deleted collection: {collection_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to delete collection '{collection_name}': {e}")
+            return False
+    
+    def list_collections(self) -> List[Dict[str, Any]]:
+        """
+        List all collections with basic information.
+        
+        Returns:
+            List of dictionaries with collection information
+        """
+        try:
+            collections = self.client.get_collections()
+            result = []
+            
+            for collection in collections.collections:
+                try:
+                    info = self.get_collection_info(collection.name)
+                    result.append(info)
+                except Exception as e:
+                    self.logger.warning(f"Failed to get info for collection '{collection.name}': {e}")
+                    result.append({
+                        "name": collection.name,
+                        "error": str(e)
+                    })
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Failed to list collections: {e}")
+            return []
+    
+    def get_collections_by_pattern(self, pattern: str) -> List[str]:
+        """
+        Get collection names matching a pattern.
+        
+        Args:
+            pattern: Pattern to match (simple string contains)
+            
+        Returns:
+            List of matching collection names
+        """
+        try:
+            collections = self.client.get_collections()
+            matching = [
+                col.name for col in collections.collections 
+                if pattern in col.name
+            ]
+            return matching
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get collections by pattern '{pattern}': {e}")
+            return []
+    
+    def clear_collection(self, collection_name: str) -> bool:
+        """
+        Clear all points from a collection without deleting the collection.
+        
+        Args:
+            collection_name: Name of the collection to clear
+            
+        Returns:
+            True if collection was cleared successfully
+        """
+        try:
+            if not self.collection_exists(collection_name):
+                self.logger.warning(f"Collection '{collection_name}' does not exist")
+                return False
+            
+            # Delete all points by scrolling and deleting in batches
+            while True:
+                response = self.client.scroll(
+                    collection_name=collection_name,
+                    limit=1000,
+                    with_payload=False,
+                    with_vectors=False
+                )
+                
+                points = response[0]
+                if not points:
+                    break
+                
+                point_ids = [point.id for point in points]
+                self.client.delete(
+                    collection_name=collection_name,
+                    points_selector=point_ids
+                )
+            
+            self.logger.info(f"Cleared all points from collection: {collection_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to clear collection '{collection_name}': {e}")
+            return False
+    
+    def get_metadata_collections(self, project_name: Optional[str] = None) -> List[str]:
+        """
+        Get metadata collection names, optionally filtered by project.
+        
+        Args:
+            project_name: Optional project name to filter by
+            
+        Returns:
+            List of metadata collection names
+        """
+        metadata_suffix = "_file_metadata"
+        
+        if project_name:
+            # Look for specific project metadata collection
+            pattern = f"project_{project_name}{metadata_suffix}"
+            return self.get_collections_by_pattern(pattern)
+        else:
+            # Get all metadata collections
+            return self.get_collections_by_pattern(metadata_suffix)
