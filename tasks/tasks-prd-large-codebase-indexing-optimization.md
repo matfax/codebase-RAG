@@ -91,7 +91,7 @@
     - Implement streaming insertion pipeline: File Batch -> Embedding Batch -> DB Batch
     - Add queue-based architecture for embedding-to-database pipeline
     - Remove large list accumulations that cause memory issues
-  - [ ] 4.2 Add configurable batch sizes for database operations
+  - [x] 4.2 Add configurable batch sizes for database operations
     - Add `QDRANT_BATCH_SIZE` environment variable (default: 500)
     - Implement point batching logic in Qdrant service
     - Add batch size optimization based on point dimensions and metadata size
