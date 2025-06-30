@@ -46,18 +46,18 @@
   - [x] 3.5 Add change summary generation (files added, modified, deleted counts)
   - [x] 3.6 Ensure backward compatibility with existing full indexing workflow
 
-- [ ] 4.0 Implement Time Estimation and User Recommendations
-  - [ ] 4.1 Create TimeEstimatorService to calculate expected indexing duration
-  - [ ] 4.2 Implement repository analysis for file count and size estimation
-  - [ ] 4.3 Add logic to detect when indexing might exceed 5 minutes
-  - [ ] 4.4 Create user recommendation system with manual tool suggestions
-  - [ ] 4.5 Add clear instructions for manual indexing tool usage
-  - [ ] 4.6 Integrate time estimation into MCP tool responses
+- [x] 4.0 Implement Time Estimation and User Recommendations
+  - [x] 4.1 Create TimeEstimatorService to calculate expected indexing duration
+  - [x] 4.2 Implement repository analysis for file count and size estimation
+  - [x] 4.3 Add logic to detect when indexing might exceed 5 minutes
+  - [x] 4.4 Create user recommendation system with manual tool suggestions
+  - [x] 4.5 Add clear instructions for manual indexing tool usage
+  - [x] 4.6 Integrate time estimation into MCP tool responses
 
-- [ ] 5.0 Update MCP Tools and API Integration
-  - [ ] 5.1 Add incremental parameter to index_directory MCP tool
-  - [ ] 5.2 Integrate time estimation and recommendation logic into MCP workflows
-  - [ ] 5.3 Add change summary to MCP tool responses
-  - [ ] 5.4 Update tool documentation and parameter descriptions
-  - [ ] 5.5 Ensure proper error handling and fallback to full indexing when needed
-  - [ ] 5.6 Add comprehensive logging for debugging incremental operations
+- [x] 5.0 Update MCP Tools and API Integration
+  - [x] 5.1 Add incremental parameter to index_directory MCP tool
+  - [x] 5.2 Integrate time estimation and recommendation logic into MCP workflows
+  - [x] 5.3 Add change summary to MCP tool responses
+  - [x] 5.4 Update tool documentation and parameter descriptions
+  - [x] 5.5 Ensure proper error handling and fallback to full indexing when needed
+  - [x] 5.6 Add comprehensive logging for debugging incremental operations

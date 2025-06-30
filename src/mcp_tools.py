@@ -944,9 +944,9 @@ def register_mcp_tools(mcp_app: FastMCP):
         return {"status": "ok"}
 
     @mcp_app.tool()
-    def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False) -> Dict[str, Any]:
+    def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False, incremental: bool = False) -> Dict[str, Any]:
         """
-        Index files in a directory with smart existing data detection.
+        Index files in a directory with smart existing data detection and time estimation.
         
         Args:
             directory: Directory to index (default: current directory)
@@ -954,9 +954,10 @@ def register_mcp_tools(mcp_app: FastMCP):
             recursive: Whether to index subdirectories (default: True)
             clear_existing: Whether to clear existing indexed data (default: False)
                           If False and existing data is found, returns recommendations instead of indexing
+            incremental: Whether to use incremental indexing (only process changed files) (default: False)
         
         Returns:
-            Dictionary with indexing results or recommendations for existing data
+            Dictionary with indexing results, time estimates, or recommendations for existing data
         """
         try:
             # Initialize memory monitoring
@@ -1004,11 +1005,22 @@ def register_mcp_tools(mcp_app: FastMCP):
                 get_logger().warning(f"Could not get quick file count: {e}, proceeding with full analysis")
                 estimated_file_count = 0
             
-            # Generate time estimates and recommendations
-            time_estimates = estimate_indexing_time(
-                estimated_file_count, 
-                existing_index_info.get('total_points', 0)
-            )
+            # Generate intelligent time estimates and recommendations
+            from services.time_estimator_service import TimeEstimatorService
+            time_estimator = TimeEstimatorService()
+            
+            # Determine mode for estimation
+            estimation_mode = 'incremental' if incremental else 'clear_existing'
+            estimate = time_estimator.estimate_indexing_time(str(dir_path), estimation_mode)
+            
+            # Legacy time estimates for backward compatibility
+            time_estimates = {
+                'estimated_time_minutes': estimate.estimated_minutes,
+                'time_saved_by_keeping_existing_minutes': 0.0 if not incremental else estimate.estimated_minutes * 0.8,
+                'recommendation': estimate.recommendation,
+                'file_count': estimate.file_count,
+                'existing_points': existing_index_info.get('total_points', 0)
+            }
             
             # Smart decision logic for clear_existing
             if existing_index_info.get('has_existing_data', False) and not clear_existing:
@@ -1031,13 +1043,20 @@ def register_mcp_tools(mcp_app: FastMCP):
                             "action": "Use existing indexed data for searches"
                         },
                         "incremental_update": {
-                            "description": "Add only new/modified files (not yet implemented)",
-                            "status": "future_feature"
+                            "description": "Add only new/modified files using incremental mode",
+                            "action": "Call index_directory again with incremental=true",
+                            "estimated_time_minutes": time_estimator.estimate_indexing_time(str(dir_path), 'incremental').estimated_minutes
                         },
                         "full_reindex": {
                             "description": "Clear existing data and reindex everything",
                             "estimated_time_minutes": time_estimates['estimated_time_minutes'],
                             "action": "Call index_directory again with clear_existing=true"
+                        },
+                        "manual_tool": {
+                            "description": "Use standalone manual indexing tool for heavy operations",
+                            "command": time_estimator.get_manual_tool_command(str(dir_path), estimation_mode),
+                            "recommended": time_estimator.should_recommend_manual_tool(estimate),
+                            "reason": "Recommended for operations exceeding 5 minutes"
                         }
                     },
                     "directory": str(dir_path)
@@ -1064,7 +1083,13 @@ def register_mcp_tools(mcp_app: FastMCP):
             pre_index_memory = memory_monitor.check_memory_usage(logger)
             logger.info(f"Pre-indexing memory: {pre_index_memory['memory_mb']} MB")
             
-            processed_chunks = indexing_service.process_codebase_for_indexing(str(dir_path))
+            # Pass incremental mode and project name to indexing service
+            project_name = current_project.get('name') if current_project else None
+            processed_chunks = indexing_service.process_codebase_for_indexing(
+                str(dir_path), 
+                incremental_mode=incremental,
+                project_name=project_name
+            )
             
             # Get progress summary after processing
             progress_summary = indexing_service.get_progress_summary()
@@ -1171,6 +1196,22 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "details": errors[:3] if errors else None  # Only first 3 errors
                 }
             }
+            
+            # Add change summary for incremental mode
+            if incremental and hasattr(indexing_service, '_change_summary'):
+                result["change_summary"] = indexing_service._change_summary
+            elif incremental:
+                # If no change summary available, add basic info
+                result["change_summary"] = {
+                    "mode": "incremental",
+                    "files_processed": indexed_files_count,
+                    "note": "Change detection completed successfully"
+                }
+            else:
+                result["change_summary"] = {
+                    "mode": "full_reindex",
+                    "files_processed": indexed_files_count
+                }
             
             # Add sample files only if the list is manageable
             if indexed_files_count <= MAX_FILES_IN_RESPONSE:
