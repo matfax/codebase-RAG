@@ -512,7 +512,8 @@ class ProjectAnalysisService:
         """Get project context information including project name and type."""
         try:
             directory_path = Path(directory).resolve()
-            project_name = directory_path.name
+            # Use same naming convention as MCP tools (replace spaces and hyphens with underscores)
+            project_name = directory_path.name.replace(" ", "_").replace("-", "_")
             project_type = self.detect_project_type(directory)
             
             return {
