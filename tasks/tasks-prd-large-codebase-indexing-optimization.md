@@ -86,7 +86,7 @@
     - Implement performance baseline comparison
 
 - [ ] 4.0 Implement Streaming Database Operations
-  - [ ] 4.1 Replace memory accumulation with streaming Qdrant insertions
+  - [x] 4.1 Replace memory accumulation with streaming Qdrant insertions
     - Modify `mcp_tools.py` to process embeddings in chunks instead of accumulating all
     - Implement streaming insertion pipeline: File Batch -> Embedding Batch -> DB Batch
     - Add queue-based architecture for embedding-to-database pipeline

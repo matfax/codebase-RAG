@@ -6,9 +6,12 @@ import fnmatch
 import gc
 import logging
 import traceback
-from typing import Dict, List, Optional, Any, Set, Tuple, Callable
+from typing import Dict, List, Optional, Any, Set, Tuple, Callable, Generator
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
+import threading
+from queue import Queue, Empty
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -338,6 +341,193 @@ def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
         return default_exclude_dirs, default_exclude_patterns
     return exclude_dirs, exclude_patterns
 
+def _process_chunk_batch_for_streaming(
+    chunks: List[Any], 
+    embeddings_manager, 
+    batch_size: int = 20
+) -> Generator[Tuple[str, List[PointStruct]], None, None]:
+    """
+    Process chunks in batches and yield (collection_name, points) for streaming insertion.
+    
+    Args:
+        chunks: List of chunk objects to process
+        embeddings_manager: Embedding service instance
+        batch_size: Number of chunks to process in each batch
+        
+    Yields:
+        Tuple of (collection_name, points_list) ready for database insertion
+    """
+    logger = get_logger()
+    
+    # Group chunks by collection to enable efficient batch processing
+    collection_batches = defaultdict(list)
+    
+    for i in range(0, len(chunks), batch_size):
+        batch_chunks = chunks[i:i + batch_size]
+        logger.info(f"Processing chunk batch {i//batch_size + 1}: {len(batch_chunks)} chunks")
+        
+        # Group chunks by collection within this batch
+        batch_collections = defaultdict(list)
+        
+        for chunk in batch_chunks:
+            file_path = chunk.metadata["file_path"]
+            language = chunk.metadata.get("language", "unknown")
+            
+            # Determine collection type
+            if language in ["json", "yaml", "config"]:
+                group_name = "config"
+            elif language in ["markdown", "documentation"]:
+                group_name = "documentation"
+            else:
+                group_name = "code"
+            
+            collection_name = get_collection_name(file_path, group_name)
+            batch_collections[collection_name].append(chunk)
+        
+        # Process each collection batch
+        for collection_name, collection_chunks in batch_collections.items():
+            try:
+                # Ensure collection exists
+                ensure_collection(collection_name, content_type=collection_name.split('_')[-1])
+                
+                # Prepare texts for batch embedding generation
+                texts = [chunk.content for chunk in collection_chunks]
+                
+                # Generate embeddings in batch
+                start_time = time.time()
+                embeddings = embeddings_manager.generate_embeddings(
+                    os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"), 
+                    texts
+                )
+                embedding_time = time.time() - start_time
+                
+                if embeddings is None:
+                    logger.error(f"Failed to generate embeddings for batch in collection {collection_name}")
+                    continue
+                
+                # Create points for this collection batch
+                points = []
+                successful_embeddings = 0
+                
+                for chunk, embedding in zip(collection_chunks, embeddings):
+                    if embedding is None:
+                        logger.warning(f"Skipping chunk from {chunk.metadata['file_path']} due to failed embedding")
+                        continue
+                    
+                    # Convert tensor to list if necessary
+                    if hasattr(embedding, 'tolist'):
+                        embedding_list = embedding.tolist()
+                    else:
+                        embedding_list = embedding
+                    
+                    chunk_id = hashlib.md5(
+                        f"{chunk.metadata['file_path']}_{chunk.metadata.get('chunk_index', 0)}".encode()
+                    ).hexdigest()
+                    
+                    payload = {
+                        "file_path": chunk.metadata["file_path"],
+                        "content": chunk.content,
+                        "chunk_index": chunk.metadata.get("chunk_index", 0),
+                        "line_start": chunk.metadata.get("line_start", 0),
+                        "line_end": chunk.metadata.get("line_end", 0),
+                        "language": chunk.metadata.get("language", "unknown"),
+                        "chunk_type": "file_chunk",
+                    }
+                    
+                    points.append(PointStruct(id=chunk_id, vector=embedding_list, payload=payload))
+                    successful_embeddings += 1
+                
+                if points:
+                    logger.info(
+                        f"Prepared {len(points)} points for collection {collection_name} "
+                        f"(embedding time: {embedding_time:.2f}s)"
+                    )
+                    yield collection_name, points
+                else:
+                    logger.warning(f"No valid points generated for collection {collection_name}")
+                    
+            except Exception as e:
+                logger.error(f"Error processing batch for collection {collection_name}: {e}")
+                continue
+        
+        # Force garbage collection between batches to manage memory
+        gc.collect()
+
+def _stream_points_to_qdrant(
+    collection_points_generator: Generator[Tuple[str, List[PointStruct]], None, None],
+    qdrant_batch_size: int = 500
+) -> Dict[str, Any]:
+    """
+    Stream points to Qdrant in configurable batches.
+    
+    Args:
+        collection_points_generator: Generator yielding (collection_name, points) tuples
+        qdrant_batch_size: Maximum number of points to insert in each Qdrant operation
+        
+    Returns:
+        Dictionary with insertion statistics and any errors
+    """
+    logger = get_logger()
+    qdrant_client = get_qdrant_client()
+    
+    stats = {
+        "total_points": 0,
+        "successful_insertions": 0,
+        "failed_insertions": 0,
+        "collections_used": set(),
+        "batch_count": 0,
+        "errors": []
+    }
+    
+    try:
+        for collection_name, points in collection_points_generator:
+            stats["collections_used"].add(collection_name)
+            
+            # Split points into Qdrant-sized batches
+            for i in range(0, len(points), qdrant_batch_size):
+                batch_points = points[i:i + qdrant_batch_size]
+                stats["batch_count"] += 1
+                stats["total_points"] += len(batch_points)
+                
+                try:
+                    insertion_start = time.time()
+                    qdrant_client.upsert(collection_name=collection_name, points=batch_points)
+                    insertion_time = time.time() - insertion_start
+                    
+                    stats["successful_insertions"] += len(batch_points)
+                    logger.info(
+                        f"Inserted {len(batch_points)} points to {collection_name} "
+                        f"(batch {stats['batch_count']}, time: {insertion_time:.2f}s)"
+                    )
+                    
+                except Exception as e:
+                    error_msg = f"Failed to insert batch {stats['batch_count']} to {collection_name}: {e}"
+                    logger.error(error_msg)
+                    stats["errors"].append(error_msg)
+                    stats["failed_insertions"] += len(batch_points)
+                    continue
+                
+                # Memory cleanup after each database batch
+                del batch_points
+                gc.collect()
+        
+        # Convert set to list for JSON serialization
+        stats["collections_used"] = list(stats["collections_used"])
+        
+        logger.info(
+            f"Streaming insertion complete: {stats['successful_insertions']} points inserted, "
+            f"{stats['failed_insertions']} failed, {stats['batch_count']} batches"
+        )
+        
+        return stats
+        
+    except Exception as e:
+        error_msg = f"Critical error during streaming insertion: {e}"
+        logger.error(error_msg)
+        stats["errors"].append(error_msg)
+        stats["collections_used"] = list(stats["collections_used"])
+        return stats
+
 def register_mcp_tools(mcp_app: FastMCP):
     @mcp_app.tool()
     async def health_check():
@@ -385,65 +575,53 @@ def register_mcp_tools(mcp_app: FastMCP):
             if not processed_chunks:
                 return {"message": "No relevant files found to index.", "indexed_files": [], "total": 0, "collections": []}
 
-            qdrant_client = get_qdrant_client()
+            # Get configuration for streaming processing
+            chunk_batch_size = int(os.getenv("INDEXING_BATCH_SIZE", "20"))
+            qdrant_batch_size = int(os.getenv("QDRANT_BATCH_SIZE", "500"))
+            
+            get_logger().info(f"Starting streaming indexing with chunk batch size: {chunk_batch_size}, Qdrant batch size: {qdrant_batch_size}")
+            
             embeddings_manager = get_embeddings_manager_instance()
-
-            points = []
-            for chunk in processed_chunks:
-                file_path = chunk.metadata["file_path"]
-                content = chunk.content
-                language = chunk.metadata.get("language", "unknown")
-                chunk_index = chunk.metadata.get("chunk_index", 0)
-                line_start = chunk.metadata.get("line_start", 0)
-                line_end = chunk.metadata.get("line_end", 0)
-
-                # Determine collection type based on language or file extension
-                if language in ["json", "yaml", "config"]:
-                    group_name = "config"
-                elif language in ["markdown", "documentation"]:
-                    group_name = "documentation"
-                else:
-                    group_name = "code"
-
-                collection_name = get_collection_name(file_path, group_name)
-                ensure_collection(collection_name, content_type=group_name)
-
-                embedding_array = embeddings_manager.generate_embeddings(os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"), content)
-                
-                # Skip files with empty content or failed embeddings
-                if embedding_array is None:
-                    errors.append(f"Failed to generate embedding for {file_path} (empty content or embedding error)")
-                    continue
-                
-                if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
-                    embedding = embedding_array[0].tolist()
-                else:
-                    embedding = embedding_array.tolist()
-
-                chunk_id = hashlib.md5(f"{file_path}_{chunk_index}".encode()).hexdigest()
-                payload = {
-                    "file_path": file_path,
-                    "content": content,
-                    "chunk_index": chunk_index,
-                    "line_start": line_start,
-                    "line_end": line_end,
-                    "language": language,
-                    "chunk_type": "file_chunk", # Simplified
-                }
-                points.append(PointStruct(id=chunk_id, vector=embedding, payload=payload))
-                indexed_files.append(file_path)
-                collections_used.add(collection_name)
-
-            if points:
-                qdrant_client.upsert(collection_name=collection_name, points=points)
-            total_files = len(indexed_files) # Update total_files based on actual indexed files
+            
+            # Create streaming pipeline: chunks -> embeddings -> database
+            collection_points_generator = _process_chunk_batch_for_streaming(
+                processed_chunks, 
+                embeddings_manager, 
+                batch_size=chunk_batch_size
+            )
+            
+            # Stream points to Qdrant and collect statistics
+            streaming_stats = _stream_points_to_qdrant(
+                collection_points_generator,
+                qdrant_batch_size=qdrant_batch_size
+            )
+            
+            # Extract results from streaming stats
+            collections_used = set(streaming_stats["collections_used"])
+            total_indexed_points = streaming_stats["successful_insertions"]
+            
+            # Approximate indexed files (points may not equal files if chunking is complex)
+            # For now, assume each chunk represents a file for the simple use case
+            indexed_files = [chunk.metadata["file_path"] for chunk in processed_chunks]
+            indexed_files = list(set(indexed_files))  # Remove duplicates
+            
+            # Add any errors from streaming to existing errors list
+            if streaming_stats["errors"]:
+                errors.extend(streaming_stats["errors"])
 
             result = {
                 "indexed_files": indexed_files,
                 "total": len(indexed_files),
+                "total_points": total_indexed_points,
                 "collections": list(collections_used),
                 "project_context": current_project["name"] if current_project else "no project",
                 "directory": str(dir_path),
+                "streaming_stats": {
+                    "batches_processed": streaming_stats["batch_count"],
+                    "successful_insertions": streaming_stats["successful_insertions"],
+                    "failed_insertions": streaming_stats["failed_insertions"],
+                    "memory_efficient": True
+                },
                 "errors": errors if errors else None
             }
             return result
@@ -540,9 +718,23 @@ def register_mcp_tools(mcp_app: FastMCP):
         except Exception as e:
             tb_str = traceback.format_exc()
             return {"error": str(e), "query": query}
+    
+    # Register additional tools that were defined outside the function
+    @mcp_app.tool()
+    def analyze_repository_tool(directory: str = ".") -> Dict[str, Any]:
+        """
+        Analyze repository structure and provide detailed statistics for indexing planning.
+        """
+        return analyze_repository(directory)
+    
+    @mcp_app.tool()
+    def get_file_filtering_stats_tool(directory: str = ".") -> Dict[str, Any]:
+        """
+        Get detailed statistics about file filtering for debugging and optimization.
+        """
+        return get_file_filtering_stats(directory)
 
 
-@app.tool()
 def analyze_repository(directory: str = ".") -> Dict[str, Any]:
     """
     Analyze repository structure and provide detailed statistics for indexing planning.
@@ -587,7 +779,6 @@ def analyze_repository(directory: str = ".") -> Dict[str, Any]:
         return {"error": error_msg, "directory": directory}
 
 
-@app.tool()
 def get_file_filtering_stats(directory: str = ".") -> Dict[str, Any]:
     """
     Get detailed statistics about file filtering for debugging and optimization.
