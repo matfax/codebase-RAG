@@ -6,11 +6,20 @@ This project implements a Retrieval-Augmented Generation (RAG) Model-Controller-
 
 ## Features
 
-- **Codebase Indexing**: Index local project directories or remote GitHub repositories.
-- **Automatic Project Analysis**: Intelligently identifies project types and relevant source code files, respecting `.gitignore` rules.
-- **Flexible Embedding Models**: Supports using various embedding models available through Ollama.
-- **Metal Performance Shaders (MPS) Acceleration**: Automatically utilizes MPS on macOS for faster embedding generation.
-- **Natural Language Querying**: Ask questions about your codebase in natural language and retrieve relevant code snippets.
+### Core Functionality
+- **Codebase Indexing**: Index local project directories or remote GitHub repositories
+- **Automatic Project Analysis**: Intelligently identifies project types and relevant source code files, respecting `.gitignore` rules
+- **Flexible Embedding Models**: Supports using various embedding models available through Ollama
+- **Metal Performance Shaders (MPS) Acceleration**: Automatically utilizes MPS on macOS for faster embedding generation
+- **Natural Language Querying**: Ask questions about your codebase in natural language and retrieve relevant code snippets
+
+### Advanced Features
+- **🚀 Incremental Indexing**: Only process changed files for dramatically faster re-indexing (80%+ time savings)
+- **🔧 Manual Indexing Tool**: Standalone script for heavy indexing operations that don't block conversational workflows
+- **⚡ Large Codebase Optimization**: Parallel processing, batch operations, and streaming for handling 10,000+ file repositories
+- **🧠 Intelligent Recommendations**: Automatic detection of existing indexes with smart time estimates and workflow suggestions
+- **📊 Progress Tracking**: Real-time progress monitoring with ETA estimation and memory usage tracking
+- **🗂️ Smart Collection Management**: Automatic categorization into code, config, documentation, and metadata collections
 
 ## Prerequisites
 
@@ -23,17 +32,51 @@ Before you begin, ensure you have the following installed:
 
 ## Configuration
 
-This project uses environment variables for configuration, loaded from a `.env` file in the project root. You can create a `.env` file to customize settings such as the Ollama server URL and the default embedding model.
+This project uses environment variables for configuration, loaded from a `.env` file in the project root.
 
 Example `.env` file:
 
-```
+```bash
+# Ollama Configuration
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_DEFAULT_EMBEDDING_MODEL=nomic-embed-text
+
+# Qdrant Configuration
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+
+# Performance Tuning
+INDEXING_CONCURRENCY=4                    # Parallel file processing workers
+INDEXING_BATCH_SIZE=20                    # Files processed per batch
+EMBEDDING_BATCH_SIZE=10                   # Texts per embedding API call
+QDRANT_BATCH_SIZE=500                     # Points per database insertion
+MEMORY_WARNING_THRESHOLD_MB=1000          # Memory usage warning threshold
+MAX_FILE_SIZE_MB=5                       # Skip files larger than this
+MAX_DIRECTORY_DEPTH=20                   # Maximum directory traversal depth
+
+# Logging
+LOG_LEVEL=INFO                           # DEBUG, INFO, WARNING, ERROR
 ```
 
-- `OLLAMA_HOST`: The URL of your Ollama server. Defaults to `http://localhost:11434`.
-- `OLLAMA_DEFAULT_EMBEDDING_MODEL`: The default embedding model to use if not specified in API requests. Defaults to `nomic-embed-text`.
+### Configuration Options
+
+#### Basic Settings
+- `OLLAMA_HOST`: Ollama server URL (default: `http://localhost:11434`)
+- `OLLAMA_DEFAULT_EMBEDDING_MODEL`: Default embedding model (default: `nomic-embed-text`)
+- `QDRANT_HOST`: Qdrant host (default: `localhost`)
+- `QDRANT_PORT`: Qdrant port (default: `6333`)
+
+#### Performance Settings
+- `INDEXING_CONCURRENCY`: Number of parallel workers for file processing (default: `4`)
+- `INDEXING_BATCH_SIZE`: Files processed in each batch (default: `20`)
+- `EMBEDDING_BATCH_SIZE`: Texts sent to embedding API per call (default: `10`)
+- `QDRANT_BATCH_SIZE`: Points inserted to database per batch (default: `500`)
+- `MEMORY_WARNING_THRESHOLD_MB`: Memory usage threshold for warnings (default: `1000`)
+
+#### File Processing Settings
+- `MAX_FILE_SIZE_MB`: Skip files larger than this size (default: `5`)
+- `MAX_DIRECTORY_DEPTH`: Maximum directory traversal depth (default: `20`)
+- `FOLLOW_SYMLINKS`: Whether to follow symbolic links (default: `false`)
 
 ## Setup
 
@@ -117,7 +160,7 @@ Check the health status of the MCP server.
 
 ### 2. `index_directory`
 
-Index files in a directory or Git repository.
+Index files in a directory or Git repository with intelligent existing data detection.
 
 -   **Parameters**:
     ```json
@@ -125,10 +168,16 @@ Index files in a directory or Git repository.
       "directory": "string",        // Path to local directory (default: ".")
       "patterns": ["string"],       // File patterns to include (optional)
       "recursive": "boolean",       // Search recursively (default: true)
-      "clear_existing": "boolean"   // Clear existing index (default: false)
+      "clear_existing": "boolean",  // Clear existing index (default: false)
+      "incremental": "boolean"      // Use incremental indexing (default: false)
     }
     ```
--   **Returns**: Indexing results with file count and collections used
+-   **Returns**: Indexing results, time estimates, or recommendations for existing data
+-   **Smart Behavior**: 
+    - Automatically detects existing indexed data
+    - Provides time estimates and recommendations
+    - Suggests manual tool for large operations (>5 minutes)
+    - Supports incremental mode for changed files only
 
 ### 3. `search`
 
@@ -147,6 +196,76 @@ Search indexed content using natural language queries.
     ```
 -   **Returns**: Search results with relevant code snippets and metadata
 
+## Manual Indexing Tool
+
+For large codebases or operations that might take several minutes, use the standalone manual indexing tool:
+
+```bash
+# Full indexing (clear existing data)
+python manual_indexing.py -d /path/to/large/repo -m clear_existing
+
+# Incremental indexing (only changed files)
+python manual_indexing.py -d /path/to/repo -m incremental
+
+# With verbose output
+python manual_indexing.py -d /path/to/repo -m incremental --verbose
+
+# Skip confirmation prompts
+python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm
+```
+
+### Manual Tool Features
+- **Pre-indexing Analysis**: Shows file count, size, and time estimates
+- **Change Detection**: In incremental mode, shows exactly which files changed
+- **Progress Reporting**: Real-time progress with ETA and memory usage
+- **Error Handling**: Graceful handling of individual file failures
+- **Dependency Validation**: Checks Qdrant and embedding service availability
+
+### When to Use Manual Tool
+- Large repositories (1000+ files)
+- Operations estimated to take >5 minutes
+- Heavy indexing that shouldn't block interactive workflows
+- Batch processing scenarios
+
+## Incremental Indexing
+
+Incremental indexing dramatically reduces processing time by only handling changed files:
+
+### How It Works
+1. **File Metadata Tracking**: Stores modification times and content hashes
+2. **Change Detection**: Compares current file state with stored metadata
+3. **Selective Processing**: Only re-indexes files that have changed
+4. **Smart Updates**: Handles file additions, modifications, and deletions
+
+### Performance Benefits
+- **80%+ Time Savings**: For typical development scenarios (5-50 changed files)
+- **Memory Efficient**: Only processes changed content
+- **Network Friendly**: Fewer embedding API calls
+
+### Usage Examples
+
+#### Via MCP Tool
+```python
+# Check for existing data and get recommendations
+result = await app.call_tool("index_directory", {"directory": "/my/project"})
+# If existing data found, you'll get recommendations including incremental update
+
+# Perform incremental update
+result = await app.call_tool("index_directory", {
+    "directory": "/my/project",
+    "incremental": True
+})
+```
+
+#### Via Manual Tool
+```bash
+# First time indexing
+python manual_indexing.py -d /my/project -m clear_existing
+
+# Subsequent updates (much faster)
+python manual_indexing.py -d /my/project -m incremental
+```
+
 ## Usage Examples
 
 ### Using with Python (AsyncIO)
@@ -156,8 +275,15 @@ import asyncio
 from main import app
 
 async def example():
-    # Index current directory
+    # Index current directory (will show recommendations if data exists)
     result = await app.call_tool("index_directory", {"directory": "."})
+    print(result)
+    
+    # Perform incremental update
+    result = await app.call_tool("index_directory", {
+        "directory": ".", 
+        "incremental": True
+    })
     print(result)
     
     # Search for specific functionality
@@ -178,6 +304,43 @@ asyncio.run(example())
 
 # Run demo
 .venv/bin/python demo_mcp_usage.py
+
+# Test manual indexing tool
+python manual_indexing.py -d . -m clear_existing --no-confirm
+
+# Test incremental indexing
+python manual_indexing.py -d . -m incremental --no-confirm
+```
+
+## Performance and Best Practices
+
+### For Large Codebases (1000+ files)
+1. **Use Manual Tool**: Avoid blocking interactive workflows
+2. **Tune Batch Sizes**: Adjust `INDEXING_BATCH_SIZE` and `EMBEDDING_BATCH_SIZE`
+3. **Monitor Memory**: Set appropriate `MEMORY_WARNING_THRESHOLD_MB`
+4. **Use Incremental Mode**: After initial indexing, always use incremental updates
+
+### Memory Optimization
+- The system automatically manages memory with garbage collection between batches
+- Monitor memory warnings in logs and adjust batch sizes if needed
+- Large files (>5MB) are automatically skipped
+
+### Network Optimization
+- Batch embedding generation reduces API calls
+- Incremental indexing minimizes redundant processing
+- Failed operations have automatic retry with exponential backoff
+
+### File Filtering
+Create a `.ragignore` file in your project root to exclude directories:
+```
+node_modules/
+.git/
+dist/
+build/
+__pycache__/
+.venv/
+*.pyc
+*.log
 ```
 
 ## Running Tests
@@ -213,9 +376,14 @@ The easiest way to register this server with Claude Code:
 
 3. **Usage in Claude Code**:
    Once registered, you can use the tools in your prompts:
-   - `@codebase-rag-mcp:index_directory` - Index a directory
+   - `@codebase-rag-mcp:index_directory` - Index a directory (with intelligent recommendations)
    - `@codebase-rag-mcp:search` - Search indexed content
    - `@codebase-rag-mcp:health_check` - Check server status
+   
+   **Smart Indexing Workflow**:
+   - First call to `index_directory` will detect existing data and provide recommendations
+   - Choose from: use existing data, incremental update, full reindex, or manual tool
+   - For large repos, the system will automatically recommend the manual indexing tool
 
 ### Other MCP Clients
 
@@ -228,12 +396,57 @@ Refer to your specific MCP client documentation for configuration details.
 
 ## Project Structure
 
--   `src/`: Contains the main application source code.
-    -   `api/`: Defines FastAPI endpoints.
-    -   `services/`: Contains core business logic and service integrations (Qdrant, Ollama, Project Analysis, Indexing).
-    -   `main.py`: The main FastAPI application entry point.
--   `tests/`: Contains unit and integration tests for the project.
--   `tasks/`: Stores Product Requirements Documents (PRDs) and task lists generated during development.
--   `pyproject.toml`: Poetry configuration file for project metadata and dependencies.
--   `poetry.lock`: Poetry lock file, ensuring reproducible installations.
--   `.venv/`: Python virtual environment (created during setup).
+```
+src/
+├── main.py                    # FastMCP server entry point
+├── mcp_tools.py              # MCP tool implementations
+├── run_mcp.py               # MCP server startup script
+├── services/                # Core business logic
+│   ├── indexing_service.py        # Codebase processing and indexing
+│   ├── qdrant_service.py          # Vector database operations
+│   ├── embedding_service.py       # Ollama integration
+│   ├── project_analysis_service.py # Project structure analysis
+│   ├── file_metadata_service.py   # File change tracking
+│   └── change_detector_service.py # Incremental indexing logic
+├── models/                  # Data models
+│   ├── file_metadata.py          # File metadata tracking
+│   └── __init__.py
+├── utils/                   # Utilities
+│   ├── performance_monitor.py     # Progress and memory monitoring
+│   ├── stage_logger.py           # Detailed logging utilities
+│   └── __init__.py
+└── api/                     # FastAPI endpoints (legacy)
+    └── endpoints.py
+
+manual_indexing.py           # Standalone manual indexing tool
+tests/                       # Unit and integration tests
+tasks/                       # PRD and task documentation
+register_mcp.sh             # MCP registration script
+pyproject.toml              # Poetry configuration
+poetry.lock                 # Dependency lock file
+.env                        # Environment configuration
+```
+
+### Key Components
+
+#### Services Layer
+- **IndexingService**: Orchestrates the entire indexing process with parallel processing
+- **QdrantService**: Manages vector database operations with batch optimization
+- **EmbeddingService**: Handles Ollama integration with batch embedding generation
+- **ProjectAnalysisService**: Analyzes project structure and filters relevant files
+- **FileMetadataService**: Tracks file states for incremental indexing
+- **ChangeDetectorService**: Detects file changes for selective reprocessing
+
+#### Models
+- **FileMetadata**: Tracks file modification times, content hashes, and indexing state
+
+#### Utilities
+- **PerformanceMonitor**: Progress tracking, ETA estimation, and memory monitoring
+- **StageLogger**: Detailed timing and performance logging for each processing stage
+
+#### Collection Organization
+The system creates the following Qdrant collections:
+- `project_{name}_code`: Source code files
+- `project_{name}_config`: Configuration files (JSON, YAML, etc.)
+- `project_{name}_documentation`: Documentation files (Markdown, etc.)
+- `project_{name}_file_metadata`: File change tracking for incremental indexing
