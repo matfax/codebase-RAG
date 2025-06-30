@@ -92,6 +92,11 @@ class CumulativeMetrics:
 
 class EmbeddingService:
     def __init__(self):
+        # Initialize logger first since other methods depend on it
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._setup_logging()
+        
+        # Now initialize other components that may use the logger
         self.device = self._get_device()
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434") # Default Ollama host
         self.embedding_batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
@@ -107,9 +112,6 @@ class EmbeddingService:
         self.cumulative_metrics = CumulativeMetrics()
         self.current_batch_metrics: Optional[BatchMetrics] = None
         self._metrics_enabled = os.getenv("EMBEDDING_METRICS_ENABLED", "true").lower() == "true"
-        
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self._setup_logging()
 
     def _get_device(self):
         if platform.system() == 'Darwin':
