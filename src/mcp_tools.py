@@ -488,6 +488,99 @@ def log_database_metrics(stats: Dict[str, Any], operation_time: float, operation
         if len(stats["errors"]) > 3:
             logger.error(f"  ... and {len(stats['errors']) - 3} more errors")
 
+def check_existing_index(project_info: Dict[str, str]) -> Dict[str, Any]:
+    """Check if the project already has indexed data.
+    
+    Args:
+        project_info: Project information from get_current_project()
+        
+    Returns:
+        Dictionary with existing index information
+    """
+    try:
+        client = get_qdrant_client()
+        existing_collections = [c.name for c in client.get_collections().collections]
+        
+        project_collections = []
+        total_points = 0
+        collection_info = []
+        
+        if project_info:
+            prefix = project_info['collection_prefix']
+            for collection_type in ['code', 'config', 'documentation']:
+                collection_name = f"{prefix}_{collection_type}"
+                if collection_name in existing_collections:
+                    try:
+                        # Get collection info
+                        collection_info_response = client.get_collection(collection_name)
+                        points_count = collection_info_response.points_count
+                        
+                        project_collections.append(collection_name)
+                        total_points += points_count
+                        collection_info.append({
+                            "name": collection_name,
+                            "type": collection_type,
+                            "points_count": points_count
+                        })
+                    except Exception as e:
+                        get_logger().warning(f"Could not get info for collection {collection_name}: {e}")
+        
+        return {
+            "has_existing_data": len(project_collections) > 0,
+            "collections": project_collections,
+            "total_points": total_points,
+            "collection_details": collection_info,
+            "project_name": project_info.get('name', 'unknown') if project_info else 'unknown'
+        }
+        
+    except Exception as e:
+        get_logger().error(f"Error checking existing index: {e}")
+        return {
+            "has_existing_data": False,
+            "error": str(e)
+        }
+
+def estimate_indexing_time(file_count: int, existing_points: int = 0) -> Dict[str, Any]:
+    """Estimate indexing time and provide recommendations.
+    
+    Args:
+        file_count: Number of files to be indexed
+        existing_points: Number of existing points in collections
+        
+    Returns:
+        Dictionary with time estimates and recommendations
+    """
+    # Rough estimates based on typical performance
+    seconds_per_file = 0.5  # Including file reading, embedding, and DB insertion
+    estimated_seconds = file_count * seconds_per_file
+    estimated_minutes = estimated_seconds / 60
+    
+    if existing_points > 0:
+        # Estimate time saved by not re-indexing
+        avg_points_per_file = existing_points / max(file_count, 1)
+        time_saved_seconds = existing_points / avg_points_per_file * seconds_per_file if avg_points_per_file > 0 else 0
+        time_saved_minutes = time_saved_seconds / 60
+    else:
+        time_saved_minutes = 0
+    
+    # Smart recommendation logic
+    if existing_points > 0 and estimated_minutes > 5:
+        recommendation = "keep_existing_recommended"
+    elif estimated_minutes > 30:
+        recommendation = "large_operation_confirm"
+    elif estimated_minutes > 10:
+        recommendation = "medium_operation"
+    else:
+        recommendation = "quick_operation"
+    
+    return {
+        "estimated_time_minutes": round(estimated_minutes, 1),
+        "time_saved_by_keeping_existing_minutes": round(time_saved_minutes, 1),
+        "recommendation": recommendation,
+        "file_count": file_count,
+        "existing_points": existing_points
+    }
+
 def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
     exclude_dirs = set()
     exclude_patterns = set()
@@ -852,7 +945,17 @@ def register_mcp_tools(mcp_app: FastMCP):
     @mcp_app.tool()
     def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False) -> Dict[str, Any]:
         """
-        Index files in a directory.
+        Index files in a directory with smart existing data detection.
+        
+        Args:
+            directory: Directory to index (default: current directory)
+            patterns: File patterns to include (default: common code file types)
+            recursive: Whether to index subdirectories (default: True)
+            clear_existing: Whether to clear existing indexed data (default: False)
+                          If False and existing data is found, returns recommendations instead of indexing
+        
+        Returns:
+            Dictionary with indexing results or recommendations for existing data
         """
         try:
             if patterns is None:
@@ -871,11 +974,72 @@ def register_mcp_tools(mcp_app: FastMCP):
                 return {"error": f"Directory not found: {directory}"}
 
             current_project = get_current_project(client_directory=str(dir_path))
-
-            if clear_existing and current_project:
+            
+            # Check for existing indexed data BEFORE processing
+            existing_index_info = check_existing_index(current_project)
+            
+            # Get file count estimation for better decision making
+            from services.indexing_service import IndexingService
+            indexing_service = IndexingService()
+            
+            # Quick file count without full processing
+            get_logger().info("Analyzing directory structure...")
+            try:
+                # Use project analysis service for quick file count
+                from services.project_analysis_service import ProjectAnalysisService
+                analysis_service = ProjectAnalysisService()
+                quick_analysis = analysis_service.analyze_repository(str(dir_path))
+                estimated_file_count = quick_analysis.get('relevant_files', 0)
+            except Exception as e:
+                get_logger().warning(f"Could not get quick file count: {e}, proceeding with full analysis")
+                estimated_file_count = 0
+            
+            # Generate time estimates and recommendations
+            time_estimates = estimate_indexing_time(
+                estimated_file_count, 
+                existing_index_info.get('total_points', 0)
+            )
+            
+            # Smart decision logic for clear_existing
+            if existing_index_info.get('has_existing_data', False) and not clear_existing:
+                # Found existing data but clear_existing is False
+                return {
+                    "success": False,
+                    "action_required": True,
+                    "message": "Existing indexed data found for this project",
+                    "existing_data": {
+                        "project_name": existing_index_info['project_name'],
+                        "collections": existing_index_info['collections'],
+                        "total_points": existing_index_info['total_points'],
+                        "collection_details": existing_index_info.get('collection_details', [])
+                    },
+                    "estimates": time_estimates,
+                    "recommendations": {
+                        "keep_existing": {
+                            "description": "Keep existing data to save time",
+                            "time_saved_minutes": time_estimates['time_saved_by_keeping_existing_minutes'],
+                            "action": "Use existing indexed data for searches"
+                        },
+                        "incremental_update": {
+                            "description": "Add only new/modified files (not yet implemented)",
+                            "status": "future_feature"
+                        },
+                        "full_reindex": {
+                            "description": "Clear existing data and reindex everything",
+                            "estimated_time_minutes": time_estimates['estimated_time_minutes'],
+                            "action": "Call index_directory again with clear_existing=true"
+                        }
+                    },
+                    "directory": str(dir_path)
+                }
+            
+            # Handle clearing existing data if requested
+            if clear_existing and existing_index_info.get('has_existing_data', False):
+                get_logger().info(f"Clearing existing data for project {existing_index_info['project_name']}...")
                 clear_result = clear_project_collections()
                 if clear_result.get("errors"):
                     return {"error": "Failed to clear some collections", "clear_errors": clear_result["errors"]}
+                get_logger().info(f"Cleared {len(clear_result.get('cleared_collections', []))} collections")
 
             exclude_dirs, exclude_patterns = load_ragignore_patterns(dir_path)
 
@@ -883,12 +1047,21 @@ def register_mcp_tools(mcp_app: FastMCP):
             errors = []
             collections_used = set()
 
-            from services.indexing_service import IndexingService
-            indexing_service = IndexingService()
+            # Now proceed with full indexing
+            get_logger().info("Processing codebase for indexing...")
             processed_chunks = indexing_service.process_codebase_for_indexing(str(dir_path))
 
             if not processed_chunks:
-                return {"message": "No relevant files found to index.", "indexed_files": [], "total": 0, "collections": []}
+                return {
+                "success": False,
+                "summary": "No relevant files found to index",
+                "total_files": 0,
+                "total_points": 0,
+                "collections": [],
+                "project_context": current_project["name"] if current_project else "no project",
+                "directory": str(dir_path),
+                "existing_data": existing_index_info if existing_index_info.get('has_existing_data', False) else None
+            }
 
             # Get configuration for streaming processing
             chunk_batch_size = int(os.getenv("INDEXING_BATCH_SIZE", "20"))
@@ -923,10 +1096,21 @@ def register_mcp_tools(mcp_app: FastMCP):
             collections_used = set(streaming_stats["collections_used"])
             total_indexed_points = streaming_stats["successful_insertions"]
             
-            # Approximate indexed files (points may not equal files if chunking is complex)
-            # For now, assume each chunk represents a file for the simple use case
-            indexed_files = [chunk.metadata["file_path"] for chunk in processed_chunks]
-            indexed_files = list(set(indexed_files))  # Remove duplicates
+            # Get unique file paths without creating huge lists for large codebases
+            unique_files = set()
+            for chunk in processed_chunks:
+                unique_files.add(chunk.metadata["file_path"])
+            
+            indexed_files_count = len(unique_files)
+            
+            # For MCP response size management, limit the files list
+            MAX_FILES_IN_RESPONSE = int(os.getenv("MAX_FILES_IN_RESPONSE", "50"))
+            if indexed_files_count <= MAX_FILES_IN_RESPONSE:
+                indexed_files = list(unique_files)
+            else:
+                # Return only a sample of files for large codebases
+                indexed_files = list(unique_files)[:MAX_FILES_IN_RESPONSE]
+                get_logger().info(f"Truncating file list in response: showing {MAX_FILES_IN_RESPONSE} of {indexed_files_count} files")
             
             # Add any errors from streaming to existing errors list
             if streaming_stats["errors"]:
@@ -936,30 +1120,55 @@ def register_mcp_tools(mcp_app: FastMCP):
             force_memory_cleanup("indexing complete")
             final_memory = log_memory_usage("final")
 
+            # Create a compact result for MCP response
+            actual_time = streaming_stats.get("timing_metrics", {}).get("total_time", 0)
+            
             result = {
-                "indexed_files": indexed_files,
-                "total": len(indexed_files),
+                "success": True,
+                "summary": f"Successfully indexed {indexed_files_count} files into {len(collections_used)} collections",
+                "total_files": indexed_files_count,
                 "total_points": total_indexed_points,
                 "collections": list(collections_used),
                 "project_context": current_project["name"] if current_project else "no project",
                 "directory": str(dir_path),
-                "streaming_stats": {
+                "was_reindexed": clear_existing and existing_index_info.get('has_existing_data', False),
+                "performance": {
                     "batches_processed": streaming_stats["batch_count"],
-                    "successful_insertions": streaming_stats["successful_insertions"],
-                    "failed_insertions": streaming_stats["failed_insertions"],
+                    "processing_time_seconds": actual_time,
+                    "estimated_time_minutes": time_estimates.get('estimated_time_minutes', 0),
+                    "actual_time_minutes": round(actual_time / 60, 1) if actual_time > 0 else 0,
+                    "points_per_second": round(total_indexed_points / actual_time, 1) if actual_time > 0 else 0,
                     "memory_efficient": True,
-                    "final_memory_mb": final_memory if 'final_memory' in locals() else None,
-                    "retry_count": streaming_stats.get("retry_count", 0),
-                    "partial_failures": streaming_stats.get("partial_failures", 0),
-                    "health_checks_passed": sum(1 for check in streaming_stats.get("health_checks", []) if check.get("healthy", False)),
-                    "timing_metrics": streaming_stats.get("timing_metrics", {})
+                    "final_memory_mb": final_memory if 'final_memory' in locals() else None
                 },
-                "errors": errors if errors else None
+                "errors": {
+                    "count": len(errors) if errors else 0,
+                    "failed_insertions": streaming_stats["failed_insertions"],
+                    "retry_count": streaming_stats.get("retry_count", 0),
+                    "details": errors[:3] if errors else None  # Only first 3 errors
+                }
             }
+            
+            # Add sample files only if the list is manageable
+            if indexed_files_count <= MAX_FILES_IN_RESPONSE:
+                result["indexed_files"] = indexed_files
+            else:
+                result["sample_files"] = indexed_files  # Sample of files
+                result["note"] = f"Showing {len(indexed_files)} sample files out of {indexed_files_count} total files indexed"
             return result
 
         except Exception as e:
-            return {"error": str(e), "directory": directory}
+            error_msg = str(e)
+            # Truncate very long error messages
+            if len(error_msg) > 1000:
+                error_msg = error_msg[:1000] + "... (truncated)"
+            
+            return {
+                "success": False,
+                "error": error_msg,
+                "directory": directory,
+                "summary": "Indexing failed due to error"
+            }
 
     @mcp_app.tool()
     def search(
@@ -1065,6 +1274,73 @@ def register_mcp_tools(mcp_app: FastMCP):
         Get detailed statistics about file filtering for debugging and optimization.
         """
         return get_file_filtering_stats(directory)
+    
+    @mcp_app.tool()
+    def check_index_status(directory: str = ".") -> Dict[str, Any]:
+        """
+        Check if a directory already has indexed data and provide recommendations.
+        
+        This tool helps users understand the current indexing state and make informed
+        decisions about whether to reindex or use existing data.
+        """
+        try:
+            dir_path = Path(directory).resolve()
+            if not dir_path.exists():
+                return {"error": f"Directory not found: {directory}"}
+            
+            current_project = get_current_project(client_directory=str(dir_path))
+            existing_index_info = check_existing_index(current_project)
+            
+            if not existing_index_info.get('has_existing_data', False):
+                return {
+                    "has_existing_data": False,
+                    "message": "No existing indexed data found for this project",
+                    "project_context": current_project.get('name', 'unknown') if current_project else 'unknown',
+                    "directory": str(dir_path),
+                    "recommendation": "Ready for initial indexing"
+                }
+            
+            # Get file count estimation for recommendations
+            try:
+                from services.project_analysis_service import ProjectAnalysisService
+                analysis_service = ProjectAnalysisService()
+                quick_analysis = analysis_service.analyze_repository(str(dir_path))
+                estimated_file_count = quick_analysis.get('relevant_files', 0)
+            except Exception:
+                estimated_file_count = 0
+            
+            time_estimates = estimate_indexing_time(
+                estimated_file_count, 
+                existing_index_info.get('total_points', 0)
+            )
+            
+            return {
+                "has_existing_data": True,
+                "project_context": existing_index_info['project_name'],
+                "directory": str(dir_path),
+                "existing_data": {
+                    "collections": existing_index_info['collections'],
+                    "total_points": existing_index_info['total_points'],
+                    "collection_details": existing_index_info.get('collection_details', [])
+                },
+                "estimates": time_estimates,
+                "recommendations": {
+                    "current_status": "Data already indexed and ready for search",
+                    "reindex_time_estimate_minutes": time_estimates['estimated_time_minutes'],
+                    "time_saved_by_keeping_existing_minutes": time_estimates['time_saved_by_keeping_existing_minutes'],
+                    "actions": {
+                        "use_existing": "Data is ready for search operations",
+                        "full_reindex": "Call index_directory with clear_existing=true to reindex everything",
+                        "incremental_update": "Feature coming soon - add only new/changed files"
+                    }
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Failed to check index status: {str(e)}",
+                "directory": directory
+            }
 
 
 def analyze_repository(directory: str = ".") -> Dict[str, Any]:
