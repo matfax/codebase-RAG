@@ -41,35 +41,35 @@
     - Implement symlink detection and handling to avoid infinite loops
     - Add progress logging during directory traversal for large repositories
 
-- [ ] 2.0 Implement Parallel File Processing Architecture
-  - [ ] 2.1 Replace sequential file processing with ThreadPoolExecutor in indexing_service.py
+- [x] 2.0 Implement Parallel File Processing Architecture
+  - [x] 2.1 Replace sequential file processing with ThreadPoolExecutor in indexing_service.py
     - Import `concurrent.futures.ThreadPoolExecutor`
     - Replace for-loop file processing with thread pool execution
     - Implement worker function for single file processing (read, detect language, create chunk)
     - Add exception handling and error collection for failed files
-  - [ ] 2.2 Add configurable concurrency limits via environment variables
+  - [x] 2.2 Add configurable concurrency limits via environment variables
     - Add `INDEXING_CONCURRENCY` environment variable (default: 4)
     - Add `INDEXING_BATCH_SIZE` for files processed per batch (default: 20)
     - Calculate optimal worker count based on CPU cores and I/O characteristics
     - Add configuration validation and fallback to safe defaults
-  - [ ] 2.3 Implement proper resource management and cleanup for concurrent operations
+  - [x] 2.3 Implement proper resource management and cleanup for concurrent operations
     - Use context managers for ThreadPoolExecutor to ensure cleanup
     - Implement file handle limits and connection pooling
     - Add memory monitoring during parallel processing
     - Force garbage collection between processing batches
-  - [ ] 2.4 Add thread-safe logging for parallel operations
+  - [x] 2.4 Add thread-safe logging for parallel operations
     - Replace standard logging with thread-safe logger configuration
     - Add file-specific logging with thread IDs for debugging
     - Implement progress counters with atomic operations
     - Add per-thread error tracking and reporting
 
 - [ ] 3.0 Implement Batch Embedding Generation
-  - [ ] 3.1 Modify embedding_service.py to accept multiple texts per API call
+  - [x] 3.1 Modify embedding_service.py to accept multiple texts per API call
     - Update `generate_embeddings()` method signature to accept List[str]
     - Modify Ollama API integration to handle batch requests
     - Implement response parsing for multiple embeddings
     - Add backward compatibility for single text embedding calls
-  - [ ] 3.2 Add intelligent batching logic based on content size and API limits
+  - [x] 3.2 Add intelligent batching logic based on content size and API limits
     - Calculate optimal batch size based on total character count
     - Add `EMBEDDING_BATCH_SIZE` environment variable (default: 10)
     - Implement dynamic batching that adjusts based on content length
