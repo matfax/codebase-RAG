@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "codebase-rag-mcp"
+version = "0.1.0"
+description = "A RAG MCP server for codebase understanding."
+authors = ["Agentic-RAG"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.111.0"
+uvicorn = {extras = ["standard"], version = "^0.29.0"}
+qdrant-client = "^1.9.0"
+ollama = "^0.2.0"
+torch = "^2.3.0"
+pathspec = "^0.12.0"
+gitpython = "^3.1.43"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
