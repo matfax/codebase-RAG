@@ -1,9 +1,16 @@
 import os
 import tempfile
 import shutil
+import multiprocessing
+import gc
+import psutil
+import logging
+import threading
 from git import Repo, GitCommandError
 from typing import List, Dict, Any
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from services.project_analysis_service import ProjectAnalysisService
 
@@ -15,20 +22,25 @@ class Chunk:
 class IndexingService:
     def __init__(self):
         self.project_analysis_service = ProjectAnalysisService()
+        self._lock = Lock()  # For thread-safe operations
+        self._error_files = []  # Track files that failed processing
+        self._processed_count = 0  # Atomic counter for processed files
+        self._reset_counters()  # Reset processing counters
+        self._setup_thread_safe_logging()
 
     def process_codebase_for_indexing(self, source_path: str) -> List[Chunk]:
-        print(f"Processing codebase from: {source_path}")
+        self.logger.info(f"Processing codebase from: {source_path}")
 
         is_git_url = source_path.startswith(('http://', 'https://', 'git@'))
 
         if is_git_url:
             temp_dir = tempfile.mkdtemp()
             try:
-                print(f"Cloning {source_path} into {temp_dir}")
+                self.logger.info(f"Cloning {source_path} into {temp_dir}")
                 Repo.clone_from(source_path, temp_dir)
                 directory_to_index = temp_dir
             except GitCommandError as e:
-                print(f"Error cloning repository: {e}")
+                self.logger.error(f"Error cloning repository: {e}")
                 shutil.rmtree(temp_dir)
                 return []
         else:
@@ -37,39 +49,208 @@ class IndexingService:
         relevant_files = self.project_analysis_service.get_relevant_files(directory_to_index)
 
         if not relevant_files:
-            print("No relevant files found to process.")
+            self.logger.warning("No relevant files found to process.")
             if is_git_url: shutil.rmtree(temp_dir)
             return []
 
         chunks = []
-        for file_path in relevant_files:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+        self._error_files = []  # Reset error tracking
+        
+        # Get and validate concurrency settings
+        max_workers = self._get_optimal_worker_count()
+        batch_size = int(os.getenv('INDEXING_BATCH_SIZE', '20'))
+        
+        self.logger.info(f"Processing {len(relevant_files)} files with {max_workers} workers (batch size: {batch_size})...")
+        
+        # Monitor initial memory usage
+        initial_memory = self._get_memory_usage_mb()
+        self.logger.info(f"Initial memory usage: {initial_memory:.1f} MB")
+        
+        # Process files in batches to manage memory
+        for batch_start in range(0, len(relevant_files), batch_size):
+            batch_end = min(batch_start + batch_size, len(relevant_files))
+            batch_files = relevant_files[batch_start:batch_end]
+            
+            self.logger.info(f"Processing batch {batch_start//batch_size + 1}: files {batch_start+1}-{batch_end}")
+            
+            # Use ThreadPoolExecutor with proper resource management
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                try:
+                    # Submit batch processing tasks
+                    future_to_file = {executor.submit(self._process_single_file, file_path): file_path 
+                                     for file_path in batch_files}
+                    
+                    # Collect results as they complete
+                    for future in as_completed(future_to_file):
+                        file_path = future_to_file[future]
+                        thread_id = threading.get_ident()
+                        try:
+                            chunk = future.result()
+                            if chunk:  # Only add non-None chunks
+                                chunks.append(chunk)
+                                with self._lock:
+                                    self._processed_count += 1
+                                    self.logger.debug(f"[Thread-{thread_id}] Successfully processed file {file_path} ({self._processed_count}/{len(relevant_files)})")
+                        except Exception as e:
+                            with self._lock:
+                                self._error_files.append((file_path, str(e)))
+                            self.logger.error(f"[Thread-{thread_id}] Error processing file {file_path}: {e}")
+                        finally:
+                            # Clean up future reference
+                            del future_to_file[future]
                 
-                # Simple chunking: treat entire file as one chunk for now
-                # More sophisticated chunking can be added here (e.g., based on AST, lines, etc.)
-                chunks.append(
-                    Chunk(
-                        content=content,
-                        metadata={
-                            "file_path": file_path,
-                            "chunk_index": 0, # Assuming single chunk for now
-                            "line_start": 1,
-                            "line_end": len(content.splitlines()),
-                            "language": self._detect_language(file_path) # Add language detection
-                        }
-                    )
-                )
-            except Exception as e:
-                print(f"Error processing file {file_path}: {e}")
+                except Exception as e:
+                    self.logger.error(f"Error in batch processing: {e}")
+                
+                finally:
+                    # Ensure ThreadPoolExecutor cleanup
+                    executor.shutdown(wait=True)
+            
+            # Memory cleanup between batches
+            self._cleanup_memory()
+            
+            # Monitor memory usage
+            current_memory = self._get_memory_usage_mb()
+            memory_threshold = int(os.getenv('MEMORY_WARNING_THRESHOLD_MB', '1000'))
+            
+            if current_memory > memory_threshold:
+                self.logger.warning(f"Memory usage ({current_memory:.1f} MB) exceeds threshold ({memory_threshold} MB)")
+            
+            self.logger.info(f"Batch completed. Memory usage: {current_memory:.1f} MB")
+        
+        # Report any errors
+        if self._error_files:
+            self.logger.error(f"Failed to process {len(self._error_files)} files:")
+            for file_path, error in self._error_files:
+                self.logger.error(f"  - {file_path}: {error}")
+        
+        # Final processing summary
+        self.logger.info(f"Processing completed: {len(chunks)} chunks created, {len(self._error_files)} errors")
         
         if is_git_url:
-            print(f"Cleaning up temporary directory: {temp_dir}")
+            self.logger.info(f"Cleaning up temporary directory: {temp_dir}")
             shutil.rmtree(temp_dir)
 
         return chunks
 
+    def _process_single_file(self, file_path: str) -> Chunk:
+        """Process a single file and return a Chunk. Thread-safe worker function."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Simple chunking: treat entire file as one chunk for now
+            # More sophisticated chunking can be added here (e.g., based on AST, lines, etc.)
+            return Chunk(
+                content=content,
+                metadata={
+                    "file_path": file_path,
+                    "chunk_index": 0, # Assuming single chunk for now
+                    "line_start": 1,
+                    "line_end": len(content.splitlines()),
+                    "language": self._detect_language(file_path) # Add language detection
+                }
+            )
+        except Exception as e:
+            # Let the calling code handle the exception
+            raise e
+    
+    def _get_optimal_worker_count(self) -> int:
+        """Calculate optimal worker count based on CPU cores and configuration."""
+        # Get configured concurrency or use default
+        configured_workers = int(os.getenv('INDEXING_CONCURRENCY', '4'))
+        
+        # Get CPU count for optimization
+        cpu_count = multiprocessing.cpu_count()
+        
+        # For I/O-bound operations like file reading, we can use more threads than CPU cores
+        # But cap it at 2x CPU count to avoid too much context switching
+        max_recommended = min(cpu_count * 2, 8)  # Cap at 8 to be conservative
+        
+        # Use the smaller of configured or recommended
+        optimal_workers = min(configured_workers, max_recommended)
+        
+        # Ensure at least 1 worker
+        optimal_workers = max(1, optimal_workers)
+        
+        if optimal_workers != configured_workers:
+            self.logger.info(f"Adjusted worker count from {configured_workers} to {optimal_workers} based on CPU cores ({cpu_count})")
+        
+        return optimal_workers
+    
+    def _validate_configuration(self) -> Dict[str, Any]:
+        """Validate and return configuration settings with safe defaults."""
+        config = {}
+        
+        # Validate concurrency settings
+        try:
+            config['concurrency'] = max(1, int(os.getenv('INDEXING_CONCURRENCY', '4')))
+        except ValueError:
+            self.logger.warning("Invalid INDEXING_CONCURRENCY value, using default: 4")
+            config['concurrency'] = 4
+        
+        try:
+            config['batch_size'] = max(1, int(os.getenv('INDEXING_BATCH_SIZE', '20')))
+        except ValueError:
+            self.logger.warning("Invalid INDEXING_BATCH_SIZE value, using default: 20")
+            config['batch_size'] = 20
+        
+        return config
+    
+    def _get_memory_usage_mb(self) -> float:
+        """Get current memory usage in MB."""
+        try:
+            process = psutil.Process()
+            return process.memory_info().rss / 1024 / 1024
+        except Exception:
+            return 0.0
+    
+    def _cleanup_memory(self) -> None:
+        """Force garbage collection to free memory."""
+        try:
+            # Force garbage collection
+            gc.collect()
+            
+            # Additional cleanup for large objects
+            if hasattr(gc, 'collect'):
+                # Run multiple collection cycles for thorough cleanup
+                for _ in range(3):
+                    collected = gc.collect()
+                    if collected == 0:
+                        break
+        except Exception as e:
+            self.logger.warning(f"Memory cleanup failed: {e}")
+    
+    def _reset_counters(self) -> None:
+        """Reset processing counters for new indexing operation."""
+        with self._lock:
+            self._processed_count = 0
+            self._error_files = []
+    
+    def _setup_thread_safe_logging(self) -> None:
+        """Setup thread-safe logging configuration."""
+        # Create logger for this service
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        
+        # Only configure if not already configured
+        if not self.logger.handlers:
+            # Set level from environment or default to INFO
+            log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+            self.logger.setLevel(getattr(logging, log_level, logging.INFO))
+            
+            # Create thread-safe formatter with thread ID
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - [PID:%(process)d] - %(message)s'
+            )
+            
+            # Create console handler (thread-safe by default)
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+            
+            # Prevent duplicate logging
+            self.logger.propagate = False
+    
     def _detect_language(self, file_path: str) -> str:
         # Basic language detection based on file extension
         extension = os.path.splitext(file_path)[1].lower()
