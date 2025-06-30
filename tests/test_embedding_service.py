@@ -16,7 +16,7 @@ class TestEmbeddingService(unittest.TestCase):
         service = EmbeddingService()
         embedding = service.generate_embeddings("test_model", "test text")
         self.assertEqual(embedding, [0.1, 0.2, 0.3])
-        mock_ollama_embeddings.assert_called_once_with(model="test_model", prompt="test text")
+        mock_ollama_embeddings.assert_called_once_with(model="test_model", prompt="test text", host=service.ollama_host)
 
     @patch('ollama.embeddings')
     def test_generate_embeddings_failure(self, mock_ollama_embeddings):

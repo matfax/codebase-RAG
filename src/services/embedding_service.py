@@ -22,8 +22,16 @@ class EmbeddingService:
             # Note: The Ollama library itself doesn't directly expose device selection.
             # The torch device is set for potential future use with local models that might run via PyTorch.
             # For now, this primarily serves the requirement of detecting and acknowledging MPS support.
-            response = ollama.embeddings(model=model, prompt=text, host=self.ollama_host)
-            return response["embedding"]
+            
+            # Create Ollama client with host configuration
+            client = ollama.Client(host=self.ollama_host)
+            response = client.embeddings(model=model, prompt=text)
+            
+            # Convert to torch tensor for consistency
+            import numpy as np
+            embedding_array = np.array(response["embedding"])
+            return torch.tensor(embedding_array, dtype=torch.float32)
+            
         except Exception as e:
             print(f"An error occurred while generating embeddings: {e}")
             return None

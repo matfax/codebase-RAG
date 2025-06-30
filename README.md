@@ -16,7 +16,7 @@ This project implements a Retrieval-Augmented Generation (RAG) Model-Controller-
 
 Before you begin, ensure you have the following installed:
 
-- **Python 3.9+**: The project is developed with Python.
+- **Python 3.10+**: The project is developed with Python.
 - **Poetry**: Used for dependency management. If you don't have it, you can install it via `pipx install poetry` or `pip install poetry` (preferably in a virtual environment).
 - **Docker (Recommended for Qdrant)**: Qdrant is best run as a Docker container.
 - **Ollama**: For running local language models and embedding models. Download from [ollama.com](https://ollama.com/).
@@ -53,7 +53,12 @@ OLLAMA_DEFAULT_EMBEDDING_MODEL=nomic-embed-text
     ```bash
     .venv/bin/poetry install
     ```
-    *Note: If `poetry install` fails due to `pyproject.toml` changes, run `.venv/bin/poetry lock` first, then `.venv/bin/poetry install` again.*
+    *Note: If `poetry install` fails due to `pyproject.toml` changes, run `.venv/bin/poetry lock` first, then `.venv/bin/poetry install` again. Also, ensure you have Python 3.10 or higher installed and activated in your virtual environment.*
+
+4.  **Add MCP to your project dependencies**:
+    ```bash
+    .venv/bin/poetry add "mcp[cli]"
+    ```
 
 ## Running Qdrant
 
@@ -74,76 +79,106 @@ This command will start Qdrant and map its default ports (6333 for gRPC, 6334 fo
     ```
     You can use any other embedding model available in Ollama, just ensure you specify its name correctly when making API calls.
 
-## Running the Server
+## Running the MCP Server
 
-Once Qdrant and Ollama are running, you can start the FastAPI server:
+Once Qdrant and Ollama are running, you can start the MCP server:
 
 ```bash
-.venv/bin/uvicorn src.main:app --reload
+.venv/bin/python src/run_mcp.py
 ```
-The server will typically run on `http://127.0.0.1:8000`.
 
-## API Endpoints
+The server runs in stdio mode and communicates via JSON-RPC. You will see startup logs like:
+```
+2025-06-30 11:35:31 - __main__ - INFO - Starting Codebase RAG MCP Server...
+2025-06-30 11:35:31 - __main__ - INFO - Server name: codebase-rag-mcp
+2025-06-30 11:35:31 - __main__ - INFO - Listening for JSON-RPC requests on stdin...
+```
 
-The server exposes the following API endpoints:
+### Registering with Claude Code
 
-### 1. Index Codebase (`POST /index`)
+To register this MCP server with Claude Code:
 
-Indexes a local directory or a Git repository into a Qdrant collection.
+```bash
+./register_mcp.sh
+```
 
--   **Request Body**:
+This will create a configuration file and provide instructions for registering the server.
+
+## MCP Tools
+
+The server provides the following MCP tools that can be used by AI assistants:
+
+### 1. `health_check`
+
+Check the health status of the MCP server.
+
+-   **Parameters**: None
+-   **Returns**: Server status information
+
+### 2. `index_directory`
+
+Index files in a directory or Git repository.
+
+-   **Parameters**:
     ```json
     {
-      "source_path": "string",       // Path to local directory or Git repository URL
-      "collection_name": "string",   // Name of the Qdrant collection to store embeddings
-      "embedding_model": "string"    // Name of the Ollama embedding model to use (e.g., "nomic-embed-text")
+      "directory": "string",        // Path to local directory (default: ".")
+      "patterns": ["string"],       // File patterns to include (optional)
+      "recursive": "boolean",       // Search recursively (default: true)
+      "clear_existing": "boolean"   // Clear existing index (default: false)
     }
     ```
--   **Example (`curl`)**:
-    ```bash
-    curl -X POST "http://127.0.0.1:8000/index" \
-         -H "Content-Type: application/json" \
-         -d '{
-           "source_path": "/path/to/your/local/repo",
-           "collection_name": "my_project_code",
-           "embedding_model": "nomic-embed-text"
-         }'
-    ```
-    Or for a GitHub repository:
-    ```bash
-    curl -X POST "http://127.0.0.1:8000/index" \
-         -H "Content-Type: application/json" \
-         -d '{
-           "source_path": "https://github.com/owner/repo.git",
-           "collection_name": "github_project_code",
-           "embedding_model": "nomic-embed-text"
-         }'
-    ```
+-   **Returns**: Indexing results with file count and collections used
 
-### 2. Query Codebase (`POST /query`)
+### 3. `search`
 
-Queries an indexed codebase using a natural language question and retrieves relevant code snippets.
+Search indexed content using natural language queries.
 
--   **Request Body**:
+-   **Parameters**:
     ```json
     {
-      "query_text": "string",        // The natural language question
-      "collection_name": "string",   // Name of the Qdrant collection to query
-      "embedding_model": "string",   // Name of the Ollama embedding model used for the query
-      "limit": "integer"             // (Optional) Maximum number of results to return (default: 5)
+      "query": "string",           // Natural language query (required)
+      "n_results": "integer",      // Number of results (default: 5)
+      "cross_project": "boolean",  // Search across all projects (default: false)
+      "search_mode": "string",     // Search mode (default: "hybrid")
+      "include_context": "boolean", // Include surrounding context (default: true)
+      "context_chunks": "integer"  // Number of context chunks (default: 1)
     }
     ```
--   **Example (`curl`)**:
-    ```bash
-    curl -X POST "http://127.0.0.1:8000/query" \
-         -H "Content-Type: application/json" \
-         -d '{
-           "query_text": "How to handle user authentication?",
-           "collection_name": "my_project_code",
-           "embedding_model": "nomic-embed-text",
-           "limit": 3
-         }'
-    ```
+-   **Returns**: Search results with relevant code snippets and metadata
+
+## Usage Examples
+
+### Using with Python (AsyncIO)
+
+```python
+import asyncio
+from main import app
+
+async def example():
+    # Index current directory
+    result = await app.call_tool("index_directory", {"directory": "."})
+    print(result)
+    
+    # Search for specific functionality
+    result = await app.call_tool("search", {"query": "authentication logic"})
+    print(result)
+
+asyncio.run(example())
+```
+
+### Testing the Server
+
+```bash
+# Test basic functionality
+.venv/bin/python test_full_functionality.py
+
+# Test stdio communication
+.venv/bin/python test_mcp_stdio.py
+
+# Run demo
+.venv/bin/python demo_mcp_usage.py
+```
 
 ## Running Tests
 
@@ -153,68 +188,43 @@ To run the unit and integration tests, use `pytest`:
 .venv/bin/pytest tests/
 ```
 
-## Registering as an MCP Server
+## Integrating with AI Assistants
 
-This server can be registered as an MCP (Model-Controller-Provider) server with compatible AI agents or platforms. To do so, you typically need to provide the base URL of your running server (e.g., `http://127.0.0.1:8000`). The server exposes a manifest at its root endpoint (`/`) that describes its capabilities.
+This MCP server can be integrated with various AI assistants and development tools.
 
-**General Integration Steps:**
-1.  **Start the MCP Server**: Ensure the server is running and accessible via a URL (e.g., `http://127.0.0.1:8000`).
-2.  **Configure in your AI Agent or IDE**: Navigate to the settings or configuration section of your AI agent, IDE, or platform where external tools or services can be added.
-3.  **Provide the Base URL**: Input the base URL of your running MCP server (e.g., `http://127.0.0.1:8000`). Many tools will automatically discover the available endpoints and their functionalities by fetching the manifest from this URL.
-4.  **Follow Specific Tool Documentation**: For detailed, tool-specific instructions, always refer to the official documentation of your AI agent, IDE (e.g., VS Code extensions for AI), or platform (e.g., Gemini, Claude Code). They will provide precise steps on how to integrate custom MCP servers or external APIs.
+### Claude Code Integration
 
-**Example for VS Code-like IDEs (Conceptual):**
+The easiest way to register this server with Claude Code:
 
-Some IDEs or extensions might allow you to configure external MCP servers by specifying a command to run the server. Here's a conceptual example of how you might configure it, assuming your IDE has a setting for `mcpServers`:
+1. **Automatic Registration** (recommended):
+   ```bash
+   ./register_mcp.sh
+   ```
+   This script will create the necessary configuration and provide instructions.
 
-```json
-{
-  "mcpServers": {
-    "codebaseRAG": {
-      "command": "${workspaceFolder}/.venv/bin/uvicorn",
-      "args": [
-        "src.main:app",
-        "--reload",
-        "--port",
-        "8000" // Ensure this matches the port your IDE expects or can configure
-      ],
-      "baseUrl": "http://127.0.0.1:8000" // The URL where the MCP server will be accessible
-    }
-  }
-}
-```
+2. **Manual Registration**:
+   ```bash
+   # Recommended: Use the wrapper script
+   claude mcp add codebase-rag-mcp "$(pwd)/mcp_server"
+   
+   # Alternative: Direct Python execution
+   claude mcp add codebase-rag-mcp "$(pwd)/.venv/bin/python" "$(pwd)/src/run_mcp.py"
+   ```
 
-*   **`command`**: The executable to run your server. Here, it points to the `uvicorn` executable within your project's virtual environment.
-*   **`args`**: Arguments passed to the `uvicorn` command. `src.main:app` specifies your FastAPI application, `--reload` enables hot-reloading, and `--port` sets the port.
-*   **`baseUrl`**: The base URL where the IDE can access your running MCP server. This should match the host and port configured in `args`.
+3. **Usage in Claude Code**:
+   Once registered, you can use the tools in your prompts:
+   - `@codebase-rag-mcp:index_directory` - Index a directory
+   - `@codebase-rag-mcp:search` - Search indexed content
+   - `@codebase-rag-mcp:health_check` - Check server status
 
-**Specific Integration Examples:**
+### Other MCP Clients
 
-### Claude Code
-
-Claude Code uses the `claude mcp add` command to register MCP servers. You would typically run this command in your terminal, providing the URL of your running server. For example:
-
+For other MCP-compatible clients, configure them to run:
 ```bash
-claude mcp add codebase-rag-mcp http://127.0.0.1:8000
+/path/to/your/project/.venv/bin/python /path/to/your/project/src/run_mcp.py
 ```
 
-This registers your server with the name `codebase-rag-mcp`. You can then use resources exposed by your server in Claude Code prompts (e.g., `@codebase-rag-mcp:index` or `@codebase-rag-mcp:query`). Refer to the [Claude Code MCP documentation](https://docs.anthropic.com/zh-TW/docs/claude-code/mcp) for more details on managing MCP servers and using their resources.
-
-### Gemini CLI (Code Assist)
-
-For Gemini CLI (Code Assist), you would configure MCP servers in your `~/.gemini/settings.json` file. You would add an entry similar to this:
-
-```json
-{
-  "mcpServers": {
-    "codebaseRAG": {
-      "url": "http://127.0.0.1:8000"
-    }
-  }
-}
-```
-
-After adding this, restart your Gemini CLI or VS Code instance for the changes to take effect. You can then use the `/mcp` command in Gemini CLI to list configured MCP servers. Refer to the [Gemini CLI MCP documentation](https://cloud.google.com/gemini/docs/codeassist/use-agentic-chat-pair-programmer#configure-mcp-servers) for more details.
+Refer to your specific MCP client documentation for configuration details.
 
 ## Project Structure
 

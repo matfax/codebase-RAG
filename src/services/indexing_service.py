@@ -1,26 +1,23 @@
 import os
 import tempfile
 import shutil
-import uuid
 from git import Repo, GitCommandError
+from typing import List, Dict, Any
+from dataclasses import dataclass
 
-from .project_analysis_service import ProjectAnalysisService
-from .embedding_service import EmbeddingService
-from .qdrant_service import QdrantService
-from qdrant_client import models
+from services.project_analysis_service import ProjectAnalysisService
+
+@dataclass
+class Chunk:
+    content: str
+    metadata: Dict[str, Any]
 
 class IndexingService:
-    def __init__(self, qdrant_host: str = 'localhost', qdrant_port: int = 6333):
+    def __init__(self):
         self.project_analysis_service = ProjectAnalysisService()
-        self.embedding_service = EmbeddingService()
-        self.qdrant_service = QdrantService(host=qdrant_host, port=qdrant_port)
 
-    def index_codebase(self, source_path: str, collection_name: str, embedding_model: str = None):
-        print(f"Indexing codebase from: {source_path}")
-
-        if embedding_model is None:
-            embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
-            print(f"Using default embedding model from .env: {embedding_model}")
+    def process_codebase_for_indexing(self, source_path: str) -> List[Chunk]:
+        print(f"Processing codebase from: {source_path}")
 
         is_git_url = source_path.startswith(('http://', 'https://', 'git@'))
 
@@ -33,54 +30,66 @@ class IndexingService:
             except GitCommandError as e:
                 print(f"Error cloning repository: {e}")
                 shutil.rmtree(temp_dir)
-                return
+                return []
         else:
             directory_to_index = source_path
 
         relevant_files = self.project_analysis_service.get_relevant_files(directory_to_index)
 
         if not relevant_files:
-            print("No relevant files found to index.")
+            print("No relevant files found to process.")
             if is_git_url: shutil.rmtree(temp_dir)
-            return
+            return []
 
-        # For simplicity, we'll assume a fixed vector size for now. 
-        # In a real application, this should be determined by the embedding model.
-        # A common size for many models is 768 or 1536.
-        # For Ollama, it depends on the model. Let's use a placeholder for now.
-        vector_size = 768 # Placeholder, will need to be dynamic based on model
-
-        self.qdrant_service.create_collection(collection_name, vector_size)
-
-        points = []
+        chunks = []
         for file_path in relevant_files:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
-                # Generate embedding for the file content
-                embedding = self.embedding_service.generate_embeddings(embedding_model, content)
-                
-                if embedding:
-                    points.append(
-                        models.PointStruct(
-                            id=str(uuid.uuid4()), # Use UUID string for unique and valid Qdrant IDs
-                            vector=embedding,
-                            payload={
-                                "file_path": file_path,
-                                "content": content # Storing content for retrieval, consider truncation for large files
-                            }
-                        )
+                # Simple chunking: treat entire file as one chunk for now
+                # More sophisticated chunking can be added here (e.g., based on AST, lines, etc.)
+                chunks.append(
+                    Chunk(
+                        content=content,
+                        metadata={
+                            "file_path": file_path,
+                            "chunk_index": 0, # Assuming single chunk for now
+                            "line_start": 1,
+                            "line_end": len(content.splitlines()),
+                            "language": self._detect_language(file_path) # Add language detection
+                        }
                     )
+                )
             except Exception as e:
                 print(f"Error processing file {file_path}: {e}")
         
-        if points:
-            self.qdrant_service.add_points(collection_name, points)
-            print(f"Successfully indexed {len(points)} files into collection {collection_name}.")
-        else:
-            print("No points to add to Qdrant.")
-
         if is_git_url:
             print(f"Cleaning up temporary directory: {temp_dir}")
             shutil.rmtree(temp_dir)
+
+        return chunks
+
+    def _detect_language(self, file_path: str) -> str:
+        # Basic language detection based on file extension
+        extension = os.path.splitext(file_path)[1].lower()
+        if extension == ".py":
+            return "python"
+        elif extension == ".js":
+            return "javascript"
+        elif extension == ".ts":
+            return "typescript"
+        elif extension == ".java":
+            return "java"
+        elif extension == ".go":
+            return "go"
+        elif extension == ".rs":
+            return "rust"
+        elif extension == ".md":
+            return "markdown"
+        elif extension == ".json":
+            return "json"
+        elif extension == ".yaml" or extension == ".yml":
+            return "yaml"
+        else:
+            return "unknown"
