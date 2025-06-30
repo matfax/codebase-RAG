@@ -63,7 +63,7 @@
     - Implement progress counters with atomic operations
     - Add per-thread error tracking and reporting
 
-- [ ] 3.0 Implement Batch Embedding Generation
+- [x] 3.0 Implement Batch Embedding Generation
   - [x] 3.1 Modify embedding_service.py to accept multiple texts per API call
     - Update `generate_embeddings()` method signature to accept List[str]
     - Modify Ollama API integration to handle batch requests
@@ -79,7 +79,7 @@
     - Implement exponential backoff with jitter for API rate limiting
     - Add batch subdivision on timeout/failure (split large batches)
     - Log retry attempts and final failure states
-  - [ ] 3.4 Add batch processing metrics and timing logs
+  - [x] 3.4 Add batch processing metrics and timing logs
     - Track embeddings per second, API call efficiency
     - Log batch sizes, processing times, and API response times
     - Add cumulative statistics for entire indexing operation
