@@ -1,6 +1,7 @@
 import os
 import tempfile
 import shutil
+import uuid
 from git import Repo, GitCommandError
 
 from .project_analysis_service import ProjectAnalysisService
@@ -14,8 +15,12 @@ class IndexingService:
         self.embedding_service = EmbeddingService()
         self.qdrant_service = QdrantService(host=qdrant_host, port=qdrant_port)
 
-    def index_codebase(self, source_path: str, collection_name: str, embedding_model: str):
+    def index_codebase(self, source_path: str, collection_name: str, embedding_model: str = None):
         print(f"Indexing codebase from: {source_path}")
+
+        if embedding_model is None:
+            embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+            print(f"Using default embedding model from .env: {embedding_model}")
 
         is_git_url = source_path.startswith(('http://', 'https://', 'git@'))
 
@@ -59,7 +64,7 @@ class IndexingService:
                 if embedding:
                     points.append(
                         models.PointStruct(
-                            id=hash(file_path), # Simple hash for ID, consider more robust solution
+                            id=str(uuid.uuid4()), # Use UUID string for unique and valid Qdrant IDs
                             vector=embedding,
                             payload={
                                 "file_path": file_path,
