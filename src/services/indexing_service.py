@@ -42,7 +42,7 @@ class IndexingService:
         # Progress tracker for external monitoring
         self.progress_tracker: Optional[ProgressTracker] = None
 
-    def process_codebase_for_indexing(self, source_path: str) -> List[Chunk]:
+    def process_codebase_for_indexing(self, source_path: str, incremental_mode: bool = False, project_name: Optional[str] = None) -> List[Chunk]:
         self.logger.info(f"Processing codebase from: {source_path}")
 
         is_git_url = source_path.startswith(('http://', 'https://', 'git@'))
@@ -77,6 +77,21 @@ class IndexingService:
             if is_git_url: shutil.rmtree(temp_dir)
             return []
 
+        # Handle incremental mode
+        files_to_process = relevant_files
+        if incremental_mode and project_name:
+            self.logger.info("Incremental mode enabled - detecting file changes...")
+            files_to_process = self._get_files_for_incremental_indexing(
+                relevant_files, directory_to_index, project_name
+            )
+            
+            if not files_to_process:
+                self.logger.info("No changes detected - all files are up to date!")
+                if is_git_url: shutil.rmtree(temp_dir)
+                return []
+            
+            self.logger.info(f"Incremental indexing: processing {len(files_to_process)} changed files out of {len(relevant_files)} total")
+
         chunks = []
         self._error_files = []  # Reset error tracking
         
@@ -84,21 +99,21 @@ class IndexingService:
         max_workers = self._get_optimal_worker_count()
         batch_size = int(os.getenv('INDEXING_BATCH_SIZE', '20'))
         
-        self.logger.info(f"Processing {len(relevant_files)} files with {max_workers} workers (batch size: {batch_size})...")
+        self.logger.info(f"Processing {len(files_to_process)} files with {max_workers} workers (batch size: {batch_size})...")
         
         # Initialize progress tracking
-        self.progress_tracker = ProgressTracker(len(relevant_files), "Indexing codebase files")
+        self.progress_tracker = ProgressTracker(len(files_to_process), "Indexing codebase files")
         
         # Monitor initial memory usage
         initial_memory = self.memory_monitor.check_memory_usage(self.logger)
         self.logger.info(f"Initial memory usage: {initial_memory['memory_mb']} MB")
         
         # Stage 2: File Reading and Processing with detailed logging
-        with self.file_reading_logger.stage("file_processing", item_count=len(relevant_files)) as processing_stage:
+        with self.file_reading_logger.stage("file_processing", item_count=len(files_to_process)) as processing_stage:
             # Process files in batches to manage memory
-            for batch_start in range(0, len(relevant_files), batch_size):
-                batch_end = min(batch_start + batch_size, len(relevant_files))
-                batch_files = relevant_files[batch_start:batch_end]
+            for batch_start in range(0, len(files_to_process), batch_size):
+                batch_end = min(batch_start + batch_size, len(files_to_process))
+                batch_files = files_to_process[batch_start:batch_end]
                 batch_num = batch_start // batch_size + 1
                 
                 self.file_reading_logger.info(f"Processing batch {batch_num}: files {batch_start+1}-{batch_end}")
@@ -322,3 +337,203 @@ class IndexingService:
             return "yaml"
         else:
             return "unknown"
+    
+    def process_specific_files(self, file_paths: List[str]) -> List[Chunk]:
+        """
+        Process a specific list of files for incremental indexing.
+        
+        Args:
+            file_paths: List of file paths to process
+            
+        Returns:
+            List of Chunk objects
+        """
+        if not file_paths:
+            self.logger.info("No files to process")
+            return []
+        
+        self.logger.info(f"Processing {len(file_paths)} specific files for incremental indexing")
+        
+        chunks = []
+        self._reset_counters()
+        
+        # Set up progress tracking
+        if self.progress_tracker:
+            self.progress_tracker.set_total_items(len(file_paths))
+        
+        # Process files in batches for memory efficiency
+        batch_size = int(os.getenv('INDEXING_BATCH_SIZE', '10'))
+        
+        with self.file_reading_logger.stage("file_reading", file_count=len(file_paths)) as stage:
+            stage.item_count = len(file_paths)
+            
+            for i in range(0, len(file_paths), batch_size):
+                batch_files = file_paths[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                
+                self.logger.info(f"Processing batch {batch_num}: {len(batch_files)} files")
+                batch_start_time = time.time()
+                batch_processed = 0
+                batch_failed = 0
+                
+                # Process batch with threading
+                with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+                    future_to_file = {
+                        executor.submit(self._process_single_file, file_path): file_path 
+                        for file_path in batch_files
+                    }
+                    
+                    for future in as_completed(future_to_file):
+                        file_path = future_to_file[future]
+                        try:
+                            chunk = future.result()
+                            if chunk:
+                                chunks.append(chunk)
+                                batch_processed += 1
+                                
+                                # Update progress
+                                with self._lock:
+                                    self._processed_count += 1
+                                    if self.progress_tracker:
+                                        self.progress_tracker.update_progress(self._processed_count)
+                        except Exception as e:
+                            self.logger.error(f"Failed to process {file_path}: {e}")
+                            with self._lock:
+                                self._error_files.append((file_path, str(e)))
+                                batch_failed += 1
+                
+                # Update stage progress
+                stage.processed_count = self._processed_count
+                
+                # Log batch completion
+                batch_duration = time.time() - batch_start_time
+                log_batch_summary(self.file_reading_logger, batch_num, len(batch_files), 
+                                batch_processed, batch_failed, batch_duration)
+                
+                # Memory cleanup between batches
+                self._cleanup_memory()
+                
+                # Monitor memory usage
+                memory_stats = self.memory_monitor.check_memory_usage(self.logger)
+                self.logger.info(f"Batch completed. Memory usage: {memory_stats['memory_mb']} MB ({memory_stats['memory_percent']}%)")
+        
+        # Report any errors
+        if self._error_files:
+            self.logger.error(f"Failed to process {len(self._error_files)} files:")
+            for file_path, error in self._error_files:
+                self.logger.error(f"  - {file_path}: {error}")
+        
+        self.logger.info(f"Specific file processing completed: {len(chunks)} chunks created, {len(self._error_files)} errors")
+        return chunks
+    
+    def _get_files_for_incremental_indexing(self, relevant_files: List[str], directory: str, project_name: str) -> List[str]:
+        """
+        Get list of files that need to be processed for incremental indexing.
+        
+        Args:
+            relevant_files: List of all relevant files
+            directory: Project directory
+            project_name: Name of the project
+            
+        Returns:
+            List of files that need to be reindexed
+        """
+        try:
+            from services.file_metadata_service import FileMetadataService
+            from services.change_detector_service import ChangeDetectorService
+            
+            # Initialize services if not already done
+            if not hasattr(self, '_metadata_service'):
+                from services.qdrant_service import QdrantService
+                self._metadata_service = FileMetadataService(QdrantService())
+                self._change_detector = ChangeDetectorService(self._metadata_service)
+            
+            # Detect changes
+            changes = self._change_detector.detect_changes(
+                project_name=project_name,
+                current_files=relevant_files,
+                project_root=directory
+            )
+            
+            if not changes.has_changes:
+                return []
+            
+            # Log change summary
+            summary = changes.get_summary()
+            self.logger.info(f"Change detection summary: {summary}")
+            
+            # Handle file deletions
+            files_to_remove = changes.get_files_to_remove()
+            if files_to_remove:
+                self.logger.info(f"Removing {len(files_to_remove)} deleted files from index...")
+                self._remove_deleted_files_from_index(files_to_remove, project_name)
+            
+            # Return files that need reindexing
+            return changes.get_files_to_reindex()
+            
+        except Exception as e:
+            self.logger.error(f"Error in incremental change detection: {e}")
+            # Fallback to processing all files
+            self.logger.warning("Falling back to full indexing due to change detection error")
+            return relevant_files
+    
+    def _remove_deleted_files_from_index(self, file_paths: List[str], project_name: str) -> bool:
+        """
+        Remove deleted files from vector database.
+        
+        Args:
+            file_paths: List of file paths to remove
+            project_name: Name of the project
+            
+        Returns:
+            True if removal was successful
+        """
+        try:
+            if not file_paths:
+                return True
+            
+            from services.qdrant_service import QdrantService
+            
+            # Initialize Qdrant service if not already done
+            if not hasattr(self, '_qdrant_service'):
+                self._qdrant_service = QdrantService()
+            
+            # Get project collections
+            collections = self._qdrant_service.get_collections_by_pattern(f"project_{project_name}")
+            
+            if not collections:
+                self.logger.warning(f"No collections found for project '{project_name}'")
+                return True
+            
+            success = True
+            total_deleted = 0
+            
+            # Remove from each collection
+            for collection_name in collections:
+                try:
+                    result = self._qdrant_service.delete_points_by_file_paths(collection_name, file_paths)
+                    if not result:
+                        success = False
+                        self.logger.error(f"Failed to delete files from collection '{collection_name}'")
+                except Exception as e:
+                    self.logger.error(f"Error deleting from collection '{collection_name}': {e}")
+                    success = False
+            
+            # Also remove from metadata collection
+            if hasattr(self, '_metadata_service'):
+                try:
+                    self._metadata_service.remove_file_metadata(project_name, file_paths)
+                except Exception as e:
+                    self.logger.error(f"Error removing file metadata: {e}")
+                    success = False
+            
+            if success:
+                self.logger.info(f"Successfully removed {len(file_paths)} deleted files from index")
+            else:
+                self.logger.error("Some files could not be removed from index")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error removing deleted files from index: {e}")
+            return False

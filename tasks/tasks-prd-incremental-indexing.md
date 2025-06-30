@@ -30,21 +30,21 @@
   - [x] 1.5 Add metadata collection management in QdrantService
   - [x] 1.6 Create utility functions for file system operations (mtime, size, existence checks)
 
-- [ ] 2.0 Create Manual Indexing Tool
-  - [ ] 2.1 Create manual_indexing.py script with command-line argument parsing
-  - [ ] 2.2 Implement directory and mode parameter validation
-  - [ ] 2.3 Add progress reporting and status feedback for manual operations
-  - [ ] 2.4 Integrate with existing indexing services for actual processing
-  - [ ] 2.5 Add error handling and user-friendly error messages
-  - [ ] 2.6 Create help documentation and usage examples
+- [x] 2.0 Create Manual Indexing Tool
+  - [x] 2.1 Create manual_indexing.py script with command-line argument parsing
+  - [x] 2.2 Implement directory and mode parameter validation
+  - [x] 2.3 Add progress reporting and status feedback for manual operations
+  - [x] 2.4 Integrate with existing indexing services for actual processing
+  - [x] 2.5 Add error handling and user-friendly error messages
+  - [x] 2.6 Create help documentation and usage examples
 
-- [ ] 3.0 Enhance Existing Indexing Service for Incremental Mode
-  - [ ] 3.1 Add incremental_mode parameter to IndexingService.process_codebase_for_indexing()
-  - [ ] 3.2 Implement selective file processing based on change detection results
-  - [ ] 3.3 Add logic to handle file deletions (remove from vector database)
-  - [ ] 3.4 Implement file move/rename detection and metadata updates
-  - [ ] 3.5 Add change summary generation (files added, modified, deleted counts)
-  - [ ] 3.6 Ensure backward compatibility with existing full indexing workflow
+- [x] 3.0 Enhance Existing Indexing Service for Incremental Mode
+  - [x] 3.1 Add incremental_mode parameter to IndexingService.process_codebase_for_indexing()
+  - [x] 3.2 Implement selective file processing based on change detection results
+  - [x] 3.3 Add logic to handle file deletions (remove from vector database)
+  - [x] 3.4 Implement file move/rename detection and metadata updates
+  - [x] 3.5 Add change summary generation (files added, modified, deleted counts)
+  - [x] 3.6 Ensure backward compatibility with existing full indexing workflow
 
 - [ ] 4.0 Implement Time Estimation and User Recommendations
   - [ ] 4.1 Create TimeEstimatorService to calculate expected indexing duration

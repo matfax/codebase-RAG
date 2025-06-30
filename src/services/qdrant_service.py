@@ -487,3 +487,59 @@ class QdrantService:
         else:
             # Get all metadata collections
             return self.get_collections_by_pattern(metadata_suffix)
+    
+    def delete_points_by_file_paths(self, collection_name: str, file_paths: List[str]) -> bool:
+        """
+        Delete points from collection based on file paths.
+        
+        Args:
+            collection_name: Name of the collection
+            file_paths: List of file paths to delete
+            
+        Returns:
+            True if deletion was successful
+        """
+        if not file_paths:
+            return True
+        
+        try:
+            if not self.collection_exists(collection_name):
+                self.logger.warning(f"Collection '{collection_name}' does not exist")
+                return False
+            
+            deleted_count = 0
+            
+            for file_path in file_paths:
+                # Search for points with this file path
+                search_result = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter={
+                        "must": [
+                            {
+                                "key": "file_path",
+                                "match": {"value": file_path}
+                            }
+                        ]
+                    },
+                    limit=100,  # Should be few points per file
+                    with_payload=False,
+                    with_vectors=False
+                )
+                
+                # Collect and delete point IDs
+                points_to_delete = [point.id for point in search_result[0]]
+                
+                if points_to_delete:
+                    self.client.delete(
+                        collection_name=collection_name,
+                        points_selector=points_to_delete
+                    )
+                    deleted_count += len(points_to_delete)
+                    self.logger.debug(f"Deleted {len(points_to_delete)} points for file: {file_path}")
+            
+            self.logger.info(f"Deleted {deleted_count} points for {len(file_paths)} files from collection '{collection_name}'")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error deleting points by file paths: {e}")
+            return False
