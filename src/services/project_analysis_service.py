@@ -504,6 +504,30 @@ class ProjectAnalysisService:
         else:
             return 100
     
+    def analyze_directory_structure(self, directory: str) -> Dict[str, Any]:
+        """Analyze directory structure - wrapper for analyze_repository for backward compatibility."""
+        return self.analyze_repository(directory)
+    
+    def get_project_context(self, directory: str) -> Dict[str, Any]:
+        """Get project context information including project name and type."""
+        try:
+            directory_path = Path(directory).resolve()
+            project_name = directory_path.name
+            project_type = self.detect_project_type(directory)
+            
+            return {
+                "project_name": project_name,
+                "project_type": project_type,
+                "directory": str(directory_path)
+            }
+        except Exception as e:
+            return {
+                "project_name": "unknown",
+                "project_type": "unknown",
+                "directory": directory,
+                "error": str(e)
+            }
+    
     def _get_memory_recommendations(self, file_count: int) -> List[str]:
         """Get memory usage recommendations based on file count."""
         recommendations = []

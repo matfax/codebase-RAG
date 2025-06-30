@@ -151,6 +151,8 @@ class MemoryMonitor:
         self.warning_threshold_mb = warning_threshold_mb
         self._last_warning_time = 0.0
         self._warning_cooldown = 30.0  # Seconds between warnings
+        self._monitoring = False
+        self._monitor_thread = None
     
     def check_memory_usage(self, logger) -> Dict[str, Any]:
         """Check current memory usage and log warnings if needed."""
@@ -190,6 +192,22 @@ class MemoryMonitor:
                 "above_threshold": False,
                 "error": str(e)
             }
+    
+    def start_monitoring(self):
+        """Start memory monitoring."""
+        self._monitoring = True
+    
+    def stop_monitoring(self):
+        """Stop memory monitoring."""
+        self._monitoring = False
+    
+    def get_current_usage(self) -> float:
+        """Get current memory usage in MB."""
+        try:
+            process = psutil.Process()
+            return process.memory_info().rss / 1024 / 1024
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return 0.0
     
     def get_system_memory_info(self) -> Dict[str, Any]:
         """Get system-wide memory information."""

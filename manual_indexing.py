@@ -61,8 +61,8 @@ class ManualIndexingTool:
         self.project_analysis = ProjectAnalysisService()
         
         # Performance monitoring
-        self.progress_tracker = ProgressTracker()
         self.memory_monitor = MemoryMonitor()
+        self.progress_tracker = None  # Will be initialized when we know total items
         
         self.logger = logging.getLogger(__name__)
     
@@ -139,12 +139,13 @@ class ManualIndexingTool:
         
         return len(missing) == 0, missing
     
-    def estimate_indexing_time(self, directory: str) -> tuple[int, int, float]:
+    def estimate_indexing_time(self, directory: str, mode: str = 'clear_existing') -> tuple[int, int, float]:
         """
         Estimate indexing time and provide statistics.
         
         Args:
             directory: Directory to analyze
+            mode: Indexing mode ('clear_existing' or 'incremental')
             
         Returns:
             Tuple of (file_count, total_size_mb, estimated_minutes)
@@ -153,8 +154,54 @@ class ManualIndexingTool:
             # Use existing project analysis service
             analysis_result = self.project_analysis.analyze_directory_structure(directory)
             
-            file_count = analysis_result.get('relevant_files', 0)
+            total_files = analysis_result.get('relevant_files', 0)
             total_size_mb = analysis_result.get('size_analysis', {}).get('total_size_mb', 0)
+            
+            if mode == 'incremental':
+                # For incremental mode, try to detect actual changes
+                try:
+                    # Get project context
+                    project_context = self.project_analysis.get_project_context(directory)
+                    project_name = project_context.get('project_name', 'unknown')
+                    
+                    # Get current files
+                    relevant_files = self.project_analysis.get_relevant_files(directory)
+                    
+                    # Detect changes
+                    changes = self.change_detector.detect_changes(
+                        project_name=project_name,
+                        current_files=relevant_files,
+                        project_root=directory
+                    )
+                    
+                    if not changes.has_changes:
+                        return 0, 0, 0.0  # No changes to process
+                    
+                    # Get actual files that need processing
+                    files_to_reindex = changes.get_files_to_reindex()
+                    files_to_remove = changes.get_files_to_remove()
+                    
+                    actual_file_count = len(files_to_reindex)
+                    
+                    # Estimate size of changed files only
+                    changed_size_mb = 0
+                    for file_path in files_to_reindex:
+                        try:
+                            file_size = Path(file_path).stat().st_size / (1024 * 1024)
+                            changed_size_mb += file_size
+                        except:
+                            pass
+                    
+                    self.logger.info(f"Incremental mode: {actual_file_count} files need processing (out of {total_files} total)")
+                    
+                    file_count = actual_file_count
+                    total_size_mb = changed_size_mb
+                    
+                except Exception as e:
+                    self.logger.warning(f"Could not detect changes for incremental estimation, using full count: {e}")
+                    file_count = total_files
+            else:
+                file_count = total_files
             
             # Rough estimation: ~100 files per minute for average-sized files
             # This is a conservative estimate and will vary based on file size and system performance
@@ -184,16 +231,24 @@ class ManualIndexingTool:
         print(f"⚙️  Mode: {mode}")
         
         # Estimate time and show stats
-        file_count, size_mb, estimated_minutes = self.estimate_indexing_time(directory)
+        file_count, size_mb, estimated_minutes = self.estimate_indexing_time(directory, mode)
         
         if file_count > 0:
-            print(f"📊 Files to process: {file_count:,}")
+            if mode == 'incremental':
+                print(f"📊 Files to process: {file_count:,} (changed files only)")
+            else:
+                print(f"📊 Files to process: {file_count:,}")
             print(f"💾 Total size: {size_mb:.1f} MB")
             print(f"⏱️  Estimated time: {estimated_minutes:.1f} minutes")
             
             if estimated_minutes > 5:
                 print("\n⚠️  WARNING: This operation may take several minutes.")
                 print("   Consider running this in a separate terminal.")
+        elif mode == 'incremental':
+            print("✅ No changes detected - all files are up to date!")
+            print("⏱️  Estimated time: 0 minutes (no processing needed)")
+        else:
+            print("⚠️  No files found to process")
         
         print("\n" + "-"*60)
     
@@ -211,13 +266,26 @@ class ManualIndexingTool:
         start_time = time.time()
         
         try:
-            # Initialize progress tracking
-            self.progress_tracker.start()
+            # Initialize performance monitoring
             self.memory_monitor.start_monitoring()
             
             # Get project context
             project_context = self.project_analysis.get_project_context(directory)
             project_name = project_context.get('project_name', 'unknown')
+            
+            # For incremental mode, first check if there are any changes
+            if mode == 'incremental':
+                relevant_files = self.project_analysis.get_relevant_files(directory)
+                changes = self.change_detector.detect_changes(
+                    project_name=project_name,
+                    current_files=relevant_files,
+                    project_root=directory
+                )
+                
+                if not changes.has_changes:
+                    print(f"\n✅ No changes detected for project: {project_name}")
+                    print("🎉 All files are already up to date!")
+                    return True
             
             print(f"\n🚀 Starting {mode} indexing for project: {project_name}")
             
@@ -248,8 +316,14 @@ class ManualIndexingTool:
             print(f"\n❌ Indexing failed with error: {e}")
             return False
         finally:
-            self.progress_tracker.stop()
-            self.memory_monitor.stop_monitoring()
+            # Clean up progress tracker if it exists
+            if self.progress_tracker:
+                # Progress tracker doesn't have a stop method, just clear reference
+                self.progress_tracker = None
+            try:
+                self.memory_monitor.stop_monitoring()
+            except Exception as e:
+                print(f"❌ Unexpected error: {e}")
     
     async def perform_full_indexing(self, directory: str, project_name: str) -> bool:
         """
@@ -279,15 +353,15 @@ class ManualIndexingTool:
         print(f"📄 Generated {len(chunks)} chunks from codebase")
         
         # Generate embeddings and store
-        print("🧠 Generating embeddings...")
-        await self.embedding_service.generate_and_store_embeddings_async(
+        print("🧠 Generating and storing embeddings...")
+        self._generate_and_store_embeddings(
             chunks=chunks,
             project_context={'project_name': project_name, 'source_path': directory}
         )
         
         # Store metadata for future incremental updates
         print("💾 Storing file metadata...")
-        await self.store_file_metadata(directory, project_name)
+        self.store_file_metadata(directory, project_name)
         
         return True
     
@@ -343,18 +417,18 @@ class ManualIndexingTool:
             
             if chunks:
                 # Generate embeddings for changed files
-                await self.embedding_service.generate_and_store_embeddings_async(
+                self._generate_and_store_embeddings(
                     chunks=chunks,
                     project_context={'project_name': project_name, 'source_path': directory}
                 )
         
         # Update metadata
         print("💾 Updating file metadata...")
-        await self.store_file_metadata(directory, project_name)
+        self.store_file_metadata(directory, project_name)
         
         return True
     
-    async def store_file_metadata(self, directory: str, project_name: str):
+    def store_file_metadata(self, directory: str, project_name: str):
         """
         Store file metadata for future change detection.
         
@@ -387,6 +461,134 @@ class ManualIndexingTool:
                 
         except Exception as e:
             self.logger.error(f"Error storing file metadata: {e}")
+    
+    def _generate_and_store_embeddings(self, chunks, project_context):
+        """
+        Generate embeddings and store them using the same logic as MCP tools.
+        
+        Args:
+            chunks: List of chunks to process
+            project_context: Context information including project name
+        """
+        try:
+            import os
+            from collections import defaultdict
+            from qdrant_client.http.models import PointStruct
+            import uuid
+            
+            # Get embedding model name
+            model_name = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+            
+            # Initialize Qdrant client
+            from services.qdrant_service import QdrantService
+            qdrant_service = QdrantService()
+            
+            # Group chunks by collection type (similar to MCP tools logic)
+            collection_chunks = defaultdict(list)
+            
+            for chunk in chunks:
+                file_path = chunk.metadata.get('file_path', '')
+                language = chunk.metadata.get('language', 'unknown')
+                
+                # Determine collection type based on file characteristics
+                if language in ['python', 'javascript', 'typescript', 'java', 'go', 'rust']:
+                    collection_type = 'code'
+                elif any(file_path.endswith(ext) for ext in ['.json', '.yaml', '.yml', '.toml', '.ini']):
+                    collection_type = 'config'
+                else:
+                    collection_type = 'documentation'
+                
+                project_name = project_context.get('project_name', 'unknown')
+                collection_name = f"project_{project_name}_{collection_type}"
+                collection_chunks[collection_name].append(chunk)
+            
+            print(f"📊 Processing {len(chunks)} chunks across {len(collection_chunks)} collections")
+            
+            total_points = 0
+            
+            # Process each collection
+            for collection_name, collection_chunk_list in collection_chunks.items():
+                print(f"🔄 Processing collection: {collection_name} ({len(collection_chunk_list)} chunks)")
+                
+                # Prepare texts for embedding generation
+                texts = [chunk.content for chunk in collection_chunk_list]
+                
+                # Generate embeddings
+                embeddings = self.embedding_service.generate_embeddings(model_name, texts)
+                
+                if embeddings is None:
+                    self.logger.error(f"Failed to generate embeddings for collection {collection_name}")
+                    continue
+                
+                # Create points for Qdrant
+                points = []
+                for chunk, embedding in zip(collection_chunk_list, embeddings):
+                    if embedding is None:
+                        continue
+                    
+                    point_id = str(uuid.uuid4())
+                    
+                    # Prepare metadata
+                    metadata = chunk.metadata.copy()
+                    metadata['collection'] = collection_name
+                    
+                    point = PointStruct(
+                        id=point_id,
+                        vector=embedding.tolist(),
+                        payload=metadata
+                    )
+                    points.append(point)
+                
+                if points:
+                    # Ensure collection exists before inserting
+                    print(f"🔧 Ensuring collection exists: {collection_name}")
+                    self._ensure_collection_exists(collection_name, qdrant_service)
+                    
+                    # Store in Qdrant
+                    stats = qdrant_service.batch_upsert_with_retry(collection_name, points)
+                    total_points += stats.successful_insertions
+                    print(f"✅ Stored {stats.successful_insertions} points in {collection_name}")
+            
+            print(f"🎉 Successfully processed {total_points} total points")
+            
+        except Exception as e:
+            self.logger.error(f"Error generating and storing embeddings: {e}")
+            raise
+    
+    def _ensure_collection_exists(self, collection_name: str, qdrant_service):
+        """
+        Ensure that a Qdrant collection exists before attempting to insert data.
+        
+        Args:
+            collection_name: Name of the collection to check/create
+            qdrant_service: QdrantService instance
+        """
+        try:
+            if not qdrant_service.collection_exists(collection_name):
+                # Import required classes
+                from qdrant_client.http.models import VectorParams, Distance
+                
+                self.logger.info(f"Creating collection: {collection_name}")
+                
+                # Get embedding dimension (default to 768 for nomic-embed-text)
+                embedding_dimension = 768
+                
+                # Create the collection
+                qdrant_service.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=embedding_dimension,
+                        distance=Distance.COSINE
+                    )
+                )
+                
+                self.logger.info(f"Successfully created collection: {collection_name}")
+            else:
+                self.logger.debug(f"Collection already exists: {collection_name}")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to ensure collection {collection_name} exists: {e}")
+            raise
 
 
 def main():
