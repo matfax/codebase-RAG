@@ -1395,7 +1395,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "actions": {
                         "use_existing": "Data is ready for search operations",
                         "full_reindex": "Call index_directory with clear_existing=true to reindex everything",
-                        "incremental_update": "Feature coming soon - add only new/changed files"
+                        "incremental_update": "Call index_directory with incremental=true to update only changed files"
                     }
                 }
             }
