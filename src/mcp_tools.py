@@ -409,6 +409,12 @@ def register_mcp_tools(mcp_app: FastMCP):
                 ensure_collection(collection_name, content_type=group_name)
 
                 embedding_array = embeddings_manager.generate_embeddings(os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"), content)
+                
+                # Skip files with empty content or failed embeddings
+                if embedding_array is None:
+                    errors.append(f"Failed to generate embedding for {file_path} (empty content or embedding error)")
+                    continue
+                
                 if embedding_array.ndim == 2 and embedding_array.shape[0] == 1:
                     embedding = embedding_array[0].tolist()
                 else:
@@ -466,7 +472,13 @@ def register_mcp_tools(mcp_app: FastMCP):
             embeddings_manager = get_embeddings_manager_instance()
             qdrant_client = get_qdrant_client()
 
-            query_embedding = embeddings_manager.generate_embeddings(os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"), query).tolist()
+            query_embedding_tensor = embeddings_manager.generate_embeddings(os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"), query)
+            
+            # Handle embedding generation failure
+            if query_embedding_tensor is None:
+                return {"error": "Failed to generate embedding for query (empty query or embedding error)", "query": query}
+            
+            query_embedding = query_embedding_tensor.tolist()
 
             all_collections = [c.name for c in qdrant_client.get_collections().collections]
             if cross_project:
@@ -528,4 +540,102 @@ def register_mcp_tools(mcp_app: FastMCP):
         except Exception as e:
             tb_str = traceback.format_exc()
             return {"error": str(e), "query": query}
+
+
+@app.tool()
+def analyze_repository(directory: str = ".") -> Dict[str, Any]:
+    """
+    Analyze repository structure and provide detailed statistics for indexing planning.
+    
+    This tool helps assess repository complexity, file distribution, and provides
+    recommendations for optimal indexing strategies.
+    
+    Args:
+        directory: Path to the directory to analyze (default: current directory)
+    
+    Returns:
+        Detailed analysis including file counts, size distribution, language breakdown,
+        complexity assessment, and indexing recommendations.
+    """
+    try:
+        from services.project_analysis_service import ProjectAnalysisService
+        
+        console_logger.info(f"Analyzing repository: {directory}")
+        
+        analysis_service = ProjectAnalysisService()
+        analysis = analysis_service.analyze_repository(directory)
+        
+        if "error" in analysis:
+            console_logger.error(f"Repository analysis failed: {analysis['error']}")
+            return analysis
+        
+        # Log key statistics
+        console_logger.info(f"Repository analysis complete:")
+        console_logger.info(f"  - Total files: {analysis['total_files']:,}")
+        console_logger.info(f"  - Relevant files: {analysis['relevant_files']:,}")
+        console_logger.info(f"  - Exclusion rate: {analysis['exclusion_rate']}%")
+        console_logger.info(f"  - Repository size: {analysis['size_analysis']['total_size_mb']}MB")
+        console_logger.info(f"  - Complexity level: {analysis['indexing_complexity']['level']}")
+        
+        return analysis
+        
+    except Exception as e:
+        error_msg = f"Repository analysis failed: {str(e)}"
+        console_logger.error(error_msg)
+        tb_str = traceback.format_exc()
+        console_logger.error(f"Traceback: {tb_str}")
+        return {"error": error_msg, "directory": directory}
+
+
+@app.tool()
+def get_file_filtering_stats(directory: str = ".") -> Dict[str, Any]:
+    """
+    Get detailed statistics about file filtering for debugging and optimization.
+    
+    This tool shows how many files are excluded by different criteria,
+    helping users understand and optimize their .ragignore patterns.
+    
+    Args:
+        directory: Path to the directory to analyze (default: current directory)
+    
+    Returns:
+        Detailed breakdown of file filtering statistics including exclusion reasons,
+        configuration settings, and recommendations.
+    """
+    try:
+        from services.project_analysis_service import ProjectAnalysisService
+        
+        console_logger.info(f"Analyzing file filtering for: {directory}")
+        
+        analysis_service = ProjectAnalysisService()
+        stats = analysis_service.get_file_filtering_stats(directory)
+        
+        if "error" in stats:
+            console_logger.error(f"File filtering analysis failed: {stats['error']}")
+            return stats
+        
+        # Log filtering statistics
+        console_logger.info(f"File filtering analysis complete:")
+        console_logger.info(f"  - Total examined: {stats['total_examined']:,}")
+        console_logger.info(f"  - Included: {stats['included']:,}")
+        console_logger.info(f"  - Excluded by size: {stats['excluded_by_size']:,}")
+        console_logger.info(f"  - Excluded by binary detection: {stats['excluded_by_binary_extension'] + stats['excluded_by_binary_header']:,}")
+        console_logger.info(f"  - Excluded by .ragignore: {stats['excluded_by_ragignore']:,}")
+        
+        # Calculate percentages
+        total = stats['total_examined']
+        if total > 0:
+            stats['inclusion_rate'] = round(stats['included'] / total * 100, 1)
+            stats['size_exclusion_rate'] = round(stats['excluded_by_size'] / total * 100, 1)
+            stats['binary_exclusion_rate'] = round((stats['excluded_by_binary_extension'] + stats['excluded_by_binary_header']) / total * 100, 1)
+            stats['ragignore_exclusion_rate'] = round(stats['excluded_by_ragignore'] / total * 100, 1)
+        
+        return stats
+        
+    except Exception as e:
+        error_msg = f"File filtering analysis failed: {str(e)}"
+        console_logger.error(error_msg)
+        tb_str = traceback.format_exc()
+        console_logger.error(f"Traceback: {tb_str}")
+        return {"error": error_msg, "directory": directory}
 

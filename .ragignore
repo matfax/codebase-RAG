@@ -1,0 +1,116 @@
+# .ragignore - Patterns for files and directories to exclude from RAG indexing
+# This file uses the same syntax as .gitignore files
+
+# Package manager directories
+node_modules/
+vendor/
+.bundle/
+bower_components/
+jspm_packages/
+
+# Build and output directories
+dist/
+build/
+target/
+out/
+bin/
+obj/
+
+# Cache and temporary directories
+.cache/
+.tmp/
+tmp/
+temp/
+.pytest_cache/
+.mypy_cache/
+.coverage/
+htmlcov/
+.tox/
+.gradle/
+.m2/
+.cargo/
+.stack-work/
+
+# IDE and editor directories
+.idea/
+.vscode/
+.vs/
+.atom/
+.sublime-text-*/
+*.xcworkspace/
+*.xcodeproj/
+
+# OS-specific files and directories
+.DS_Store
+Thumbs.db
+.Trashes
+.Spotlight-V100
+.fseventsd
+
+# Log files and databases
+*.log
+*.sqlite
+*.sqlite3
+*.db
+logs/
+.mongodb/
+.redis/
+
+# Large binary files
+*.exe
+*.dll
+*.so
+*.dylib
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+*.tar.bz2
+*.7z
+*.rar
+
+# Media files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.svg
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+
+# Documents (usually not needed for code analysis)
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# Compiled files
+*.pyc
+*.pyo
+*.pyd
+*.class
+*.o
+*.obj
+
+# Environment and configuration (may contain sensitive data)
+.env
+.env.local
+.env.*.local
+
+# Data directories (often large and not relevant for code analysis)
+data/
+datasets/
+models/
+qdrant_storage/

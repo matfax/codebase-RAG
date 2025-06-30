@@ -1,0 +1,130 @@
+## Relevant Files
+
+- `src/services/indexing_service.py` - Core indexing logic that needs parallel processing implementation
+- `src/services/embedding_service.py` - Embedding generation service requiring batch processing support
+- `src/services/qdrant_service.py` - Database operations service needing streaming insertion capabilities
+- `src/mcp_tools.py` - MCP tool implementations requiring async indexing and progress tracking
+- `src/services/project_analysis_service.py` - Project analysis service needing repository assessment tools
+- `.env` - Environment configuration for new performance settings
+- `src/utils/performance_monitor.py` - New utility for memory and progress monitoring (to be created)
+- `src/utils/file_tracker.py` - New utility for incremental indexing file tracking (to be created)
+- `tests/test_performance_optimization.py` - Performance optimization tests (to be created)
+- `tests/test_batch_processing.py` - Batch processing tests (to be created)
+- `tests/test_incremental_indexing.py` - Incremental indexing tests (to be created)
+
+### Notes
+
+- Unit tests should be placed in the `tests/` directory following existing patterns
+- Use `.venv/bin/pytest tests/` to run all tests
+- The system will need enhanced `.ragignore` patterns to handle large repositories with `node_modules`
+
+## Tasks
+
+- [x] 1.0 Implement Enhanced File Filtering and Repository Analysis
+  - [x] 1.1 Add improved `.ragignore` patterns for common large directories (node_modules, .git, build, dist, __pycache__, .venv, target, vendor)
+    - Update existing `.ragignore` handling in `project_analysis_service.py`
+    - Add default exclusion patterns for common package manager directories
+    - Implement recursive `.ragignore` file detection in subdirectories
+  - [x] 1.2 Create repository analysis tool to assess file count, size distribution, and complexity
+    - Add `analyze_repository()` function to return file statistics
+    - Implement file size distribution analysis (small/medium/large/binary categories)
+    - Add language detection statistics for better indexing strategy
+    - Create MCP tool wrapper for repository analysis command
+  - [x] 1.3 Add size-based file filtering with configurable limits for binary/large files
+    - Add `MAX_FILE_SIZE_MB` environment variable (default: 5MB)
+    - Implement binary file detection using file headers/magic numbers
+    - Add file extension-based filtering for known binary types (.exe, .dll, .so, .dylib, .zip, .tar.gz, .jpg, .png, .pdf)
+    - Log skipped files with reasons (too large, binary, excluded)
+  - [x] 1.4 Implement directory traversal optimization with early pruning of excluded paths
+    - Modify file discovery to check exclusion patterns before entering directories
+    - Add early exit for deep directory structures (max depth limit)
+    - Implement symlink detection and handling to avoid infinite loops
+    - Add progress logging during directory traversal for large repositories
+
+- [ ] 2.0 Implement Parallel File Processing Architecture
+  - [ ] 2.1 Replace sequential file processing with ThreadPoolExecutor in indexing_service.py
+    - Import `concurrent.futures.ThreadPoolExecutor`
+    - Replace for-loop file processing with thread pool execution
+    - Implement worker function for single file processing (read, detect language, create chunk)
+    - Add exception handling and error collection for failed files
+  - [ ] 2.2 Add configurable concurrency limits via environment variables
+    - Add `INDEXING_CONCURRENCY` environment variable (default: 4)
+    - Add `INDEXING_BATCH_SIZE` for files processed per batch (default: 20)
+    - Calculate optimal worker count based on CPU cores and I/O characteristics
+    - Add configuration validation and fallback to safe defaults
+  - [ ] 2.3 Implement proper resource management and cleanup for concurrent operations
+    - Use context managers for ThreadPoolExecutor to ensure cleanup
+    - Implement file handle limits and connection pooling
+    - Add memory monitoring during parallel processing
+    - Force garbage collection between processing batches
+  - [ ] 2.4 Add thread-safe logging for parallel operations
+    - Replace standard logging with thread-safe logger configuration
+    - Add file-specific logging with thread IDs for debugging
+    - Implement progress counters with atomic operations
+    - Add per-thread error tracking and reporting
+
+- [ ] 3.0 Implement Batch Embedding Generation
+  - [ ] 3.1 Modify embedding_service.py to accept multiple texts per API call
+    - Update `generate_embeddings()` method signature to accept List[str]
+    - Modify Ollama API integration to handle batch requests
+    - Implement response parsing for multiple embeddings
+    - Add backward compatibility for single text embedding calls
+  - [ ] 3.2 Add intelligent batching logic based on content size and API limits
+    - Calculate optimal batch size based on total character count
+    - Add `EMBEDDING_BATCH_SIZE` environment variable (default: 10)
+    - Implement dynamic batching that adjusts based on content length
+    - Add batch splitting for oversized content groups
+  - [ ] 3.3 Implement batch retry logic with exponential backoff
+    - Add retry decorator for batch embedding operations
+    - Implement exponential backoff with jitter for API rate limiting
+    - Add batch subdivision on timeout/failure (split large batches)
+    - Log retry attempts and final failure states
+  - [ ] 3.4 Add batch processing metrics and timing logs
+    - Track embeddings per second, API call efficiency
+    - Log batch sizes, processing times, and API response times
+    - Add cumulative statistics for entire indexing operation
+    - Implement performance baseline comparison
+
+- [ ] 4.0 Implement Streaming Database Operations
+  - [ ] 4.1 Replace memory accumulation with streaming Qdrant insertions
+    - Modify `mcp_tools.py` to process embeddings in chunks instead of accumulating all
+    - Implement streaming insertion pipeline: File Batch -> Embedding Batch -> DB Batch
+    - Add queue-based architecture for embedding-to-database pipeline
+    - Remove large list accumulations that cause memory issues
+  - [ ] 4.2 Add configurable batch sizes for database operations
+    - Add `QDRANT_BATCH_SIZE` environment variable (default: 500)
+    - Implement point batching logic in Qdrant service
+    - Add batch size optimization based on point dimensions and metadata size
+    - Handle partial batch failures with individual point retry
+  - [ ] 4.3 Implement memory cleanup between database batches
+    - Add explicit garbage collection after each database batch
+    - Implement memory usage monitoring with warnings
+    - Clear processed embeddings from memory immediately after DB insertion
+    - Add memory pressure detection and dynamic batch size adjustment
+  - [ ] 4.4 Add database operation monitoring and error recovery
+    - Log Qdrant insertion rates, batch timings, and error rates
+    - Implement partial failure recovery (retry individual failed points)
+    - Add connection health checks and reconnection logic
+    - Track database operation metrics (points inserted, collections created, errors)
+
+- [ ] 5.0 Add Progress Tracking and Monitoring
+  - [ ] 5.1 Create progress tracking utility with ETA estimation
+    - Create `src/utils/performance_monitor.py` with ProgressTracker class
+    - Implement file processing progress with current/total counts
+    - Add ETA calculation based on processing rate and remaining files
+    - Include progress reporting in MCP tool responses
+  - [ ] 5.2 Add memory usage monitoring with configurable warning thresholds
+    - Add memory monitoring using `psutil` for cross-platform compatibility
+    - Implement `MEMORY_WARNING_THRESHOLD_MB` environment variable (default: 1000MB)
+    - Log memory warnings when threshold is exceeded
+    - Add memory usage to progress reports
+  - [ ] 5.3 Implement detailed logging for each processing stage
+    - Add stage-specific loggers: file_discovery, file_reading, embedding, database
+    - Log timing for each major stage with file counts and rates
+    - Implement structured logging with consistent format across stages
+    - Add debug-level logging for troubleshooting specific file processing issues
+  - [ ] 5.4 Add progress indicators to MCP tool responses
+    - Modify `index_directory` MCP tool to return progress updates
+    - Add intermediate progress responses during long operations
+    - Implement status checking MCP tool for ongoing indexing operations
+    - Include processing statistics in search responses when indexing is active

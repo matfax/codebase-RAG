@@ -3,11 +3,19 @@ import pathspec
 from pathlib import Path
 from typing import List, Set
 from git import Repo, InvalidGitRepositoryError
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class ProjectAnalysisService:
     """Service for analyzing project structure and identifying relevant files."""
     
     def __init__(self):
+        # Load configuration from environment variables
+        self.max_directory_depth = int(os.getenv('MAX_DIRECTORY_DEPTH', '20'))
+        self.follow_symlinks = os.getenv('FOLLOW_SYMLINKS', 'false').lower() == 'true'
+        
         self.default_extensions = {
             '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp',
             '.php', '.rb', '.swift', '.kt', '.scala', '.clj', '.cs', '.vb', '.f90', '.r', '.m',
@@ -44,8 +52,20 @@ class ProjectAnalysisService:
         
         relevant_files = []
         
-        for root, dirs, files in os.walk(directory_path):
+        for root, dirs, files in os.walk(directory_path, followlinks=self.follow_symlinks):
             root_path = Path(root)
+            
+            # Check directory depth
+            try:
+                relative_path = root_path.relative_to(directory_path)
+                depth = len(relative_path.parts)
+                if depth > self.max_directory_depth:
+                    print(f"Skipping deep directory (depth {depth} > {self.max_directory_depth}): {root_path}")
+                    dirs.clear()  # Don't recurse deeper
+                    continue
+            except ValueError:
+                # Handle cases where relative_to fails
+                continue
             
             # Filter out excluded directories
             dirs[:] = [d for d in dirs if d not in self.exclude_dirs]

@@ -19,6 +19,11 @@ class EmbeddingService:
 
     def generate_embeddings(self, model: str, text: str):
         try:
+            # Handle empty or whitespace-only text
+            if not text or not text.strip():
+                print("Warning: Empty or whitespace-only text provided for embedding")
+                return None
+            
             # Note: The Ollama library itself doesn't directly expose device selection.
             # The torch device is set for potential future use with local models that might run via PyTorch.
             # For now, this primarily serves the requirement of detecting and acknowledging MPS support.
@@ -26,6 +31,11 @@ class EmbeddingService:
             # Create Ollama client with host configuration
             client = ollama.Client(host=self.ollama_host)
             response = client.embeddings(model=model, prompt=text)
+            
+            # Check if embedding is empty
+            if not response.get("embedding") or len(response["embedding"]) == 0:
+                print(f"Warning: Received empty embedding for text: {text[:50]}...")
+                return None
             
             # Convert to torch tensor for consistency
             import numpy as np
