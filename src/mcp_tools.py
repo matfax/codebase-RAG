@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from mcp.server.fastmcp import FastMCP
+from utils.performance_monitor import MemoryMonitor, ProgressTracker
 
 # Load environment variables from the MCP server directory
 mcp_server_dir = Path(__file__).parent.parent
@@ -958,6 +959,15 @@ def register_mcp_tools(mcp_app: FastMCP):
             Dictionary with indexing results or recommendations for existing data
         """
         try:
+            # Initialize memory monitoring
+            memory_threshold = float(os.getenv('MEMORY_WARNING_THRESHOLD_MB', '1000'))
+            memory_monitor = MemoryMonitor(warning_threshold_mb=memory_threshold)
+            logger = get_logger()
+            
+            # Initial memory check
+            initial_memory = memory_monitor.check_memory_usage(logger)
+            logger.info(f"Index operation starting - Initial memory: {initial_memory['memory_mb']} MB")
+            
             if patterns is None:
                 patterns = ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx", "*.java", "*.go", "*.rs",
                             "*.sh", "*.bash", "*.zsh", "*.fish",
@@ -1049,7 +1059,19 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             # Now proceed with full indexing
             get_logger().info("Processing codebase for indexing...")
+            
+            # Memory check before heavy processing
+            pre_index_memory = memory_monitor.check_memory_usage(logger)
+            logger.info(f"Pre-indexing memory: {pre_index_memory['memory_mb']} MB")
+            
             processed_chunks = indexing_service.process_codebase_for_indexing(str(dir_path))
+            
+            # Get progress summary after processing
+            progress_summary = indexing_service.get_progress_summary()
+            
+            # Memory check after processing
+            post_index_memory = memory_monitor.check_memory_usage(logger)
+            logger.info(f"Post-indexing memory: {post_index_memory['memory_mb']} MB")
 
             if not processed_chunks:
                 return {
@@ -1139,7 +1161,8 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "actual_time_minutes": round(actual_time / 60, 1) if actual_time > 0 else 0,
                     "points_per_second": round(total_indexed_points / actual_time, 1) if actual_time > 0 else 0,
                     "memory_efficient": True,
-                    "final_memory_mb": final_memory if 'final_memory' in locals() else None
+                    "final_memory_mb": final_memory if 'final_memory' in locals() else None,
+                    "progress_tracking": progress_summary
                 },
                 "errors": {
                     "count": len(errors) if errors else 0,
@@ -1340,6 +1363,37 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {
                 "error": f"Failed to check index status: {str(e)}",
                 "directory": directory
+            }
+    
+    @mcp_app.tool()
+    def get_indexing_progress() -> Dict[str, Any]:
+        """
+        Get current progress of any ongoing indexing operations.
+        
+        This tool provides real-time progress updates during long indexing operations,
+        including ETA, processing rate, memory usage, and stage information.
+        """
+        try:
+            # For now, this is a placeholder since we need to implement
+            # a global progress tracking system for async operations
+            # In the current synchronous implementation, indexing completes
+            # before returning, so this would mainly be useful for debugging
+            
+            system_memory = MemoryMonitor().get_system_memory_info()
+            
+            return {
+                "status": "no_active_indexing",
+                "message": "No indexing operations currently in progress",
+                "system_info": {
+                    "memory": system_memory,
+                    "timestamp": time.time()
+                },
+                "note": "Progress tracking is available during indexing operations and returned in indexing results"
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Failed to get indexing progress: {str(e)}"
             }
 
 

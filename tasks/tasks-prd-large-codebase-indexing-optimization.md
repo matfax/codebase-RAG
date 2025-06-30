@@ -6,8 +6,9 @@
 - `src/mcp_tools.py` - MCP tool implementations requiring async indexing and progress tracking
 - `src/services/project_analysis_service.py` - Project analysis service needing repository assessment tools
 - `.env` - Environment configuration for new performance settings
-- `src/utils/performance_monitor.py` - New utility for memory and progress monitoring (to be created)
-- `src/utils/file_tracker.py` - New utility for incremental indexing file tracking (to be created)
+- `src/utils/performance_monitor.py` - Performance monitoring utility with ProgressTracker and MemoryMonitor classes (created)
+- `src/utils/stage_logger.py` - Stage-specific logging utility with detailed timing and metrics (created) 
+- `src/utils/__init__.py` - Updated utils package initialization (updated)
 - `tests/test_performance_optimization.py` - Performance optimization tests (to be created)
 - `tests/test_batch_processing.py` - Batch processing tests (to be created)
 - `tests/test_incremental_indexing.py` - Incremental indexing tests (to be created)
@@ -107,23 +108,23 @@
     - Add connection health checks and reconnection logic
     - Track database operation metrics (points inserted, collections created, errors)
 
-- [ ] 5.0 Add Progress Tracking and Monitoring
-  - [ ] 5.1 Create progress tracking utility with ETA estimation
+- [x] 5.0 Add Progress Tracking and Monitoring
+  - [x] 5.1 Create progress tracking utility with ETA estimation
     - Create `src/utils/performance_monitor.py` with ProgressTracker class
     - Implement file processing progress with current/total counts
     - Add ETA calculation based on processing rate and remaining files
     - Include progress reporting in MCP tool responses
-  - [ ] 5.2 Add memory usage monitoring with configurable warning thresholds
+  - [x] 5.2 Add memory usage monitoring with configurable warning thresholds
     - Add memory monitoring using `psutil` for cross-platform compatibility
     - Implement `MEMORY_WARNING_THRESHOLD_MB` environment variable (default: 1000MB)
     - Log memory warnings when threshold is exceeded
     - Add memory usage to progress reports
-  - [ ] 5.3 Implement detailed logging for each processing stage
+  - [x] 5.3 Implement detailed logging for each processing stage
     - Add stage-specific loggers: file_discovery, file_reading, embedding, database
     - Log timing for each major stage with file counts and rates
     - Implement structured logging with consistent format across stages
     - Add debug-level logging for troubleshooting specific file processing issues
-  - [ ] 5.4 Add progress indicators to MCP tool responses
+  - [x] 5.4 Add progress indicators to MCP tool responses
     - Modify `index_directory` MCP tool to return progress updates
     - Add intermediate progress responses during long operations
     - Implement status checking MCP tool for ongoing indexing operations

@@ -6,13 +6,16 @@ import gc
 import psutil
 import logging
 import threading
+import time
 from git import Repo, GitCommandError
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 from services.project_analysis_service import ProjectAnalysisService
+from utils.performance_monitor import MemoryMonitor, ProgressTracker
+from utils.stage_logger import get_file_discovery_logger, get_file_reading_logger, log_timing, log_batch_summary
 
 @dataclass
 class Chunk:
@@ -27,6 +30,17 @@ class IndexingService:
         self._processed_count = 0  # Atomic counter for processed files
         self._reset_counters()  # Reset processing counters
         self._setup_thread_safe_logging()
+        
+        # Initialize memory monitoring with configurable threshold
+        memory_threshold = float(os.getenv('MEMORY_WARNING_THRESHOLD_MB', '1000'))
+        self.memory_monitor = MemoryMonitor(warning_threshold_mb=memory_threshold)
+        
+        # Initialize stage-specific loggers
+        self.file_discovery_logger = get_file_discovery_logger()
+        self.file_reading_logger = get_file_reading_logger()
+        
+        # Progress tracker for external monitoring
+        self.progress_tracker: Optional[ProgressTracker] = None
 
     def process_codebase_for_indexing(self, source_path: str) -> List[Chunk]:
         self.logger.info(f"Processing codebase from: {source_path}")
@@ -46,7 +60,17 @@ class IndexingService:
         else:
             directory_to_index = source_path
 
-        relevant_files = self.project_analysis_service.get_relevant_files(directory_to_index)
+        # Stage 1: File Discovery with detailed logging
+        with self.file_discovery_logger.stage("file_discovery", directory=directory_to_index) as stage:
+            discovery_start = time.time()
+            relevant_files = self.project_analysis_service.get_relevant_files(directory_to_index)
+            discovery_duration = time.time() - discovery_start
+            
+            stage.item_count = len(relevant_files)
+            stage.processed_count = len(relevant_files)
+            
+            log_timing(self.file_discovery_logger, "file_discovery", discovery_duration, 
+                      files_found=len(relevant_files), directory=directory_to_index)
 
         if not relevant_files:
             self.logger.warning("No relevant files found to process.")
@@ -62,61 +86,78 @@ class IndexingService:
         
         self.logger.info(f"Processing {len(relevant_files)} files with {max_workers} workers (batch size: {batch_size})...")
         
-        # Monitor initial memory usage
-        initial_memory = self._get_memory_usage_mb()
-        self.logger.info(f"Initial memory usage: {initial_memory:.1f} MB")
+        # Initialize progress tracking
+        self.progress_tracker = ProgressTracker(len(relevant_files), "Indexing codebase files")
         
-        # Process files in batches to manage memory
-        for batch_start in range(0, len(relevant_files), batch_size):
-            batch_end = min(batch_start + batch_size, len(relevant_files))
-            batch_files = relevant_files[batch_start:batch_end]
-            
-            self.logger.info(f"Processing batch {batch_start//batch_size + 1}: files {batch_start+1}-{batch_end}")
-            
-            # Use ThreadPoolExecutor with proper resource management
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                try:
-                    # Submit batch processing tasks
-                    future_to_file = {executor.submit(self._process_single_file, file_path): file_path 
-                                     for file_path in batch_files}
-                    
-                    # Collect results as they complete
-                    for future in as_completed(future_to_file):
-                        file_path = future_to_file[future]
-                        thread_id = threading.get_ident()
-                        try:
-                            chunk = future.result()
-                            if chunk:  # Only add non-None chunks
-                                chunks.append(chunk)
+        # Monitor initial memory usage
+        initial_memory = self.memory_monitor.check_memory_usage(self.logger)
+        self.logger.info(f"Initial memory usage: {initial_memory['memory_mb']} MB")
+        
+        # Stage 2: File Reading and Processing with detailed logging
+        with self.file_reading_logger.stage("file_processing", item_count=len(relevant_files)) as processing_stage:
+            # Process files in batches to manage memory
+            for batch_start in range(0, len(relevant_files), batch_size):
+                batch_end = min(batch_start + batch_size, len(relevant_files))
+                batch_files = relevant_files[batch_start:batch_end]
+                batch_num = batch_start // batch_size + 1
+                
+                self.file_reading_logger.info(f"Processing batch {batch_num}: files {batch_start+1}-{batch_end}")
+                batch_start_time = time.time()
+                
+                # Use ThreadPoolExecutor with proper resource management
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    try:
+                        # Submit batch processing tasks
+                        future_to_file = {executor.submit(self._process_single_file, file_path): file_path 
+                                         for file_path in batch_files}
+                        
+                        batch_processed = 0
+                        batch_failed = 0
+                        
+                        # Collect results as they complete
+                        for future in as_completed(future_to_file):
+                            file_path = future_to_file[future]
+                            thread_id = threading.get_ident()
+                            try:
+                                chunk = future.result()
+                                if chunk:  # Only add non-None chunks
+                                    chunks.append(chunk)
+                                    batch_processed += 1
+                                    self.file_reading_logger.log_item_processed("file_processing", file_path=file_path)
+                                    with self._lock:
+                                        self._processed_count += 1
+                                        processing_stage.processed_count = self._processed_count
+                                        self.progress_tracker.increment_processed()
+                                        self.logger.debug(f"[Thread-{thread_id}] Successfully processed file {file_path} ({self._processed_count}/{len(relevant_files)})")
+                            except Exception as e:
+                                batch_failed += 1
+                                self.file_reading_logger.log_item_failed("file_processing", error=str(e), file_path=file_path)
                                 with self._lock:
-                                    self._processed_count += 1
-                                    self.logger.debug(f"[Thread-{thread_id}] Successfully processed file {file_path} ({self._processed_count}/{len(relevant_files)})")
-                        except Exception as e:
-                            with self._lock:
-                                self._error_files.append((file_path, str(e)))
-                            self.logger.error(f"[Thread-{thread_id}] Error processing file {file_path}: {e}")
-                        finally:
-                            # Clean up future reference
-                            del future_to_file[future]
+                                    self._error_files.append((file_path, str(e)))
+                                    self.progress_tracker.increment_failed()
+                                self.logger.error(f"[Thread-{thread_id}] Error processing file {file_path}: {e}")
+                            finally:
+                                # Clean up future reference
+                                del future_to_file[future]
+                    
+                    except Exception as e:
+                        self.logger.error(f"Error in batch processing: {e}")
+                    
+                    finally:
+                        # Ensure ThreadPoolExecutor cleanup
+                        executor.shutdown(wait=True)
                 
-                except Exception as e:
-                    self.logger.error(f"Error in batch processing: {e}")
+                # Log batch completion
+                batch_duration = time.time() - batch_start_time
+                log_batch_summary(self.file_reading_logger, batch_num, len(batch_files), 
+                                batch_processed, batch_failed, batch_duration)
                 
-                finally:
-                    # Ensure ThreadPoolExecutor cleanup
-                    executor.shutdown(wait=True)
-            
-            # Memory cleanup between batches
-            self._cleanup_memory()
-            
-            # Monitor memory usage
-            current_memory = self._get_memory_usage_mb()
-            memory_threshold = int(os.getenv('MEMORY_WARNING_THRESHOLD_MB', '1000'))
-            
-            if current_memory > memory_threshold:
-                self.logger.warning(f"Memory usage ({current_memory:.1f} MB) exceeds threshold ({memory_threshold} MB)")
-            
-            self.logger.info(f"Batch completed. Memory usage: {current_memory:.1f} MB")
+                # Memory cleanup between batches
+                self._cleanup_memory()
+                
+                # Monitor memory usage with automatic warnings
+                memory_stats = self.memory_monitor.check_memory_usage(self.logger)
+                self.logger.info(f"Batch completed. Memory usage: {memory_stats['memory_mb']} MB ({memory_stats['memory_percent']}%)")
         
         # Report any errors
         if self._error_files:
@@ -132,6 +173,13 @@ class IndexingService:
             shutil.rmtree(temp_dir)
 
         return chunks
+    
+    def get_progress_summary(self) -> Optional[Dict[str, Any]]:
+        """Get current progress summary for external monitoring."""
+        if self.progress_tracker is None:
+            return None
+        
+        return self.progress_tracker.get_progress_summary()
 
     def _process_single_file(self, file_path: str) -> Chunk:
         """Process a single file and return a Chunk. Thread-safe worker function."""
