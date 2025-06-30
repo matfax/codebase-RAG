@@ -74,7 +74,7 @@
     - Add `EMBEDDING_BATCH_SIZE` environment variable (default: 10)
     - Implement dynamic batching that adjusts based on content length
     - Add batch splitting for oversized content groups
-  - [ ] 3.3 Implement batch retry logic with exponential backoff
+  - [x] 3.3 Implement batch retry logic with exponential backoff
     - Add retry decorator for batch embedding operations
     - Implement exponential backoff with jitter for API rate limiting
     - Add batch subdivision on timeout/failure (split large batches)

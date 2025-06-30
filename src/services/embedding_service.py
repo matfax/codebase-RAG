@@ -3,7 +3,10 @@ import torch
 import platform
 import os
 import logging
-from typing import List, Union, Optional, Tuple
+import time
+import random
+import functools
+from typing import List, Union, Optional, Tuple, Callable
 
 class EmbeddingService:
     def __init__(self):
@@ -11,6 +14,13 @@ class EmbeddingService:
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434") # Default Ollama host
         self.embedding_batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
         self.max_batch_chars = int(os.getenv("MAX_BATCH_CHARS", "50000"))  # Max chars per batch
+        
+        # Retry configuration
+        self.max_retries = int(os.getenv("EMBEDDING_MAX_RETRIES", "3"))
+        self.base_delay = float(os.getenv("EMBEDDING_RETRY_BASE_DELAY", "1.0"))  # Base delay in seconds
+        self.max_delay = float(os.getenv("EMBEDDING_RETRY_MAX_DELAY", "60.0"))   # Max delay in seconds
+        self.backoff_multiplier = float(os.getenv("EMBEDDING_BACKOFF_MULTIPLIER", "2.0"))
+        
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self._setup_logging()
 
@@ -22,6 +32,75 @@ class EmbeddingService:
             else:
                 self.logger.info("MPS not available, using CPU.")
         return torch.device("cpu")
+
+    def _retry_with_exponential_backoff(self, func: Callable) -> Callable:
+        """Decorator for implementing exponential backoff retry logic."""
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(self.max_retries + 1):  # +1 for initial attempt
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    
+                    # Don't retry on final attempt
+                    if attempt == self.max_retries:
+                        break
+                    
+                    # Calculate delay with exponential backoff and jitter
+                    delay = min(
+                        self.base_delay * (self.backoff_multiplier ** attempt),
+                        self.max_delay
+                    )
+                    
+                    # Add jitter (random variation) to prevent thundering herd
+                    jitter = random.uniform(0.1, 0.3) * delay
+                    total_delay = delay + jitter
+                    
+                    self.logger.warning(
+                        f"Attempt {attempt + 1}/{self.max_retries + 1} failed: {e}. "
+                        f"Retrying in {total_delay:.2f}s..."
+                    )
+                    
+                    time.sleep(total_delay)
+            
+            # If we get here, all retries failed
+            self.logger.error(f"All {self.max_retries + 1} attempts failed. Final error: {last_exception}")
+            raise last_exception
+        
+        return wrapper
+
+    def _should_retry_exception(self, exception: Exception) -> bool:
+        """Determine if an exception should trigger a retry."""
+        # Define retryable exceptions (connection errors, timeouts, rate limits)
+        retryable_errors = [
+            "connection",
+            "timeout",
+            "rate limit",
+            "server error",
+            "503",
+            "502", 
+            "504",
+            "429"  # Too Many Requests
+        ]
+        
+        error_str = str(exception).lower()
+        return any(error_type in error_str for error_type in retryable_errors)
+
+    def _split_oversized_batch(self, texts: List[str]) -> List[List[str]]:
+        """Split a batch that's too large for processing."""
+        if len(texts) <= 1:
+            return [texts]  # Can't split further
+        
+        mid = len(texts) // 2
+        left_batch = texts[:mid]
+        right_batch = texts[mid:]
+        
+        self.logger.info(f"Splitting batch of {len(texts)} into batches of {len(left_batch)} and {len(right_batch)}")
+        
+        return [left_batch, right_batch]
 
     def generate_embeddings(self, model: str, text: Union[str, List[str]]) -> Optional[Union[torch.Tensor, List[torch.Tensor]]]:
         """Generate embeddings for single text or batch of texts.
@@ -154,8 +233,55 @@ class EmbeddingService:
         return batches
     
     def _process_single_batch(self, model: str, texts: List[str]) -> Optional[List[torch.Tensor]]:
-        """Process a single batch of texts for embedding generation."""
+        """Process a single batch of texts with retry logic and subdivision on failure."""
+        return self._process_batch_with_retry(model, texts)
+    
+    def _process_batch_with_retry(self, model: str, texts: List[str], attempt_subdivision: bool = True) -> Optional[List[torch.Tensor]]:
+        """Process batch with retry logic and optional subdivision on failure."""
         try:
+            # Try processing the batch normally first
+            return self._process_batch_core(model, texts)
+            
+        except Exception as e:
+            # Check if we should retry this exception
+            if not self._should_retry_exception(e):
+                self.logger.error(f"Non-retryable error processing batch: {e}")
+                return None
+            
+            # If batch subdivision is enabled and batch has more than 1 item, try splitting
+            if attempt_subdivision and len(texts) > 1:
+                self.logger.warning(f"Batch processing failed: {e}. Attempting batch subdivision...")
+                
+                try:
+                    # Split the batch into smaller batches
+                    sub_batches = self._split_oversized_batch(texts)
+                    all_embeddings = []
+                    
+                    for sub_batch in sub_batches:
+                        # Process each sub-batch without further subdivision to avoid infinite recursion
+                        sub_embeddings = self._process_batch_with_retry(model, sub_batch, attempt_subdivision=False)
+                        
+                        if sub_embeddings is None:
+                            # If sub-batch fails, add None placeholders
+                            all_embeddings.extend([None] * len(sub_batch))
+                        else:
+                            all_embeddings.extend(sub_embeddings)
+                    
+                    return all_embeddings
+                    
+                except Exception as subdivision_error:
+                    self.logger.error(f"Batch subdivision also failed: {subdivision_error}")
+                    return None
+            else:
+                # Cannot subdivide further or subdivision disabled
+                self.logger.error(f"Batch processing failed and cannot subdivide further: {e}")
+                return None
+    
+    def _process_batch_core(self, model: str, texts: List[str]) -> Optional[List[torch.Tensor]]:
+        """Core batch processing logic with retry decorator applied."""
+        # Apply retry decorator to the core processing logic
+        @self._retry_with_exponential_backoff
+        def _core_processing():
             client = ollama.Client(host=self.ollama_host)
             embeddings = []
             
@@ -165,6 +291,7 @@ class EmbeddingService:
                     embeddings.append(None)
                     continue
                 
+                # Individual text processing with its own error handling
                 try:
                     response = client.embeddings(model=model, prompt=text)
                     
@@ -179,14 +306,17 @@ class EmbeddingService:
                     tensor = torch.tensor(embedding_array, dtype=torch.float32)
                     embeddings.append(tensor)
                     
-                except Exception as e:
-                    self.logger.error(f"Error generating embedding for text at index {i}: {e}")
+                except Exception as text_error:
+                    # For individual text errors, don't retry the whole batch
+                    self.logger.error(f"Error generating embedding for text at index {i}: {text_error}")
                     embeddings.append(None)
             
             return embeddings
-            
+        
+        try:
+            return _core_processing()
         except Exception as e:
-            self.logger.error(f"Error processing batch: {e}")
+            self.logger.error(f"Core batch processing failed after all retries: {e}")
             return None
     
     def _setup_logging(self) -> None:
