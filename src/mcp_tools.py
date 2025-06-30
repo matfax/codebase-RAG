@@ -12,6 +12,12 @@ from datetime import datetime
 from collections import defaultdict
 import threading
 from queue import Queue, Empty
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logging.warning("psutil not available - memory monitoring disabled")
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -61,9 +67,124 @@ _current_project = None
 # Configuration (simplified for now)
 PROJECT_MARKERS = ['.git', 'pyproject.toml'] # Simplified
 
+# Memory management configuration
+MEMORY_WARNING_THRESHOLD_MB = int(os.getenv("MEMORY_WARNING_THRESHOLD_MB", "1000"))
+MEMORY_CLEANUP_INTERVAL = int(os.getenv("MEMORY_CLEANUP_INTERVAL", "5"))  # Cleanup every N batches
+FORCE_CLEANUP_THRESHOLD_MB = int(os.getenv("FORCE_CLEANUP_THRESHOLD_MB", "1500"))  # Force cleanup at this threshold
+
 # Helper functions (simplified from reference)
 def get_logger():
     return console_logger
+
+def get_memory_usage_mb() -> float:
+    """Get current memory usage in MB."""
+    if not PSUTIL_AVAILABLE:
+        return 0.0
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        return memory_info.rss / (1024 * 1024)  # Convert bytes to MB
+    except Exception as e:
+        get_logger().warning(f"Failed to get memory usage: {e}")
+        return 0.0
+
+def log_memory_usage(context: str = "") -> float:
+    """Log current memory usage and return the value in MB."""
+    memory_mb = get_memory_usage_mb()
+    if memory_mb > 0:
+        get_logger().info(f"Memory usage{' ' + context if context else ''}: {memory_mb:.1f}MB")
+        if memory_mb > MEMORY_WARNING_THRESHOLD_MB:
+            get_logger().warning(
+                f"Memory usage ({memory_mb:.1f}MB) exceeds warning threshold ({MEMORY_WARNING_THRESHOLD_MB}MB)"
+            )
+    return memory_mb
+
+def force_memory_cleanup(context: str = "") -> None:
+    """Force comprehensive memory cleanup."""
+    get_logger().info(f"Forcing memory cleanup{' for ' + context if context else ''}")
+    
+    # Force garbage collection multiple times for thoroughness
+    for i in range(3):
+        collected = gc.collect()
+        if collected > 0:
+            get_logger().debug(f"GC cycle {i+1}: collected {collected} objects")
+    
+    # Clear any cached objects if possible
+    if hasattr(gc, 'set_threshold'):
+        # Temporarily lower GC thresholds to be more aggressive
+        original_thresholds = gc.get_threshold()
+        gc.set_threshold(100, 10, 10)
+        gc.collect()
+        gc.set_threshold(*original_thresholds)
+    
+    memory_after = log_memory_usage("after cleanup")
+    
+    if memory_after > FORCE_CLEANUP_THRESHOLD_MB:
+        get_logger().warning(
+            f"Memory still high ({memory_after:.1f}MB) after cleanup. "
+            f"Consider reducing batch sizes or processing fewer files."
+        )
+
+def should_cleanup_memory(batch_count: int, force_check: bool = False) -> bool:
+    """Determine if memory cleanup should be performed."""
+    if force_check or batch_count % MEMORY_CLEANUP_INTERVAL == 0:
+        memory_mb = get_memory_usage_mb()
+        return memory_mb > MEMORY_WARNING_THRESHOLD_MB or batch_count % MEMORY_CLEANUP_INTERVAL == 0
+    return False
+
+def get_adaptive_batch_size(base_batch_size: int, memory_usage_mb: float) -> int:
+    """Adjust batch size based on current memory usage."""
+    if memory_usage_mb > FORCE_CLEANUP_THRESHOLD_MB:
+        # Reduce batch size significantly under memory pressure
+        adjusted_size = max(1, base_batch_size // 4)
+        get_logger().warning(
+            f"High memory pressure ({memory_usage_mb:.1f}MB), reducing batch size from {base_batch_size} to {adjusted_size}"
+        )
+        return adjusted_size
+    elif memory_usage_mb > MEMORY_WARNING_THRESHOLD_MB:
+        # Moderate reduction under memory warning
+        adjusted_size = max(1, base_batch_size // 2)
+        get_logger().info(
+            f"Memory warning ({memory_usage_mb:.1f}MB), reducing batch size from {base_batch_size} to {adjusted_size}"
+        )
+        return adjusted_size
+    else:
+        return base_batch_size
+
+def clear_processing_variables(*variables) -> None:
+    """Explicitly clear variables and force garbage collection."""
+    for var in variables:
+        if var is not None:
+            if hasattr(var, 'clear') and callable(getattr(var, 'clear')):
+                var.clear()
+            del var
+    gc.collect()
+
+def _retry_individual_points(client, collection_name: str, points: List[PointStruct]) -> Tuple[int, int]:
+    """Retry individual points when batch insertion fails.
+    
+    Args:
+        client: Qdrant client instance
+        collection_name: Name of the collection
+        points: List of points to retry individually
+        
+    Returns:
+        Tuple of (successful_count, failed_count)
+    """
+    logger = get_logger()
+    successful_count = 0
+    failed_count = 0
+    
+    for point in points:
+        try:
+            client.upsert(collection_name=collection_name, points=[point])
+            successful_count += 1
+        except Exception as e:
+            failed_count += 1
+            logger.debug(f"Individual point insertion failed for {point.id}: {e}")
+            # Don't retry individual points to avoid infinite loops
+    
+    return successful_count, failed_count
 
 def retry_operation(func, max_attempts=3, delay=1.0):
     last_error = None
@@ -303,6 +424,70 @@ def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) ->
     except Exception as e:
         return {"error": str(e), "file_path": file_path}
 
+def check_qdrant_health(client) -> Dict[str, Any]:
+    """Check Qdrant connection health and return status information."""
+    try:
+        start_time = time.time()
+        collections = client.get_collections()
+        response_time = time.time() - start_time
+        
+        return {
+            "healthy": True,
+            "response_time_ms": response_time * 1000,
+            "collections_count": len(collections.collections),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "healthy": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+def retry_qdrant_operation(operation_func, operation_name: str, max_retries: int = None) -> Any:
+    """Retry Qdrant operations with exponential backoff."""
+    max_retries = max_retries or int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
+    retry_delay = float(os.getenv("DB_RETRY_DELAY", "1.0"))
+    logger = get_logger()
+    
+    for attempt in range(max_retries + 1):
+        try:
+            return operation_func()
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"{operation_name} failed after {max_retries + 1} attempts: {e}")
+                raise e
+            
+            delay = retry_delay * (2 ** attempt)  # Exponential backoff
+            logger.warning(f"{operation_name} attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s...")
+            time.sleep(delay)
+
+def log_database_metrics(stats: Dict[str, Any], operation_time: float, operation_type: str) -> None:
+    """Log detailed database operation metrics."""
+    logger = get_logger()
+    
+    points_per_second = stats["successful_insertions"] / operation_time if operation_time > 0 else 0
+    success_rate = (stats["successful_insertions"] / stats["total_points"]) * 100 if stats["total_points"] > 0 else 0
+    
+    logger.info(
+        f"Database {operation_type} metrics: "
+        f"{stats['successful_insertions']}/{stats['total_points']} points "
+        f"({success_rate:.1f}% success), "
+        f"{points_per_second:.1f} points/sec, "
+        f"{stats['batch_count']} batches, "
+        f"total time: {operation_time:.2f}s"
+    )
+    
+    if stats["failed_insertions"] > 0:
+        logger.warning(f"Database operation had {stats['failed_insertions']} failed insertions")
+    
+    if stats["errors"]:
+        logger.error(f"Database operation errors: {len(stats['errors'])} error(s)")
+        for i, error in enumerate(stats["errors"][:3]):  # Log first 3 errors
+            logger.error(f"  Error {i+1}: {error}")
+        if len(stats["errors"]) > 3:
+            logger.error(f"  ... and {len(stats['errors']) - 3} more errors")
+
 def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
     exclude_dirs = set()
     exclude_patterns = set()
@@ -363,8 +548,19 @@ def _process_chunk_batch_for_streaming(
     collection_batches = defaultdict(list)
     
     for i in range(0, len(chunks), batch_size):
-        batch_chunks = chunks[i:i + batch_size]
-        logger.info(f"Processing chunk batch {i//batch_size + 1}: {len(batch_chunks)} chunks")
+        # Adaptive batch sizing based on memory pressure
+        current_memory = get_memory_usage_mb()
+        adaptive_batch_size = get_adaptive_batch_size(batch_size, current_memory)
+        
+        # Adjust batch bounds if needed
+        if adaptive_batch_size != batch_size:
+            batch_chunks = chunks[i:i + adaptive_batch_size]
+            # Update loop increment for next iteration
+            batch_size = adaptive_batch_size
+        else:
+            batch_chunks = chunks[i:i + batch_size]
+            
+        logger.info(f"Processing chunk batch {i//batch_size + 1}: {len(batch_chunks)} chunks (memory: {current_memory:.1f}MB)")
         
         # Group chunks by collection within this batch
         batch_collections = defaultdict(list)
@@ -443,41 +639,66 @@ def _process_chunk_batch_for_streaming(
                         f"(embedding time: {embedding_time:.2f}s)"
                     )
                     yield collection_name, points
+                    
+                    # Clear points from memory after yielding
+                    clear_processing_variables(points)
                 else:
                     logger.warning(f"No valid points generated for collection {collection_name}")
+                
+                # Clear intermediate variables
+                clear_processing_variables(texts, embeddings, collection_chunks)
                     
             except Exception as e:
                 logger.error(f"Error processing batch for collection {collection_name}: {e}")
+                # Clean up on error
+                clear_processing_variables(texts if 'texts' in locals() else None, 
+                                         embeddings if 'embeddings' in locals() else None,
+                                         collection_chunks if 'collection_chunks' in locals() else None)
                 continue
         
-        # Force garbage collection between batches to manage memory
-        gc.collect()
+        # Memory cleanup between processing batches
+        if should_cleanup_memory(i//batch_size + 1):
+            force_memory_cleanup(f"chunk batch {i//batch_size + 1}")
+        else:
+            gc.collect()
 
 def _stream_points_to_qdrant(
     collection_points_generator: Generator[Tuple[str, List[PointStruct]], None, None],
     qdrant_batch_size: int = 500
 ) -> Dict[str, Any]:
     """
-    Stream points to Qdrant in configurable batches.
+    Stream points to Qdrant in configurable batches with comprehensive monitoring.
     
     Args:
         collection_points_generator: Generator yielding (collection_name, points) tuples
         qdrant_batch_size: Maximum number of points to insert in each Qdrant operation
         
     Returns:
-        Dictionary with insertion statistics and any errors
+        Dictionary with detailed insertion statistics, timing metrics, and error information
     """
     logger = get_logger()
     qdrant_client = get_qdrant_client()
     
+    # Enhanced statistics tracking
     stats = {
         "total_points": 0,
         "successful_insertions": 0,
         "failed_insertions": 0,
         "collections_used": set(),
         "batch_count": 0,
-        "errors": []
+        "errors": [],
+        "timing_metrics": {
+            "total_time": 0.0,
+            "avg_batch_time": 0.0,
+            "min_batch_time": float('inf'),
+            "max_batch_time": 0.0
+        },
+        "health_checks": [],
+        "retry_count": 0,
+        "partial_failures": 0
     }
+    
+    operation_start_time = time.time()
     
     try:
         for collection_name, points in collection_points_generator:
@@ -489,10 +710,46 @@ def _stream_points_to_qdrant(
                 stats["batch_count"] += 1
                 stats["total_points"] += len(batch_points)
                 
+                # Periodic health check
+                health_check_interval = int(os.getenv("DB_HEALTH_CHECK_INTERVAL", "50"))
+                if stats["batch_count"] % health_check_interval == 0:
+                    health_status = check_qdrant_health(qdrant_client)
+                    stats["health_checks"].append(health_status)
+                    if not health_status["healthy"]:
+                        logger.warning(f"Qdrant health check failed: {health_status['error']}")
+                        # Attempt to reconnect
+                        try:
+                            global _qdrant_client
+                            _qdrant_client = None  # Force reconnection
+                            qdrant_client = get_qdrant_client()
+                        except Exception as reconnect_error:
+                            error_msg = f"Failed to reconnect to Qdrant: {reconnect_error}"
+                            logger.error(error_msg)
+                            stats["errors"].append(error_msg)
+                
+                # Perform insertion with retry logic
+                insertion_start = time.time()
+                insertion_successful = False
+                
+                def insert_batch():
+                    return qdrant_client.upsert(collection_name=collection_name, points=batch_points)
+                
                 try:
-                    insertion_start = time.time()
-                    qdrant_client.upsert(collection_name=collection_name, points=batch_points)
+                    retry_qdrant_operation(
+                        insert_batch, 
+                        f"batch insertion to {collection_name}",
+                        max_retries=int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
+                    )
                     insertion_time = time.time() - insertion_start
+                    insertion_successful = True
+                    
+                    # Update timing metrics
+                    stats["timing_metrics"]["min_batch_time"] = min(
+                        stats["timing_metrics"]["min_batch_time"], insertion_time
+                    )
+                    stats["timing_metrics"]["max_batch_time"] = max(
+                        stats["timing_metrics"]["max_batch_time"], insertion_time
+                    )
                     
                     stats["successful_insertions"] += len(batch_points)
                     logger.info(
@@ -501,31 +758,89 @@ def _stream_points_to_qdrant(
                     )
                     
                 except Exception as e:
+                    insertion_time = time.time() - insertion_start
+                    
+                    # Try individual point insertion for partial recovery
+                    if len(batch_points) > 1:
+                        logger.info(f"Attempting individual point recovery for failed batch {stats['batch_count']}")
+                        individual_successes, individual_failures = _retry_individual_points(
+                            qdrant_client, collection_name, batch_points
+                        )
+                        
+                        stats["successful_insertions"] += individual_successes
+                        stats["failed_insertions"] += individual_failures
+                        stats["partial_failures"] += 1
+                        
+                        if individual_successes > 0:
+                            logger.info(f"Recovered {individual_successes}/{len(batch_points)} points individually")
+                    else:
+                        stats["failed_insertions"] += len(batch_points)
+                    
                     error_msg = f"Failed to insert batch {stats['batch_count']} to {collection_name}: {e}"
                     logger.error(error_msg)
                     stats["errors"].append(error_msg)
-                    stats["failed_insertions"] += len(batch_points)
-                    continue
+                    stats["retry_count"] += 1
                 
                 # Memory cleanup after each database batch
                 del batch_points
-                gc.collect()
+                
+                # Check if comprehensive cleanup is needed
+                if should_cleanup_memory(stats['batch_count'], force_check=True):
+                    force_memory_cleanup(f"database batch {stats['batch_count']}")
+                else:
+                    gc.collect()
+                
+                # Log memory usage and metrics periodically
+                if stats['batch_count'] % 10 == 0:
+                    log_memory_usage(f"after {stats['batch_count']} database batches")
+                    
+                    # Log intermediate metrics
+                    current_time = time.time() - operation_start_time
+                    points_per_second = stats["successful_insertions"] / current_time if current_time > 0 else 0
+                    logger.info(
+                        f"Progress: {stats['successful_insertions']} points inserted, "
+                        f"{points_per_second:.1f} points/sec, "
+                        f"{stats['batch_count']} batches processed"
+                    )
+        
+        # Finalize timing metrics
+        total_operation_time = time.time() - operation_start_time
+        stats["timing_metrics"]["total_time"] = total_operation_time
+        if stats["batch_count"] > 0:
+            stats["timing_metrics"]["avg_batch_time"] = total_operation_time / stats["batch_count"]
         
         # Convert set to list for JSON serialization
         stats["collections_used"] = list(stats["collections_used"])
         
+        # Log comprehensive final metrics
+        log_database_metrics(stats, total_operation_time, "streaming insertion")
+        
+        # Additional detailed logging
         logger.info(
             f"Streaming insertion complete: {stats['successful_insertions']} points inserted, "
-            f"{stats['failed_insertions']} failed, {stats['batch_count']} batches"
+            f"{stats['failed_insertions']} failed, {stats['batch_count']} batches, "
+            f"{stats['retry_count']} retries, {stats['partial_failures']} partial failures"
         )
+        
+        if stats["health_checks"]:
+            healthy_checks = sum(1 for check in stats["health_checks"] if check["healthy"])
+            logger.info(f"Health checks: {healthy_checks}/{len(stats['health_checks'])} passed")
         
         return stats
         
     except Exception as e:
+        total_operation_time = time.time() - operation_start_time
+        stats["timing_metrics"]["total_time"] = total_operation_time
+        
         error_msg = f"Critical error during streaming insertion: {e}"
         logger.error(error_msg)
         stats["errors"].append(error_msg)
         stats["collections_used"] = list(stats["collections_used"])
+        
+        # Log metrics even on failure
+        if stats["total_points"] > 0:
+            log_database_metrics(stats, total_operation_time, "failed streaming insertion")
+        
         return stats
 
 def register_mcp_tools(mcp_app: FastMCP):
@@ -579,7 +894,15 @@ def register_mcp_tools(mcp_app: FastMCP):
             chunk_batch_size = int(os.getenv("INDEXING_BATCH_SIZE", "20"))
             qdrant_batch_size = int(os.getenv("QDRANT_BATCH_SIZE", "500"))
             
+            # Check initial memory and adapt batch sizes if needed
+            initial_memory = get_memory_usage_mb()
+            chunk_batch_size = get_adaptive_batch_size(chunk_batch_size, initial_memory)
+            qdrant_batch_size = get_adaptive_batch_size(qdrant_batch_size, initial_memory)
+            
             get_logger().info(f"Starting streaming indexing with chunk batch size: {chunk_batch_size}, Qdrant batch size: {qdrant_batch_size}")
+            
+            # Log initial memory usage
+            log_memory_usage("before indexing")
             
             embeddings_manager = get_embeddings_manager_instance()
             
@@ -608,6 +931,10 @@ def register_mcp_tools(mcp_app: FastMCP):
             # Add any errors from streaming to existing errors list
             if streaming_stats["errors"]:
                 errors.extend(streaming_stats["errors"])
+            
+            # Final memory cleanup and logging
+            force_memory_cleanup("indexing complete")
+            final_memory = log_memory_usage("final")
 
             result = {
                 "indexed_files": indexed_files,
@@ -620,7 +947,12 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "batches_processed": streaming_stats["batch_count"],
                     "successful_insertions": streaming_stats["successful_insertions"],
                     "failed_insertions": streaming_stats["failed_insertions"],
-                    "memory_efficient": True
+                    "memory_efficient": True,
+                    "final_memory_mb": final_memory if 'final_memory' in locals() else None,
+                    "retry_count": streaming_stats.get("retry_count", 0),
+                    "partial_failures": streaming_stats.get("partial_failures", 0),
+                    "health_checks_passed": sum(1 for check in streaming_stats.get("health_checks", []) if check.get("healthy", False)),
+                    "timing_metrics": streaming_stats.get("timing_metrics", {})
                 },
                 "errors": errors if errors else None
             }
