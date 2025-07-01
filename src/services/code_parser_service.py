@@ -101,6 +101,7 @@ class CodeParserService:
             },
             'java': {
                 ChunkType.FUNCTION: ['method_declaration'],
+                ChunkType.CONSTRUCTOR: ['constructor_declaration'],
                 ChunkType.CLASS: ['class_declaration'],
                 ChunkType.INTERFACE: ['interface_declaration'],
                 ChunkType.ENUM: ['enum_declaration'],
@@ -327,6 +328,15 @@ class CodeParserService:
                 else:
                     return None  # Skip declarations inside functions/classes
         
+        # Special handling for Java
+        elif language == 'java':
+            if node_type == 'method_declaration':
+                # Check if it's a constructor (has class name as return type, no actual return type)
+                if self._is_java_constructor(node):
+                    return ChunkType.CONSTRUCTOR
+                else:
+                    return ChunkType.FUNCTION
+        
         # Standard mapping lookup for other cases
         for chunk_type, node_types in node_mappings.items():
             if node_type in node_types:
@@ -345,6 +355,28 @@ class CodeParserService:
         for child in node.children:
             if child.type == 'async':
                 return True
+        return False
+    
+    def _is_java_constructor(self, node: Node) -> bool:
+        """Check if a method_declaration node represents a Java constructor."""
+        # Java constructors have:
+        # 1. type_identifier (class name) followed by empty identifier
+        # 2. Regular methods have type_identifier (return type) + non-empty identifier (method name)
+        
+        children_types = [child.type for child in node.children]
+        
+        # Must have both type_identifier and identifier
+        if not ('type_identifier' in children_types and 'identifier' in children_types):
+            return False
+        
+        # Check if the identifier (method name) is empty
+        # In constructors, the identifier node exists but has empty text
+        for child in node.children:
+            if child.type == 'identifier':
+                identifier_text = child.text.decode('utf-8').strip()
+                # If identifier is empty or just whitespace, it's a constructor
+                return len(identifier_text) == 0
+        
         return False
     
     def _is_module_level_assignment(self, node: Node) -> bool:
@@ -1585,7 +1617,20 @@ class CodeParserService:
         node_type = node.type
         
         if node_type == 'method_declaration':
-            # Look for method name identifier
+            # Check if this is a constructor first
+            if self._is_java_constructor(node):
+                # For constructors, get the class name from type_identifier
+                for child in node.children:
+                    if child.type == 'type_identifier':
+                        return child.text.decode('utf-8')
+            else:
+                # For regular methods, look for method name identifier
+                for child in node.children:
+                    if child.type == 'identifier':
+                        return child.text.decode('utf-8')
+        
+        elif node_type == 'constructor_declaration':
+            # For constructor_declaration nodes, get the class name from identifier
             for child in node.children:
                 if child.type == 'identifier':
                     return child.text.decode('utf-8')
@@ -1623,18 +1668,55 @@ class CodeParserService:
         node_type = node.type
         
         if node_type == 'method_declaration':
-            # [modifiers] return_type name(parameters)
+            # Check if this is a constructor first
+            if self._is_java_constructor(node):
+                # For constructors: [modifiers] ClassName(parameters)
+                signature_parts = []
+                
+                for child in node.children:
+                    if child.type == 'modifiers':
+                        # public, private, static, etc.
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type == 'type_identifier':
+                        # Constructor name (class name)
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type == 'formal_parameters':
+                        # Parameters
+                        signature_parts.append(child.text.decode('utf-8'))
+                        break
+                
+                return ' '.join(signature_parts)
+            else:
+                # For regular methods: [modifiers] return_type name(parameters)
+                signature_parts = []
+                
+                for child in node.children:
+                    if child.type == 'modifiers':
+                        # public, private, static, etc.
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type in ['type_identifier', 'primitive_type', 'void_type', 'generic_type', 'integral_type', 'floating_point_type', 'boolean_type']:
+                        # Return type
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type == 'identifier':
+                        # Method name
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type == 'formal_parameters':
+                        # Parameters
+                        signature_parts.append(child.text.decode('utf-8'))
+                        break
+                
+                return ' '.join(signature_parts)
+        
+        elif node_type == 'constructor_declaration':
+            # For constructor_declaration: [modifiers] ClassName(parameters)
             signature_parts = []
             
             for child in node.children:
                 if child.type == 'modifiers':
                     # public, private, static, etc.
                     signature_parts.append(child.text.decode('utf-8'))
-                elif child.type in ['type_identifier', 'primitive_type', 'void_type', 'generic_type']:
-                    # Return type
-                    signature_parts.append(child.text.decode('utf-8'))
                 elif child.type == 'identifier':
-                    # Method name
+                    # Constructor name (class name)
                     signature_parts.append(child.text.decode('utf-8'))
                 elif child.type == 'formal_parameters':
                     # Parameters

@@ -14,6 +14,7 @@ class ChunkType(Enum):
     # Function-level chunks
     FUNCTION = "function"
     METHOD = "method"
+    CONSTRUCTOR = "constructor"
     ASYNC_FUNCTION = "async_function"
     
     # Class-level chunks
