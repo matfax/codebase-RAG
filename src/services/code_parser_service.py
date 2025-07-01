@@ -1136,30 +1136,387 @@ class CodeParserService:
     
     def _extract_go_name(self, node: Node) -> Optional[str]:
         """Extract name from Go AST node."""
-        # TODO: Implement Go name extraction
+        node_type = node.type
+        
+        if node_type in ['function_declaration', 'method_declaration']:
+            # Look for identifier child node
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'type_declaration':
+            # Go struct/interface/type declarations
+            for child in node.children:
+                if child.type == 'type_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'type_identifier':
+                            return spec_child.text.decode('utf-8')
+        
+        elif node_type == 'interface_type':
+            # Interface definitions
+            # Interfaces are typically nested in type_declaration
+            return "interface"  # Will be refined by parent context
+        
+        elif node_type == 'const_declaration':
+            # Look for constant identifier
+            for child in node.children:
+                if child.type == 'const_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'identifier':
+                            return spec_child.text.decode('utf-8')
+        
+        elif node_type == 'var_declaration':
+            # Look for variable identifier
+            for child in node.children:
+                if child.type == 'var_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'identifier':
+                            return spec_child.text.decode('utf-8')
+        
+        elif node_type == 'import_declaration':
+            # Extract imported package names
+            names = []
+            for child in node.children:
+                if child.type == 'import_spec':
+                    for spec_child in child.children:
+                        if spec_child.type in ['interpreted_string_literal', 'raw_string_literal']:
+                            # Extract package path from quotes
+                            package_path = spec_child.text.decode('utf-8').strip('"\'`')
+                            package_name = package_path.split('/')[-1]  # Get last part
+                            names.append(package_name)
+            return ', '.join(names) if names else None
+        
         return None
     
     def _extract_go_signature(self, node: Node) -> Optional[str]:
         """Extract signature from Go AST node."""
-        # TODO: Implement Go signature extraction
+        node_type = node.type
+        
+        if node_type == 'function_declaration':
+            # func name(params) return_type
+            signature_parts = ['func']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'parameter_list':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'parenthesized_type', 'pointer_type']:
+                    # Return type
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'method_declaration':
+            # func (receiver) name(params) return_type
+            signature_parts = ['func']
+            
+            for child in node.children:
+                if child.type == 'parameter_list':
+                    # This could be receiver or parameters
+                    param_text = child.text.decode('utf-8')
+                    if len(signature_parts) == 1:  # First parameter list is receiver
+                        signature_parts.append(param_text)
+                    else:  # Second parameter list is parameters
+                        signature_parts.append(param_text)
+                elif child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'parenthesized_type', 'pointer_type']:
+                    # Return type
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'type_declaration':
+            # type Name struct/interface/underlying_type
+            signature_parts = ['type']
+            
+            for child in node.children:
+                if child.type == 'type_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'type_identifier':
+                            signature_parts.append(spec_child.text.decode('utf-8'))
+                        elif spec_child.type in ['struct_type', 'interface_type', 'type_identifier']:
+                            # The actual type definition
+                            if spec_child.type == 'struct_type':
+                                signature_parts.append('struct')
+                            elif spec_child.type == 'interface_type':
+                                signature_parts.append('interface')
+                            else:
+                                signature_parts.append(spec_child.text.decode('utf-8'))
+                            break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'const_declaration':
+            # const Name = value or const Name Type = value
+            signature_parts = ['const']
+            
+            for child in node.children:
+                if child.type == 'const_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'identifier':
+                            signature_parts.append(spec_child.text.decode('utf-8'))
+                        elif spec_child.type in ['type_identifier', 'pointer_type']:
+                            signature_parts.append(spec_child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'var_declaration':
+            # var Name Type or var Name = value
+            signature_parts = ['var']
+            
+            for child in node.children:
+                if child.type == 'var_spec':
+                    for spec_child in child.children:
+                        if spec_child.type == 'identifier':
+                            signature_parts.append(spec_child.text.decode('utf-8'))
+                        elif spec_child.type in ['type_identifier', 'pointer_type', 'array_type', 'slice_type']:
+                            signature_parts.append(spec_child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
         return None
     
     def _extract_rust_name(self, node: Node) -> Optional[str]:
         """Extract name from Rust AST node."""
-        # TODO: Implement Rust name extraction
+        node_type = node.type
+        
+        if node_type == 'function_item':
+            # fn name(params) -> return_type
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'struct_item':
+            # struct Name { ... } or struct Name(...)
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'enum_item':
+            # enum Name { ... }
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'const_item':
+            # const NAME: Type = value
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'let_declaration':
+            # let name: Type = value
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'use_declaration':
+            # use path::to::module
+            names = []
+            self._extract_rust_use_paths(node, names)
+            return ', '.join(names) if names else None
+        
         return None
+    
+    def _extract_rust_use_paths(self, node: Node, names: List[str]) -> None:
+        """Recursively extract use paths from Rust use declarations."""
+        if node.type == 'identifier':
+            names.append(node.text.decode('utf-8'))
+        elif node.type == 'scoped_identifier':
+            # Extract the last part of the scoped identifier
+            for child in reversed(node.children):
+                if child.type == 'identifier':
+                    names.append(child.text.decode('utf-8'))
+                    break
+        
+        for child in node.children:
+            self._extract_rust_use_paths(child, names)
     
     def _extract_rust_signature(self, node: Node) -> Optional[str]:
         """Extract signature from Rust AST node."""
-        # TODO: Implement Rust signature extraction
+        node_type = node.type
+        
+        if node_type == 'function_item':
+            # fn name(params) -> return_type
+            signature_parts = ['fn']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'parameters':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'primitive_type', 'reference_type', 'generic_type']:
+                    # Return type (after ->)
+                    signature_parts.append('->')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'struct_item':
+            # struct Name { ... } or struct Name(fields)
+            signature_parts = ['struct']
+            
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'field_declaration_list':
+                    # Struct with named fields
+                    signature_parts.append('{...}')
+                    break
+                elif child.type == 'ordered_field_declaration_list':
+                    # Tuple struct
+                    signature_parts.append('(...)')
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'enum_item':
+            # enum Name { variants }
+            signature_parts = ['enum']
+            
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'const_item':
+            # const NAME: Type = value
+            signature_parts = ['const']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'primitive_type', 'reference_type']:
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'let_declaration':
+            # let name: Type = value
+            signature_parts = ['let']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'primitive_type', 'reference_type']:
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
         return None
     
     def _extract_java_name(self, node: Node) -> Optional[str]:
         """Extract name from Java AST node."""
-        # TODO: Implement Java name extraction
+        node_type = node.type
+        
+        if node_type == 'method_declaration':
+            # Look for method name identifier
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type in ['class_declaration', 'interface_declaration', 'enum_declaration']:
+            # Look for class/interface/enum name
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'field_declaration':
+            # Look for field variable declarator
+            for child in node.children:
+                if child.type == 'variable_declarator':
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            return declarator_child.text.decode('utf-8')
+        
+        elif node_type == 'import_declaration':
+            # Extract imported class/package names
+            names = []
+            for child in node.children:
+                if child.type == 'scoped_identifier':
+                    # Get the last part of the scoped identifier
+                    identifier_parts = child.text.decode('utf-8').split('.')
+                    names.append(identifier_parts[-1])
+                elif child.type == 'identifier':
+                    names.append(child.text.decode('utf-8'))
+            return ', '.join(names) if names else None
+        
         return None
     
     def _extract_java_signature(self, node: Node) -> Optional[str]:
         """Extract signature from Java AST node."""
-        # TODO: Implement Java signature extraction
+        node_type = node.type
+        
+        if node_type == 'method_declaration':
+            # [modifiers] return_type name(parameters)
+            signature_parts = []
+            
+            for child in node.children:
+                if child.type == 'modifiers':
+                    # public, private, static, etc.
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'primitive_type', 'void_type', 'generic_type']:
+                    # Return type
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'identifier':
+                    # Method name
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'formal_parameters':
+                    # Parameters
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type in ['class_declaration', 'interface_declaration', 'enum_declaration']:
+            # [modifiers] class/interface/enum Name [extends/implements]
+            signature_parts = []
+            
+            for child in node.children:
+                if child.type == 'modifiers':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['class', 'interface', 'enum']:
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['superclass', 'super_interfaces']:
+                    # extends/implements clauses
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'class_body':
+                    # Stop at body
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'field_declaration':
+            # [modifiers] type name [= value]
+            signature_parts = []
+            
+            for child in node.children:
+                if child.type == 'modifiers':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['type_identifier', 'primitive_type', 'generic_type', 'array_type']:
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'variable_declarator':
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            signature_parts.append(declarator_child.text.decode('utf-8'))
+                            break
+                    break
+            
+            return ' '.join(signature_parts)
+        
         return None
