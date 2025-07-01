@@ -153,9 +153,24 @@ def register_tools(mcp_app: FastMCP) -> None:
         """
         return await check_index_status_impl(directory)
     
-    # TODO: Register additional indexing tools (get_indexing_progress)
-    # TODO: Register chunking and parsing tools (get_chunking_metrics, diagnose_parser_health)
-    # TODO: Register project tools
-    # TODO: Register database tools
+    # Register chunking tools
+    from .indexing.chunking_tools import register_chunking_tools
+    register_chunking_tools(mcp_app)
+    
+    # Register parser tools
+    from .indexing.parser_tools import register_parser_tools
+    register_parser_tools(mcp_app)
+    
+    # Register progress tools
+    from .indexing.progress_tools import register_progress_tools
+    register_progress_tools(mcp_app)
+    
+    # Register project tools
+    from .project.project_tools import register_project_tools
+    register_project_tools(mcp_app)
+    
+    # Register file tools
+    from .project.file_tools import register_file_tools
+    register_file_tools(mcp_app)
     
     logger.info("All MCP Tools registered successfully")

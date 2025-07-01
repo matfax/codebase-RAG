@@ -251,3 +251,95 @@ def chain_exceptions(new_error: Exception, original_error: Exception) -> Excepti
     """
     new_error.__cause__ = original_error
     return new_error
+
+
+def handle_tool_error(func: Callable[..., T], *args, **kwargs) -> Dict[str, Any]:
+    """Handle tool execution with standardized error handling.
+    
+    Args:
+        func: Function to execute
+        *args: Positional arguments for the function
+        **kwargs: Keyword arguments for the function
+        
+    Returns:
+        Dictionary with function result or error information
+    """
+    try:
+        return func(*args, **kwargs)
+    except MCPToolError as e:
+        # Handle known MCP tool errors
+        error_info = {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if hasattr(e, 'details') and e.details:
+            error_info["details"] = e.details
+            
+        # Add specific error attributes
+        for attr in ['file_path', 'service_name', 'collection_name', 'query', 'language']:
+            if hasattr(e, attr):
+                value = getattr(e, attr)
+                if value:
+                    error_info[attr] = value
+        
+        logger.error(f"MCP Tool Error in {func.__name__}: {format_error_details(e)}")
+        return error_info
+        
+    except Exception as e:
+        # Handle unexpected errors
+        error_info = {
+            "error": f"Unexpected error in {func.__name__}: {str(e)}",
+            "error_type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+            "details": str(e)
+        }
+        
+        logger.error(f"Unexpected error in {func.__name__}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return error_info
+
+
+class log_tool_usage:
+    """Context manager for logging tool usage and performance.
+    
+    This context manager logs when tools start and complete,
+    tracks execution time, and handles any errors.
+    """
+    
+    def __init__(self, tool_name: str, params: Dict[str, Any] = None, logger_instance: Optional[logging.Logger] = None):
+        self.tool_name = tool_name
+        self.params = params or {}
+        self.logger = logger_instance or logger
+        self.start_time = None
+        
+    def __enter__(self):
+        self.start_time = datetime.now()
+        param_str = ""
+        if self.params:
+            # Create a safe parameter string (avoid logging sensitive data)
+            safe_params = {}
+            for key, value in self.params.items():
+                if isinstance(value, (str, int, float, bool)) and len(str(value)) < 100:
+                    safe_params[key] = value
+                else:
+                    safe_params[key] = f"<{type(value).__name__}>"
+            param_str = f" with params: {safe_params}"
+        
+        self.logger.info(f"Starting tool: {self.tool_name}{param_str}")
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = datetime.now()
+        duration = (end_time - self.start_time).total_seconds()
+        
+        if exc_type is None:
+            # Success
+            self.logger.info(f"Completed tool: {self.tool_name} in {duration:.2f}s")
+        else:
+            # Error occurred
+            self.logger.error(f"Tool failed: {self.tool_name} after {duration:.2f}s - {exc_type.__name__}: {exc_val}")
+        
+        # Don't suppress exceptions
+        return False

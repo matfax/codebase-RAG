@@ -110,3 +110,21 @@ class ValidationError(MCPToolError):
         super().__init__(message, details)
         self.field_name = field_name
         self.value = value
+
+
+class ParserError(MCPToolError):
+    """Raised when Tree-sitter parser operations fail."""
+    
+    def __init__(self, message: str, language: str = None, parser_name: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.language = language
+        self.parser_name = parser_name
+
+
+class FileOperationError(MCPToolError):
+    """Raised when file operations fail."""
+    
+    def __init__(self, message: str, file_path: str = None, operation: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.file_path = file_path
+        self.operation = operation

@@ -10,7 +10,6 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from .errors import QdrantConnectionError, ServiceError
-from ..database.qdrant_utils import check_qdrant_health, retry_qdrant_operation
 from .memory_utils import get_memory_usage_mb, get_memory_stats
 
 logger = logging.getLogger(__name__)
@@ -64,6 +63,9 @@ def health_check_sync() -> Dict[str, Any]:
         # Create client with connection check
         try:
             client = QdrantClient(host=host, port=port)
+            
+            # Import database utils here to avoid circular imports
+            from ..database.qdrant_utils import check_qdrant_health, retry_qdrant_operation
             
             # Use retry wrapper for health check
             qdrant_status = retry_qdrant_operation(
