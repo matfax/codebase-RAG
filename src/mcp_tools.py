@@ -963,6 +963,14 @@ def _stream_points_to_qdrant(
         return stats
 
 def register_mcp_tools(mcp_app: FastMCP):
+    # Register MCP Prompts system
+    try:
+        from mcp_prompts import register_mcp_prompts
+        prompts_system = register_mcp_prompts(mcp_app)
+        console_logger.info("MCP Prompts system registered successfully")
+    except Exception as e:
+        console_logger.error(f"Failed to register MCP Prompts system: {e}")
+        # Continue without prompts if there's an error
     @mcp_app.tool()
     async def health_check():
         """Check the health of the MCP server."""
