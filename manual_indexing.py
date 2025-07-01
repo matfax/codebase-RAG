@@ -14,12 +14,15 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from dataclasses import dataclass, asdict
 
 # Add src directory to path to import our modules
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -32,6 +35,96 @@ from services.change_detector_service import ChangeDetectorService
 from services.project_analysis_service import ProjectAnalysisService
 from utils.performance_monitor import ProgressTracker, MemoryMonitor
 from utils import format_duration, format_memory_size
+
+
+@dataclass
+class IndexingError:
+    """Represents an error that occurred during indexing."""
+    
+    error_type: str           # Type of error (syntax, processing, embedding, storage, etc.)
+    file_path: str           # File where error occurred
+    line_number: Optional[int] = None  # Line number if applicable
+    error_message: str = ""   # Detailed error message
+    severity: str = "error"   # Severity: error, warning, info
+    context: str = ""         # Additional context or code snippet
+    timestamp: str = ""       # When the error occurred
+    suggestion: str = ""      # Suggested fix or workaround
+    
+    def __post_init__(self):
+        if not self.timestamp:
+            self.timestamp = datetime.now().isoformat()
+
+
+@dataclass
+class ErrorReport:
+    """Comprehensive error report for indexing operations."""
+    
+    operation_type: str       # Type of operation (full_indexing, incremental, etc.)
+    directory: str           # Directory being processed
+    project_name: str        # Project name
+    start_time: str          # Operation start time
+    end_time: str            # Operation end time
+    total_files: int = 0     # Total files processed
+    successful_files: int = 0 # Successfully processed files
+    failed_files: int = 0    # Files that failed to process
+    errors: List[IndexingError] = None  # List of all errors
+    warnings: List[IndexingError] = None  # List of warnings
+    syntax_errors: List[IndexingError] = None  # Syntax-specific errors
+    performance_metrics: Dict[str, Any] = None  # Performance data
+    recommendations: List[str] = None  # Actionable recommendations
+    
+    def __post_init__(self):
+        if self.errors is None:
+            self.errors = []
+        if self.warnings is None:
+            self.warnings = []
+        if self.syntax_errors is None:
+            self.syntax_errors = []
+        if self.performance_metrics is None:
+            self.performance_metrics = {}
+        if self.recommendations is None:
+            self.recommendations = []
+    
+    def add_error(self, error: IndexingError):
+        """Add an error to the appropriate category."""
+        if error.severity == "warning":
+            self.warnings.append(error)
+        elif error.error_type == "syntax":
+            self.syntax_errors.append(error)
+        else:
+            self.errors.append(error)
+    
+    def get_error_summary(self) -> Dict[str, int]:
+        """Get a summary of error counts by type."""
+        error_types = {}
+        for error in self.errors + self.warnings + self.syntax_errors:
+            error_types[error.error_type] = error_types.get(error.error_type, 0) + 1
+        return error_types
+    
+    def has_critical_errors(self) -> bool:
+        """Check if there are any critical errors that prevent successful completion."""
+        critical_types = ["embedding", "storage", "qdrant_connection"]
+        return any(error.error_type in critical_types for error in self.errors)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert report to dictionary for serialization."""
+        return {
+            "operation_type": self.operation_type,
+            "directory": self.directory,
+            "project_name": self.project_name,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "total_files": self.total_files,
+            "successful_files": self.successful_files,
+            "failed_files": self.failed_files,
+            "error_summary": self.get_error_summary(),
+            "has_critical_errors": self.has_critical_errors(),
+            "errors": [asdict(error) for error in self.errors],
+            "warnings": [asdict(error) for error in self.warnings],
+            "syntax_errors": [asdict(error) for error in self.syntax_errors],
+            "performance_metrics": self.performance_metrics,
+            "recommendations": self.recommendations
+        }
 
 
 class ManualIndexingTool:
@@ -63,6 +156,11 @@ class ManualIndexingTool:
         # Performance monitoring
         self.memory_monitor = MemoryMonitor()
         self.progress_tracker = None  # Will be initialized when we know total items
+        
+        # Error reporting
+        self.error_report: Optional[ErrorReport] = None
+        self.processed_files_count = 0
+        self.successful_files_count = 0
         
         self.logger = logging.getLogger(__name__)
     
@@ -252,6 +350,172 @@ class ManualIndexingTool:
         
         print("\n" + "-"*60)
     
+    def initialize_error_report(self, directory: str, mode: str, project_name: str):
+        """Initialize error report for the current operation."""
+        self.error_report = ErrorReport(
+            operation_type=mode,
+            directory=directory,
+            project_name=project_name,
+            start_time=datetime.now().isoformat(),
+            end_time=""  # Will be set when operation completes
+        )
+        self.processed_files_count = 0
+        self.successful_files_count = 0
+    
+    def add_error(self, error_type: str, file_path: str, error_message: str, 
+                  line_number: Optional[int] = None, severity: str = "error", 
+                  context: str = "", suggestion: str = ""):
+        """Add an error to the current error report."""
+        if not self.error_report:
+            return
+        
+        error = IndexingError(
+            error_type=error_type,
+            file_path=file_path,
+            line_number=line_number,
+            error_message=error_message,
+            severity=severity,
+            context=context,
+            suggestion=suggestion
+        )
+        
+        self.error_report.add_error(error)
+        
+        # Log the error as well
+        log_method = self.logger.warning if severity == "warning" else self.logger.error
+        log_method(f"{error_type.upper()} in {file_path}: {error_message}")
+    
+    def generate_error_recommendations(self):
+        """Generate actionable recommendations based on collected errors."""
+        if not self.error_report:
+            return
+        
+        recommendations = []
+        error_summary = self.error_report.get_error_summary()
+        
+        # Syntax error recommendations
+        if error_summary.get("syntax", 0) > 0:
+            recommendations.append(
+                "Fix syntax errors in your source files before indexing. "
+                "Consider using a linter or IDE to identify and resolve syntax issues."
+            )
+        
+        # Embedding error recommendations
+        if error_summary.get("embedding", 0) > 0:
+            recommendations.append(
+                "Embedding generation failed for some files. "
+                "Check if Ollama is running and the model is available. "
+                "Try: ollama pull nomic-embed-text"
+            )
+        
+        # Storage error recommendations
+        if error_summary.get("storage", 0) > 0:
+            recommendations.append(
+                "Database storage errors occurred. Check Qdrant connection and disk space. "
+                "Ensure Qdrant container is running: docker run -p 6333:6333 qdrant/qdrant"
+            )
+        
+        # File processing recommendations
+        if error_summary.get("processing", 0) > 0:
+            recommendations.append(
+                "Some files failed to process. Check file permissions and encoding. "
+                "Large or binary files may cause processing issues."
+            )
+        
+        # Performance recommendations
+        high_failure_rate = (self.error_report.failed_files / max(self.error_report.total_files, 1)) > 0.2
+        if high_failure_rate:
+            recommendations.append(
+                "High failure rate detected. Consider reducing batch sizes or "
+                "checking system resources (memory, disk space)."
+            )
+        
+        self.error_report.recommendations = recommendations
+    
+    def save_error_report(self, output_dir: Optional[str] = None) -> str:
+        """
+        Save error report to a JSON file.
+        
+        Args:
+            output_dir: Directory to save the report. Defaults to current directory.
+            
+        Returns:
+            Path to the saved report file
+        """
+        if not self.error_report:
+            raise ValueError("No error report to save")
+        
+        # Finalize the report
+        self.error_report.end_time = datetime.now().isoformat()
+        self.error_report.total_files = self.processed_files_count
+        self.error_report.successful_files = self.successful_files_count
+        self.error_report.failed_files = self.processed_files_count - self.successful_files_count
+        
+        # Generate performance metrics
+        self.error_report.performance_metrics = {
+            "memory_usage_mb": self.memory_monitor.get_current_usage(),
+            "total_errors": len(self.error_report.errors),
+            "total_warnings": len(self.error_report.warnings),
+            "total_syntax_errors": len(self.error_report.syntax_errors),
+            "success_rate": (self.successful_files_count / max(self.processed_files_count, 1)) * 100
+        }
+        
+        # Generate recommendations
+        self.generate_error_recommendations()
+        
+        # Create output directory
+        if output_dir is None:
+            output_dir = Path.cwd()
+        else:
+            output_dir = Path(output_dir)
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        project_name = self.error_report.project_name.replace(" ", "_")
+        filename = f"indexing_report_{project_name}_{timestamp}.json"
+        report_path = output_dir / filename
+        
+        # Save report
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(self.error_report.to_dict(), f, indent=2, ensure_ascii=False)
+        
+        return str(report_path)
+    
+    def print_error_summary(self):
+        """Print a summary of errors to the console."""
+        if not self.error_report:
+            return
+        
+        error_summary = self.error_report.get_error_summary()
+        total_errors = sum(error_summary.values())
+        
+        if total_errors == 0:
+            print("✅ No errors or warnings encountered!")
+            return
+        
+        print(f"\n📊 ERROR SUMMARY ({total_errors} total issues)")
+        print("-" * 50)
+        
+        for error_type, count in sorted(error_summary.items()):
+            severity_icon = "⚠️" if any(e.severity == "warning" for e in 
+                                       self.error_report.errors + self.error_report.warnings + self.error_report.syntax_errors
+                                       if e.error_type == error_type) else "❌"
+            print(f"{severity_icon} {error_type}: {count}")
+        
+        # Show critical errors
+        if self.error_report.has_critical_errors():
+            print("\n🚨 CRITICAL ERRORS DETECTED - Some functionality may be affected")
+        
+        # Show top recommendations
+        if self.error_report.recommendations:
+            print(f"\n💡 TOP RECOMMENDATIONS:")
+            for i, rec in enumerate(self.error_report.recommendations[:3], 1):
+                print(f"   {i}. {rec}")
+        
+        print("-" * 50)
+    
     async def perform_indexing(self, directory: str, mode: str) -> bool:
         """
         Perform the actual indexing operation.
@@ -273,19 +537,28 @@ class ManualIndexingTool:
             project_context = self.project_analysis.get_project_context(directory)
             project_name = project_context.get('project_name', 'unknown')
             
+            # Initialize error reporting
+            self.initialize_error_report(directory, mode, project_name)
+            
             # For incremental mode, first check if there are any changes
             if mode == 'incremental':
-                relevant_files = self.project_analysis.get_relevant_files(directory)
-                changes = self.change_detector.detect_changes(
-                    project_name=project_name,
-                    current_files=relevant_files,
-                    project_root=directory
-                )
-                
-                if not changes.has_changes:
-                    print(f"\n✅ No changes detected for project: {project_name}")
-                    print("🎉 All files are already up to date!")
-                    return True
+                try:
+                    relevant_files = self.project_analysis.get_relevant_files(directory)
+                    changes = self.change_detector.detect_changes(
+                        project_name=project_name,
+                        current_files=relevant_files,
+                        project_root=directory
+                    )
+                    
+                    if not changes.has_changes:
+                        print(f"\n✅ No changes detected for project: {project_name}")
+                        print("🎉 All files are already up to date!")
+                        return True
+                        
+                except Exception as e:
+                    self.add_error("change_detection", directory, 
+                                 f"Failed to detect changes: {str(e)}", 
+                                 suggestion="Check file permissions and metadata storage")
             
             print(f"\n🚀 Starting {mode} indexing for project: {project_name}")
             
@@ -295,19 +568,34 @@ class ManualIndexingTool:
                 result = await self.perform_incremental_indexing(directory, project_name)
             else:
                 self.logger.error(f"Unknown indexing mode: {mode}")
+                self.add_error("configuration", directory, f"Unknown indexing mode: {mode}")
                 return False
             
             # Calculate final statistics
             duration = time.time() - start_time
             final_memory = self.memory_monitor.get_current_usage()
             
+            # Print error summary
+            self.print_error_summary()
+            
+            # Save error report if there were any issues or if verbose mode
+            if self.error_report and (self.error_report.get_error_summary() or self.verbose):
+                try:
+                    report_path = self.save_error_report(getattr(self, 'error_report_dir', None))
+                    print(f"\n📋 Error report saved to: {report_path}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to save error report: {e}")
+            
             if result:
                 print(f"\n✅ Indexing completed successfully!")
                 print(f"⏱️  Total time: {format_duration(duration)}")
                 print(f"💾 Memory usage: {format_memory_size(final_memory)}")
+                print(f"📊 Files processed: {self.successful_files_count}/{self.processed_files_count}")
             else:
                 print(f"\n❌ Indexing failed!")
                 print(f"⏱️  Time elapsed: {format_duration(duration)}")
+                if self.error_report and self.error_report.has_critical_errors():
+                    print("🚨 Critical errors prevented successful completion")
             
             return result
             
@@ -346,8 +634,13 @@ class ManualIndexingTool:
         print("📊 Processing codebase...")
         chunks = self.indexing_service.process_codebase_for_indexing(directory)
         
+        # Extract and report syntax errors from parsing
+        self._extract_syntax_errors_from_indexing_service()
+        
         if not chunks:
             print("⚠️  No files found to index")
+            self.add_error("processing", directory, "No files found to index",
+                         suggestion="Check file patterns and .ragignore configuration")
             return False
         
         print(f"📄 Generated {len(chunks)} chunks from codebase")
@@ -413,7 +706,7 @@ class ManualIndexingTool:
             print(f"🔄 Reindexing {len(files_to_reindex)} changed files...")
             
             # Process only changed files
-            chunks = self.indexing_service.process_specific_files(files_to_reindex)
+            chunks = self.indexing_service.process_specific_files(files_to_reindex, project_name, directory)
             
             if chunks:
                 # Generate embeddings for changed files
@@ -506,48 +799,97 @@ class ManualIndexingTool:
             
             total_points = 0
             
+            # Track file processing for error reporting
+            files_in_batch = set(chunk.metadata.get('file_path', '') for chunk in chunks)
+            self.processed_files_count += len(files_in_batch)
+            
             # Process each collection
             for collection_name, collection_chunk_list in collection_chunks.items():
                 print(f"🔄 Processing collection: {collection_name} ({len(collection_chunk_list)} chunks)")
                 
-                # Prepare texts for embedding generation
-                texts = [chunk.content for chunk in collection_chunk_list]
-                
-                # Generate embeddings
-                embeddings = self.embedding_service.generate_embeddings(model_name, texts)
-                
-                if embeddings is None:
-                    self.logger.error(f"Failed to generate embeddings for collection {collection_name}")
-                    continue
-                
-                # Create points for Qdrant
-                points = []
-                for chunk, embedding in zip(collection_chunk_list, embeddings):
-                    if embedding is None:
+                try:
+                    # Prepare texts for embedding generation
+                    texts = [chunk.content for chunk in collection_chunk_list]
+                    
+                    # Generate embeddings
+                    embeddings = self.embedding_service.generate_embeddings(model_name, texts)
+                    
+                    if embeddings is None:
+                        error_msg = f"Failed to generate embeddings for collection {collection_name}"
+                        self.logger.error(error_msg)
+                        self.add_error("embedding", collection_name, error_msg,
+                                     suggestion="Check Ollama service and model availability")
                         continue
                     
-                    point_id = str(uuid.uuid4())
+                    # Create points for Qdrant
+                    points = []
+                    embedding_errors = 0
                     
-                    # Prepare metadata
-                    metadata = chunk.metadata.copy()
-                    metadata['collection'] = collection_name
+                    for chunk, embedding in zip(collection_chunk_list, embeddings):
+                        file_path = chunk.metadata.get('file_path', 'unknown')
+                        
+                        if embedding is None:
+                            embedding_errors += 1
+                            self.add_error("embedding", file_path, 
+                                         "Failed to generate embedding for chunk",
+                                         severity="warning")
+                            continue
+                        
+                        try:
+                            point_id = str(uuid.uuid4())
+                            
+                            # Prepare metadata
+                            metadata = chunk.metadata.copy()
+                            metadata['collection'] = collection_name
+                            
+                            point = PointStruct(
+                                id=point_id,
+                                vector=embedding.tolist(),
+                                payload=metadata
+                            )
+                            points.append(point)
+                            
+                        except Exception as e:
+                            self.add_error("processing", file_path, 
+                                         f"Failed to prepare point: {str(e)}")
                     
-                    point = PointStruct(
-                        id=point_id,
-                        vector=embedding.tolist(),
-                        payload=metadata
-                    )
-                    points.append(point)
-                
-                if points:
-                    # Ensure collection exists before inserting
-                    print(f"🔧 Ensuring collection exists: {collection_name}")
-                    self._ensure_collection_exists(collection_name, qdrant_service)
-                    
-                    # Store in Qdrant
-                    stats = qdrant_service.batch_upsert_with_retry(collection_name, points)
-                    total_points += stats.successful_insertions
-                    print(f"✅ Stored {stats.successful_insertions} points in {collection_name}")
+                    if points:
+                        try:
+                            # Ensure collection exists before inserting
+                            print(f"🔧 Ensuring collection exists: {collection_name}")
+                            self._ensure_collection_exists(collection_name, qdrant_service)
+                            
+                            # Store in Qdrant
+                            stats = qdrant_service.batch_upsert_with_retry(collection_name, points)
+                            total_points += stats.successful_insertions
+                            print(f"✅ Stored {stats.successful_insertions} points in {collection_name}")
+                            
+                            # Track any storage failures
+                            if stats.failed_insertions > 0:
+                                self.add_error("storage", collection_name,
+                                             f"{stats.failed_insertions} points failed to store",
+                                             severity="warning",
+                                             suggestion="Check Qdrant disk space and connection")
+                                             
+                        except Exception as e:
+                            self.add_error("storage", collection_name, 
+                                         f"Failed to store embeddings: {str(e)}",
+                                         suggestion="Check Qdrant connection and disk space")
+                    else:
+                        self.add_error("processing", collection_name, 
+                                     "No valid points generated for collection")
+                        
+                except Exception as e:
+                    # Collection-level error
+                    self.add_error("processing", collection_name, 
+                                 f"Collection processing failed: {str(e)}")
+            
+            # Update successful files count
+            # Estimate based on successful points vs total chunks
+            if chunks:
+                success_ratio = total_points / len(chunks)
+                estimated_successful_files = int(len(files_in_batch) * success_ratio)
+                self.successful_files_count += estimated_successful_files
             
             print(f"🎉 Successfully processed {total_points} total points")
             
@@ -589,6 +931,38 @@ class ManualIndexingTool:
         except Exception as e:
             self.logger.error(f"Failed to ensure collection {collection_name} exists: {e}")
             raise
+    
+    def _extract_syntax_errors_from_indexing_service(self):
+        """Extract syntax errors from the indexing service parsing results."""
+        try:
+            # Check if the indexing service has collected parse results
+            if hasattr(self.indexing_service, '_parse_results'):
+                for parse_result in self.indexing_service._parse_results:
+                    if parse_result.syntax_errors:
+                        for syntax_error in parse_result.syntax_errors:
+                            self.add_error(
+                                error_type="syntax",
+                                file_path=parse_result.file_path,
+                                line_number=syntax_error.start_line,
+                                error_message=f"{syntax_error.error_type}: {syntax_error.context}",
+                                severity="warning" if syntax_error.severity == "warning" else "error",
+                                context=syntax_error.context,
+                                suggestion="Fix syntax errors using a linter or IDE"
+                            )
+                    
+                    # Report if fallback was used (indicates parsing issues)
+                    if parse_result.fallback_used:
+                        self.add_error(
+                            error_type="parsing",
+                            file_path=parse_result.file_path,
+                            error_message="Intelligent parsing failed, used fallback to whole-file chunking",
+                            severity="warning",
+                            suggestion="Check file syntax and Tree-sitter parser support"
+                        )
+                        
+        except Exception as e:
+            self.logger.debug(f"Could not extract syntax errors: {e}")
+            # Don't fail the whole operation for this
 
 
 def main():
@@ -631,10 +1005,19 @@ Examples:
         help='Skip confirmation prompts (use with caution)'
     )
     
+    parser.add_argument(
+        '--error-report-dir',
+        help='Directory to save error reports (default: current directory)'
+    )
+    
     args = parser.parse_args()
     
     # Initialize tool
     tool = ManualIndexingTool(verbose=args.verbose)
+    
+    # Set error report directory if provided
+    if args.error_report_dir:
+        tool.error_report_dir = args.error_report_dir
     
     # Validate arguments
     is_valid, error_msg = tool.validate_arguments(args.directory, args.mode)
