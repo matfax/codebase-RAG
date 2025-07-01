@@ -80,6 +80,12 @@ class ExploreProjectPrompt(BasePromptImplementation):
 
 {formatted_summary}
 
+🔧 **First Steps - Check RAG Index Status:**
+Before diving into exploration, please:
+1. Use the `check_index_status` tool to see if this codebase is already indexed in the RAG system
+2. If indexed, prioritize using `codebaseRAG:search` tool for efficient code discovery and analysis
+3. If not indexed, consider indexing the codebase first for better exploration capabilities
+
 🎯 **My Exploration Goals:**
 I want a {detail_level} exploration that helps me understand this {exploration_result.project_type} project."""
 
@@ -98,7 +104,7 @@ I want a {detail_level} exploration that helps me understand this {exploration_r
 
 🚀 **Use the analysis results above to provide specific, actionable guidance that will help me quickly become productive with this project.**
 
-Please search the codebase systematically using the identified entry points and core modules, and provide insights that go beyond what the automated analysis discovered."""
+Please search the codebase systematically using the identified entry points and core modules. **Prioritize using codebaseRAG:search tool** for efficient semantic search when the codebase is indexed, and provide insights that go beyond what the automated analysis discovered."""
 
         return base_prompt
 
@@ -111,6 +117,12 @@ Please search the codebase systematically using the identified entry points and 
     ) -> List[base.Message]:
         """Create fallback exploration prompt when enhanced analysis fails."""
         fallback_prompt = f"""I want to explore and understand the codebase at '{directory}' but encountered some analysis limitations: {error_msg}
+
+🔧 **First Steps - Check RAG Index Status:**
+Before diving into exploration, please:
+1. Use the `check_index_status` tool to see if this codebase is already indexed in the RAG system
+2. If indexed, prioritize using `codebaseRAG:search` tool for efficient code discovery and analysis
+3. If not indexed, consider indexing the codebase first for better exploration capabilities
 
 🎯 **Exploration Request:**
 Please help me get a {detail_level} understanding of this project's structure and architecture."""
@@ -129,6 +141,6 @@ Please help me get a {detail_level} understanding of this project's structure an
 5. **Key Files Identification:** Point out the most important files to understand first
 6. **Development Approach:** Suggest the best order to explore and learn this codebase
 
-🚀 **Goal:** Provide me with actionable insights and a strategic approach to understanding this project quickly and effectively."""
+🚀 **Goal:** Provide me with actionable insights and a strategic approach to understanding this project quickly and effectively. **Prioritize using codebaseRAG:search tool** for efficient semantic search when the codebase is indexed."""
 
         return [self.create_message(fallback_prompt)]
