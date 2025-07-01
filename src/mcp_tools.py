@@ -944,7 +944,7 @@ def register_mcp_tools(mcp_app: FastMCP):
         return {"status": "ok"}
 
     @mcp_app.tool()
-    def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False, incremental: bool = False) -> Dict[str, Any]:
+    def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False, incremental: bool = False, project_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Index files in a directory with smart existing data detection and time estimation.
         
@@ -955,6 +955,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             clear_existing: Whether to clear existing indexed data (default: False)
                           If False and existing data is found, returns recommendations instead of indexing
             incremental: Whether to use incremental indexing (only process changed files) (default: False)
+            project_name: Optional custom project name for collections (default: auto-detect)
         
         Returns:
             Dictionary with indexing results, time estimates, or recommendations for existing data
@@ -984,7 +985,13 @@ def register_mcp_tools(mcp_app: FastMCP):
             if not dir_path.exists():
                 return {"error": f"Directory not found: {directory}"}
 
-            current_project = get_current_project(client_directory=str(dir_path))
+            # Use custom project name if provided, otherwise auto-detect
+            if project_name:
+                current_project = project_name.replace(" ", "_").replace("-", "_").lower()
+                logger.info(f"Using custom project name: {current_project}")
+            else:
+                current_project = get_current_project(client_directory=str(dir_path))
+                logger.info(f"Auto-detected project name: {current_project}")
             
             # Check for existing indexed data BEFORE processing
             existing_index_info = check_existing_index(current_project)
@@ -1084,11 +1091,10 @@ def register_mcp_tools(mcp_app: FastMCP):
             logger.info(f"Pre-indexing memory: {pre_index_memory['memory_mb']} MB")
             
             # Pass incremental mode and project name to indexing service
-            project_name = current_project.get('name') if current_project else None
             processed_chunks = indexing_service.process_codebase_for_indexing(
                 str(dir_path), 
                 incremental_mode=incremental,
-                project_name=project_name
+                project_name=current_project  # Use the resolved project name
             )
             
             # Get progress summary after processing
