@@ -7,13 +7,16 @@ Tests the core functionality of the MCP Prompts guided workflows system.
 import pytest
 import tempfile
 import os
+import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
+
+# Add the src directory to the Python path for imports
+sys.path.insert(0, str(Path(__file__).parent))
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
 
-from mcp_prompts import MCPPromptsSystem
 from models.prompt_context import PromptContext, UserRole, TaskType, DifficultyLevel, PromptType
 from utils.prompt_validator import PromptValidator, ValidationResult, ValidationSeverity
 from utils.prompt_error_handler import PromptErrorHandler, PromptError, ErrorCategory, ErrorSeverity

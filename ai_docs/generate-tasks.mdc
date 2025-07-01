@@ -55,6 +55,12 @@ The generated task list _must_ follow this structure:
 - [ ] 3.0 Parent Task Title (may not require sub-tasks if purely structural or configuration)
 ```
 
+## Output
+
+*   **Format:** Markdown (`.md`)
+*   **Location:** `/tasks/`
+*   **Filename:** `task-[feature-name].md`
+
 ## Interaction Model
 
 The process explicitly requires a pause after generating parent tasks to get user confirmation ("Go") before proceeding to generate the detailed sub-tasks. This ensures the high-level plan aligns with user expectations before diving into details.

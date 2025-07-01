@@ -32,9 +32,9 @@
   - [x] 1.7 編寫 Prompts 基礎架構的單元測試
 
 - [ ] 2.0 開發核心探索性 Prompts
-  - [ ] 2.1 實現 explore_project Prompt - 項目架構分析
-  - [ ] 2.2 實現 understand_component Prompt - 組件深度分析
-  - [ ] 2.3 實現 trace_functionality Prompt - 功能追蹤分析
+  - [x] 2.1 實現 explore_project Prompt - 項目架構分析
+  - [x] 2.2 實現 understand_component Prompt - 組件深度分析
+  - [x] 2.3 實現 trace_functionality Prompt - 功能追蹤分析
   - [ ] 2.4 實現 find_entry_points Prompt - 入口點識別
   - [ ] 2.5 建立項目分析結果的格式化和展示邏輯
   - [ ] 2.6 整合現有的代碼解析和搜索服務

@@ -52,7 +52,7 @@ Assume the primary reader of the PRD is a **junior developer**. Therefore, requi
 
 *   **Format:** Markdown (`.md`)
 *   **Location:** `/tasks/`
-*   **Filename:** `prd-[feature-name].md`
+*   **Filename:** `tasks-prd-[feature-name].md`
 
 ## Final instructions
 
