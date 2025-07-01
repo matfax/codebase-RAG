@@ -1472,6 +1472,220 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {
                 "error": f"Failed to get indexing progress: {str(e)}"
             }
+    
+    @mcp_app.tool()
+    def get_chunking_metrics(language: Optional[str] = None, export_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get comprehensive chunking performance metrics.
+        
+        This tool provides detailed metrics about intelligent code chunking performance,
+        including success rates per language, processing speeds, error rates, and quality metrics.
+        
+        Args:
+            language: Optional specific language to get metrics for (e.g., "python", "javascript")
+            export_path: Optional path to export detailed metrics to a JSON file
+        
+        Returns:
+            Dictionary with chunking performance metrics and statistics
+        """
+        try:
+            from services.code_parser_service import CodeParserService
+            
+            parser_service = CodeParserService()
+            
+            if language:
+                # Get language-specific metrics
+                lang_metrics = parser_service.get_language_performance(language)
+                if not lang_metrics:
+                    return {
+                        "error": f"No metrics found for language: {language}",
+                        "available_languages": list(parser_service.get_supported_languages())
+                    }
+                
+                console_logger.info(f"Retrieved metrics for {language}: "
+                                  f"{lang_metrics['success_rate']:.1f}% success rate, "
+                                  f"{lang_metrics['total_files']} files processed")
+                
+                result = {
+                    "language_metrics": lang_metrics,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+            else:
+                # Get comprehensive metrics for all languages
+                performance_report = parser_service.get_performance_summary()
+                
+                # Parse the report to extract key metrics
+                from utils.chunking_metrics_tracker import chunking_metrics_tracker
+                all_metrics = chunking_metrics_tracker.get_all_metrics()
+                
+                console_logger.info(f"Retrieved comprehensive chunking metrics: "
+                                  f"{all_metrics['global']['total_operations']} total operations, "
+                                  f"{all_metrics['global']['overall_success_rate']:.1f}% overall success rate")
+                
+                result = {
+                    "comprehensive_metrics": all_metrics,
+                    "performance_report": performance_report,
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Export metrics if requested
+            if export_path:
+                try:
+                    parser_service.export_performance_metrics(export_path)
+                    result["export_status"] = f"Metrics exported to {export_path}"
+                    console_logger.info(f"Metrics exported to {export_path}")
+                except Exception as export_error:
+                    result["export_error"] = f"Failed to export: {str(export_error)}"
+                    console_logger.error(f"Failed to export metrics: {export_error}")
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Failed to get chunking metrics: {str(e)}"
+            console_logger.error(error_msg)
+            tb_str = traceback.format_exc()
+            console_logger.error(f"Traceback: {tb_str}")
+            return {"error": error_msg}
+    
+    @mcp_app.tool()
+    def reset_chunking_metrics() -> Dict[str, Any]:
+        """
+        Reset session-specific chunking metrics.
+        
+        This tool resets the current session metrics while preserving historical data.
+        Useful for starting fresh performance measurements for a new indexing session.
+        
+        Returns:
+            Confirmation of metrics reset
+        """
+        try:
+            from services.code_parser_service import CodeParserService
+            
+            parser_service = CodeParserService()
+            parser_service.reset_session_metrics()
+            
+            console_logger.info("Chunking session metrics reset successfully")
+            
+            return {
+                "status": "success",
+                "message": "Session metrics have been reset",
+                "timestamp": datetime.now().isoformat(),
+                "note": "Historical metrics are preserved, only session counters were reset"
+            }
+            
+        except Exception as e:
+            error_msg = f"Failed to reset chunking metrics: {str(e)}"
+            console_logger.error(error_msg)
+            return {"error": error_msg}
+    
+    @mcp_app.tool()
+    def diagnose_parser_health(comprehensive: bool = False, language: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Diagnose Tree-sitter parser health and functionality.
+        
+        This tool verifies parser installations, tests parsing functionality,
+        and identifies potential issues with the intelligent chunking system.
+        
+        Args:
+            comprehensive: Run comprehensive diagnostics (slower but more detailed)
+            language: Test specific language only (e.g., "python", "javascript")
+        
+        Returns:
+            Dictionary with diagnostic results and health recommendations
+        """
+        try:
+            from utils.parser_diagnostics import parser_diagnostics
+            
+            if language:
+                # Test specific language
+                console_logger.info(f"Running parser diagnostics for {language}")
+                test_result = parser_diagnostics.test_specific_language(language)
+                
+                result = {
+                    "test_type": "specific_language",
+                    "language": language,
+                    "success": test_result.success,
+                    "parse_time_ms": test_result.parse_time_ms,
+                    "node_count": test_result.node_count,
+                    "error_count": test_result.error_count,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                if test_result.error_message:
+                    result["error_message"] = test_result.error_message
+                
+                if test_result.parsed_content:
+                    result["sample_parsed_content"] = test_result.parsed_content
+                
+                console_logger.info(f"Language test completed: {language} - "
+                                  f"{'Success' if test_result.success else 'Failed'}")
+                
+                return result
+                
+            elif comprehensive:
+                # Run comprehensive diagnostics
+                console_logger.info("Running comprehensive parser diagnostics")
+                health_report = parser_diagnostics.run_comprehensive_diagnostics()
+                
+                # Generate human-readable report
+                diagnostic_report = parser_diagnostics.generate_diagnostic_report(health_report)
+                
+                result = {
+                    "test_type": "comprehensive",
+                    "health_score": health_report.overall_health_score(),
+                    "health_status": health_report.health_status(),
+                    "tree_sitter_available": health_report.tree_sitter_available,
+                    "tree_sitter_version": health_report.tree_sitter_version,
+                    "total_languages": health_report.total_languages,
+                    "installed_languages": health_report.installed_languages,
+                    "failed_languages": health_report.failed_languages,
+                    "parsing_tests": {
+                        lang: {
+                            "success": test.success,
+                            "parse_time_ms": test.parse_time_ms,
+                            "node_count": test.node_count,
+                            "error_count": test.error_count,
+                            "error_message": test.error_message
+                        }
+                        for lang, test in health_report.parsing_tests.items()
+                    },
+                    "performance_metrics": {
+                        "average_parse_time_ms": health_report.average_parse_time_ms,
+                        "fastest_language": health_report.fastest_language,
+                        "slowest_language": health_report.slowest_language
+                    },
+                    "critical_issues": health_report.critical_issues,
+                    "warnings": health_report.warnings,
+                    "recommendations": health_report.recommendations,
+                    "test_duration_seconds": health_report.test_duration_seconds,
+                    "diagnostic_report": diagnostic_report,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                console_logger.info(f"Comprehensive diagnostics completed - "
+                                  f"Health Score: {health_report.overall_health_score():.1f}/100 "
+                                  f"({health_report.health_status()})")
+                
+                return result
+                
+            else:
+                # Quick health check
+                console_logger.info("Running quick parser health check")
+                quick_result = parser_diagnostics.run_quick_health_check()
+                
+                quick_result["test_type"] = "quick_check"
+                
+                console_logger.info(f"Quick health check completed: {quick_result.get('status', 'unknown')}")
+                
+                return quick_result
+                
+        except Exception as e:
+            error_msg = f"Parser diagnostics failed: {str(e)}"
+            console_logger.error(error_msg)
+            tb_str = traceback.format_exc()
+            console_logger.error(f"Traceback: {tb_str}")
+            return {"error": error_msg}
 
 
 def analyze_repository(directory: str = ".") -> Dict[str, Any]:

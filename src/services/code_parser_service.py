@@ -21,6 +21,7 @@ except ImportError:
 from models.code_chunk import CodeChunk, ChunkType, ParseResult, CodeSyntaxError
 from utils.file_system_utils import get_file_size, get_file_mtime
 from utils.tree_sitter_manager import TreeSitterManager
+from utils.chunking_metrics_tracker import chunking_metrics_tracker
 
 
 class CodeParserService:
@@ -235,13 +236,22 @@ class CodeParserService:
             # Enhanced logging with detailed error analysis
             self._enhance_error_logging_in_parse(file_path, language, parse_result)
             
+            # Record metrics for performance tracking
+            quality_issues_count = len(quality_issues) if 'quality_issues' in locals() else 0
+            self._record_parsing_metrics(parse_result, file_path, quality_issues_count)
+            
             return parse_result
             
         except Exception as e:
             self.logger.error(f"Critical parsing failure for {file_path}: {e}")
             # Enhanced fallback with error context
-            return self._create_fallback_result(file_path, content, start_time, error=True, 
-                                              exception_context=str(e))
+            fallback_result = self._create_fallback_result(file_path, content, start_time, error=True, 
+                                                          exception_context=str(e))
+            
+            # Record metrics for fallback case
+            self._record_parsing_metrics(fallback_result, file_path, 0)
+            
+            return fallback_result
     
     def _extract_chunks(self, root_node: Node, file_path: str, content: str, language: str) -> List[CodeChunk]:
         """
@@ -270,9 +280,13 @@ class CodeParserService:
             node_mappings = self._node_mappings.get(language, {})
             self._traverse_ast(root_node, chunks, file_path, content, content_lines, language, node_mappings)
         
-        # If no chunks were extracted, create a whole-file chunk
+        # Enhanced fallback logic - only use whole-file chunking when absolutely necessary
         if not chunks:
-            chunks.append(self._create_whole_file_chunk(file_path, content, language))
+            if self._should_use_whole_file_fallback(file_path, content, language, error_count):
+                chunks.append(self._create_whole_file_chunk(file_path, content, language))
+            else:
+                # Try alternative chunking strategies before falling back to whole-file
+                chunks = self._attempt_alternative_chunking(file_path, content, language, content_lines)
         
         return chunks
     
@@ -801,9 +815,18 @@ class CodeParserService:
         heuristic_chunks = self._recover_using_heuristics(content_lines, file_path, language, error_locations)
         chunks.extend(heuristic_chunks)
         
-        # If still no valid chunks found, create annotated whole-file chunk
+        # Enhanced fallback for error recovery - avoid whole-file when possible
         if not chunks:
-            chunks.append(self._create_error_annotated_chunk(file_path, content, language, error_locations))
+            if self._should_use_whole_file_fallback(file_path, content, language, len(error_locations)):
+                chunks.append(self._create_error_annotated_chunk(file_path, content, language, error_locations))
+            else:
+                # Try alternative chunking even with errors
+                alt_chunks = self._attempt_alternative_chunking(file_path, content, language, content_lines)
+                if alt_chunks:
+                    chunks = alt_chunks
+                else:
+                    # Last resort - create error-annotated whole-file chunk
+                    chunks.append(self._create_error_annotated_chunk(file_path, content, language, error_locations))
         else:
             # Sort chunks by line number for consistency
             chunks.sort(key=lambda c: c.start_line)
@@ -3026,3 +3049,433 @@ class CodeParserService:
                 file_path, language, parse_result.chunks, 
                 parse_result.processing_time_ms, False
             )
+    
+    def _record_parsing_metrics(self, parse_result: ParseResult, file_path: str, 
+                              quality_issues_count: int) -> None:
+        """
+        Record comprehensive parsing metrics for performance monitoring.
+        
+        Args:
+            parse_result: Result of the parsing operation
+            file_path: Path to the parsed file
+            quality_issues_count: Number of quality issues found during validation
+        """
+        try:
+            # Get file size
+            file_size_bytes = 0
+            try:
+                import os
+                file_size_bytes = os.path.getsize(file_path)
+            except Exception:
+                pass  # File size optional
+            
+            # Count repaired chunks
+            repaired_chunks = 0
+            for chunk in parse_result.chunks:
+                if chunk.tags and any("repaired" in tag for tag in chunk.tags):
+                    repaired_chunks += 1
+            
+            # Record the metrics
+            chunking_metrics_tracker.record_parsing_operation(
+                parse_result=parse_result,
+                file_size_bytes=file_size_bytes,
+                quality_issues=quality_issues_count,
+                repaired_chunks=repaired_chunks
+            )
+            
+        except Exception as e:
+            self.logger.debug(f"Failed to record metrics for {file_path}: {e}")
+    
+    def get_performance_summary(self) -> str:
+        """
+        Get a performance summary report for the current session.
+        
+        Returns:
+            Human-readable performance report
+        """
+        return chunking_metrics_tracker.get_performance_report()
+    
+    def get_language_performance(self, language: str) -> Optional[Dict[str, Any]]:
+        """
+        Get performance metrics for a specific language.
+        
+        Args:
+            language: Programming language name
+            
+        Returns:
+            Dictionary with language-specific metrics, or None if not found
+        """
+        lang_metrics = chunking_metrics_tracker.get_language_metrics(language)
+        if not lang_metrics:
+            return None
+        
+        return {
+            "language": language,
+            "total_files": lang_metrics.total_files,
+            "success_rate": lang_metrics.success_rate(),
+            "recent_success_rate": lang_metrics.recent_success_rate(),
+            "average_chunks_per_file": lang_metrics.average_chunks_per_file(),
+            "average_processing_time_ms": lang_metrics.average_processing_time_ms(),
+            "chunks_per_second": lang_metrics.chunks_per_second(),
+            "fallback_rate": (lang_metrics.fallback_files / max(1, lang_metrics.total_files)) * 100,
+            "error_recovery_rate": (lang_metrics.error_recovery_files / max(1, lang_metrics.total_files)) * 100,
+            "total_chunks": lang_metrics.total_chunks,
+            "total_errors": lang_metrics.total_errors,
+            "chunk_types_distribution": dict(lang_metrics.chunk_types),
+            "quality_issues": lang_metrics.quality_issues,
+            "repaired_chunks": lang_metrics.repaired_chunks
+        }
+    
+    def export_performance_metrics(self, export_path: str) -> None:
+        """
+        Export performance metrics to a file.
+        
+        Args:
+            export_path: Path to export the metrics file
+        """
+        chunking_metrics_tracker.export_metrics(export_path)
+        self.logger.info(f"Performance metrics exported to {export_path}")
+    
+    def reset_session_metrics(self) -> None:
+        """Reset session-specific performance metrics."""
+        chunking_metrics_tracker.reset_session_metrics()
+        self.logger.info("Session performance metrics reset")
+    
+    def _should_use_whole_file_fallback(self, file_path: str, content: str, 
+                                       language: str, error_count: int) -> bool:
+        """
+        Determine if whole-file chunking should be used as a last resort.
+        
+        This method implements intelligent fallback logic to minimize the use
+        of whole-file chunks, which are less useful for semantic search.
+        
+        Args:
+            file_path: Path to the source file
+            content: File content
+            language: Programming language
+            error_count: Number of parse errors detected
+            
+        Returns:
+            True if whole-file chunking should be used, False to try alternatives
+        """
+        lines = content.split('\n')
+        line_count = len(lines)
+        
+        # Always use whole-file for very small files (< 10 lines)
+        if line_count < 10:
+            self.logger.debug(f"Using whole-file for small file: {file_path} ({line_count} lines)")
+            return True
+        
+        # Use whole-file for very large files that might overwhelm alternative chunking
+        if line_count > 5000:
+            self.logger.debug(f"Using whole-file for very large file: {file_path} ({line_count} lines)")
+            return True
+        
+        # Check if content is mostly non-code (comments, whitespace, etc.)
+        code_lines = self._count_code_lines(content, language)
+        if code_lines < line_count * 0.1:  # Less than 10% actual code
+            self.logger.debug(f"Using whole-file for mostly non-code file: {file_path} "
+                            f"({code_lines}/{line_count} code lines)")
+            return True
+        
+        # Use whole-file if error rate is extremely high (> 50% of lines have errors)
+        if error_count > line_count * 0.5:
+            self.logger.debug(f"Using whole-file for heavily corrupted file: {file_path} "
+                            f"({error_count} errors in {line_count} lines)")
+            return True
+        
+        # Check for specific file patterns that are better as whole-file
+        file_name = Path(file_path).name.lower()
+        
+        # Configuration files, data files, etc.
+        if any(pattern in file_name for pattern in [
+            'config', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini',
+            'package.json', 'requirements.txt', 'dockerfile', 'makefile'
+        ]):
+            self.logger.debug(f"Using whole-file for configuration file: {file_path}")
+            return True
+        
+        # Generated files or minified code
+        if any(pattern in file_name for pattern in [
+            '.min.', '.bundle.', '.generated.', '.auto.', '_pb2.py'
+        ]):
+            self.logger.debug(f"Using whole-file for generated/minified file: {file_path}")
+            return True
+        
+        # For unknown or unsupported languages, be more conservative
+        if language == "unknown" or language not in self._node_mappings:
+            if line_count > 100:  # Use whole-file for larger unknown files
+                self.logger.debug(f"Using whole-file for unknown language file: {file_path}")
+                return True
+        
+        # Default: try alternatives before whole-file
+        self.logger.debug(f"Attempting alternatives before whole-file for: {file_path}")
+        return False
+    
+    def _count_code_lines(self, content: str, language: str) -> int:
+        """
+        Count lines that appear to contain actual code (not just comments/whitespace).
+        
+        Args:
+            content: File content
+            language: Programming language
+            
+        Returns:
+            Number of lines that appear to contain code
+        """
+        lines = content.split('\n')
+        code_lines = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip empty lines
+            if not stripped:
+                continue
+            
+            # Language-specific comment detection
+            is_comment = False
+            if language == 'python':
+                is_comment = stripped.startswith('#')
+            elif language in ['javascript', 'typescript', 'java', 'cpp', 'go', 'rust']:
+                is_comment = stripped.startswith('//') or stripped.startswith('/*')
+            elif language == 'html':
+                is_comment = stripped.startswith('<!--')
+            elif language == 'css':
+                is_comment = stripped.startswith('/*')
+            
+            # Count as code if it's not a comment and has some substance
+            if not is_comment and len(stripped) > 2:
+                code_lines += 1
+        
+        return code_lines
+    
+    def _attempt_alternative_chunking(self, file_path: str, content: str, 
+                                    language: str, content_lines: List[str]) -> List[CodeChunk]:
+        """
+        Attempt alternative chunking strategies before falling back to whole-file.
+        
+        Args:
+            file_path: Path to the source file
+            content: File content
+            language: Programming language  
+            content_lines: File content split by lines
+            
+        Returns:
+            List of alternative chunks, empty if no alternatives found
+        """
+        chunks = []
+        
+        self.logger.info(f"Attempting alternative chunking for {file_path}")
+        
+        # Strategy 1: Line-based chunking for structured content
+        line_chunks = self._create_line_based_chunks(file_path, content_lines, language)
+        if line_chunks:
+            chunks.extend(line_chunks)
+        
+        # Strategy 2: Pattern-based chunking for known structures
+        pattern_chunks = self._create_pattern_based_chunks(file_path, content, language)
+        if pattern_chunks:
+            chunks.extend(pattern_chunks)
+        
+        # Strategy 3: Paragraph-based chunking for documentation
+        if self._is_documentation_file(file_path):
+            para_chunks = self._create_paragraph_chunks(file_path, content, language)
+            if para_chunks:
+                chunks.extend(para_chunks)
+        
+        # Strategy 4: Import/export chunking for module files
+        if language in ['javascript', 'typescript', 'python']:
+            import_chunks = self._create_import_export_chunks(file_path, content_lines, language)
+            if import_chunks:
+                chunks.extend(import_chunks)
+        
+        # Filter out very small chunks (< 3 lines) that aren't meaningful
+        meaningful_chunks = [
+            chunk for chunk in chunks 
+            if chunk.end_line - chunk.start_line + 1 >= 3 or 
+            chunk.chunk_type in [ChunkType.IMPORT, ChunkType.EXPORT, ChunkType.CONSTANT]
+        ]
+        
+        if meaningful_chunks:
+            self.logger.info(f"Created {len(meaningful_chunks)} alternative chunks for {file_path}")
+            return meaningful_chunks
+        
+        self.logger.warning(f"No meaningful alternative chunks found for {file_path}")
+        return []
+    
+    def _create_line_based_chunks(self, file_path: str, content_lines: List[str], 
+                                language: str) -> List[CodeChunk]:
+        """Create chunks based on logical line groupings."""
+        chunks = []
+        chunk_size = 50  # Lines per chunk
+        
+        if len(content_lines) < chunk_size * 2:  # Don't chunk small files
+            return []
+        
+        for i in range(0, len(content_lines), chunk_size):
+            end_idx = min(i + chunk_size, len(content_lines))
+            chunk_content = '\n'.join(content_lines[i:end_idx])
+            
+            if chunk_content.strip():  # Only create non-empty chunks
+                chunk = self._create_alternative_chunk(
+                    chunk_content, file_path, language, i + 1, end_idx,
+                    ChunkType.VARIABLE, f"lines_{i+1}_{end_idx}"
+                )
+                chunks.append(chunk)
+        
+        return chunks
+    
+    def _create_pattern_based_chunks(self, file_path: str, content: str, 
+                                   language: str) -> List[CodeChunk]:
+        """Create chunks based on common code patterns."""
+        chunks = []
+        lines = content.split('\n')
+        
+        # Look for function-like patterns even without proper AST parsing
+        if language == 'python':
+            patterns = [r'^\s*def\s+\w+', r'^\s*class\s+\w+', r'^\s*@\w+']
+        elif language in ['javascript', 'typescript']:
+            patterns = [r'^\s*function\s+\w+', r'^\s*const\s+\w+\s*=', r'^\s*class\s+\w+']
+        elif language == 'java':
+            patterns = [r'^\s*public\s+\w+', r'^\s*private\s+\w+', r'^\s*class\s+\w+']
+        else:
+            return []  # No patterns for this language
+        
+        import re
+        
+        current_chunk_start = None
+        current_chunk_lines = []
+        
+        for i, line in enumerate(lines):
+            is_pattern_start = any(re.match(pattern, line) for pattern in patterns)
+            
+            if is_pattern_start:
+                # Save previous chunk if exists
+                if current_chunk_start is not None and current_chunk_lines:
+                    chunk_content = '\n'.join(current_chunk_lines)
+                    chunk = self._create_alternative_chunk(
+                        chunk_content, file_path, language,
+                        current_chunk_start + 1, current_chunk_start + len(current_chunk_lines),
+                        ChunkType.FUNCTION, f"pattern_{current_chunk_start+1}"
+                    )
+                    chunks.append(chunk)
+                
+                # Start new chunk
+                current_chunk_start = i
+                current_chunk_lines = [line]
+            elif current_chunk_start is not None:
+                current_chunk_lines.append(line)
+                
+                # End chunk if we hit a blank line and have some content
+                if not line.strip() and len(current_chunk_lines) > 5:
+                    chunk_content = '\n'.join(current_chunk_lines)
+                    chunk = self._create_alternative_chunk(
+                        chunk_content, file_path, language,
+                        current_chunk_start + 1, current_chunk_start + len(current_chunk_lines),
+                        ChunkType.FUNCTION, f"pattern_{current_chunk_start+1}"
+                    )
+                    chunks.append(chunk)
+                    current_chunk_start = None
+                    current_chunk_lines = []
+        
+        # Handle final chunk
+        if current_chunk_start is not None and current_chunk_lines:
+            chunk_content = '\n'.join(current_chunk_lines)
+            chunk = self._create_alternative_chunk(
+                chunk_content, file_path, language,
+                current_chunk_start + 1, current_chunk_start + len(current_chunk_lines),
+                ChunkType.FUNCTION, f"pattern_{current_chunk_start+1}"
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _create_paragraph_chunks(self, file_path: str, content: str, 
+                               language: str) -> List[CodeChunk]:
+        """Create chunks based on paragraph breaks for documentation."""
+        chunks = []
+        paragraphs = content.split('\n\n')
+        
+        current_line = 1
+        for i, paragraph in enumerate(paragraphs):
+            if paragraph.strip():
+                lines_in_para = paragraph.count('\n') + 1
+                chunk = self._create_alternative_chunk(
+                    paragraph, file_path, language,
+                    current_line, current_line + lines_in_para - 1,
+                    ChunkType.DOCSTRING, f"paragraph_{i+1}"
+                )
+                chunks.append(chunk)
+                current_line += lines_in_para + 1  # +1 for the empty line
+            else:
+                current_line += 1
+        
+        return chunks
+    
+    def _create_import_export_chunks(self, file_path: str, content_lines: List[str], 
+                                   language: str) -> List[CodeChunk]:
+        """Create chunks for import/export statements and module-level code."""
+        chunks = []
+        
+        import_lines = []
+        other_lines = []
+        
+        for i, line in enumerate(content_lines):
+            stripped = line.strip()
+            
+            if language == 'python':
+                is_import = stripped.startswith(('import ', 'from '))
+            elif language in ['javascript', 'typescript']:
+                is_import = stripped.startswith(('import ', 'export ', 'const ', 'let ', 'var '))
+            else:
+                is_import = False
+            
+            if is_import:
+                import_lines.append((i, line))
+            else:
+                other_lines.append((i, line))
+        
+        # Create import chunk if we have imports
+        if import_lines:
+            import_content = '\n'.join(line for _, line in import_lines)
+            first_line = import_lines[0][0] + 1
+            last_line = import_lines[-1][0] + 1
+            
+            chunk = self._create_alternative_chunk(
+                import_content, file_path, language, first_line, last_line,
+                ChunkType.IMPORT, "imports"
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _is_documentation_file(self, file_path: str) -> bool:
+        """Check if file appears to be documentation."""
+        file_name = Path(file_path).name.lower()
+        return any(ext in file_name for ext in ['.md', '.rst', '.txt', 'readme', 'license'])
+    
+    def _create_alternative_chunk(self, content: str, file_path: str, language: str,
+                                start_line: int, end_line: int, chunk_type: ChunkType,
+                                name_suffix: str) -> CodeChunk:
+        """Create an alternative chunk with proper metadata."""
+        chunk_id = self._generate_chunk_id(file_path, start_line, end_line, chunk_type)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        return CodeChunk(
+            chunk_id=chunk_id,
+            file_path=file_path,
+            content=content,
+            chunk_type=chunk_type,
+            language=language,
+            start_line=start_line,
+            end_line=end_line,
+            start_byte=0,  # Approximate
+            end_byte=len(content),
+            name=f"alt_{chunk_type.value}_{name_suffix}",
+            breadcrumb=f"{Path(file_path).stem}.alt_{chunk_type.value}_{name_suffix}",
+            content_hash=content_hash,
+            embedding_text=content,
+            indexed_at=datetime.now(),
+            tags=["alternative_chunking", chunk_type.value, "smart_fallback"]
+        )

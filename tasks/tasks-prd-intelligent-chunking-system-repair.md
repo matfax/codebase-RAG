@@ -12,6 +12,10 @@
 - `src/utils/tree_sitter_manager.test.py` - Unit tests for Tree-sitter manager
 - `src/utils/language_registry.py` - New centralized language support registry
 - `src/utils/language_registry.test.py` - Unit tests for language registry
+- `src/utils/chunking_metrics_tracker.py` - Comprehensive metrics tracking for chunking performance
+- `src/utils/chunking_metrics_tracker.test.py` - Unit tests for metrics tracker
+- `src/utils/parser_diagnostics.py` - Tree-sitter parser health diagnostics and testing
+- `src/utils/parser_diagnostics.test.py` - Unit tests for parser diagnostics
 - `manual_indexing.py` - Manual indexing tool that needs chunking validation
 - `src/mcp_tools.py` - MCP tools that trigger indexing workflows
 
@@ -49,14 +53,14 @@
   - [x] 3.5 Create comprehensive test cases for C++ header (.hpp) and source (.cpp) files
   - [x] 3.6 Validate C++ template and namespace parsing works correctly
 
-- [ ] 4.0 Enhance Error Handling and Fallback Mechanisms
+- [x] 4.0 Enhance Error Handling and Fallback Mechanisms
   - [x] 4.1 Create LanguageRegistry utility to centralize language support information
   - [x] 4.2 Improve syntax error recovery in CodeParserService.parse_file()
   - [x] 4.3 Add detailed logging for parse failures with specific error types and locations
   - [x] 4.4 Implement chunking quality validation (ensure chunks have valid boundaries)
-  - [ ] 4.5 Add metrics tracking for chunking success rates per language
-  - [ ] 4.6 Create diagnostic tools to verify Tree-sitter parser health
-  - [ ] 4.7 Update fallback logic to only use whole-file chunking when absolutely necessary
+  - [x] 4.5 Add metrics tracking for chunking success rates per language
+  - [x] 4.6 Create diagnostic tools to verify Tree-sitter parser health
+  - [x] 4.7 Update fallback logic to only use whole-file chunking when absolutely necessary
 
 - [ ] 5.0 System Cleanup and Data Migration
   - [ ] 5.1 Create data migration script to identify and remove invalid whole-file chunks
