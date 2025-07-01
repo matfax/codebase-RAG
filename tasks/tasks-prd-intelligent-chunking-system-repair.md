@@ -50,10 +50,10 @@
   - [x] 3.6 Validate C++ template and namespace parsing works correctly
 
 - [ ] 4.0 Enhance Error Handling and Fallback Mechanisms
-  - [ ] 4.1 Create LanguageRegistry utility to centralize language support information
-  - [ ] 4.2 Improve syntax error recovery in CodeParserService.parse_file()
-  - [ ] 4.3 Add detailed logging for parse failures with specific error types and locations
-  - [ ] 4.4 Implement chunking quality validation (ensure chunks have valid boundaries)
+  - [x] 4.1 Create LanguageRegistry utility to centralize language support information
+  - [x] 4.2 Improve syntax error recovery in CodeParserService.parse_file()
+  - [x] 4.3 Add detailed logging for parse failures with specific error types and locations
+  - [x] 4.4 Implement chunking quality validation (ensure chunks have valid boundaries)
   - [ ] 4.5 Add metrics tracking for chunking success rates per language
   - [ ] 4.6 Create diagnostic tools to verify Tree-sitter parser health
   - [ ] 4.7 Update fallback logic to only use whole-file chunking when absolutely necessary

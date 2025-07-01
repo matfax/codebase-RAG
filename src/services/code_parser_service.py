@@ -177,12 +177,18 @@ class CodeParserService:
                 self.logger.error(f"Failed to read file {file_path}: {e}")
                 return self._create_fallback_result(file_path, "", start_time, error=True)
         
-        # Parse the content
+        # Parse the content with enhanced error recovery
         try:
             parser = self._parsers[language]
             tree = parser.parse(bytes(content, 'utf8'))
             
-            # Extract chunks from the AST
+            # Validate parser state and tree structure
+            if not self._validate_parse_tree(tree, file_path):
+                self.logger.warning(f"Invalid parse tree for {file_path}, attempting recovery")
+                # Try alternative parsing approaches
+                tree = self._attempt_parse_recovery(parser, content, file_path, language)
+            
+            # Extract chunks from the AST with enhanced error handling
             chunks = self._extract_chunks(tree.root_node, file_path, content, language)
             
             # Calculate processing time
@@ -193,12 +199,28 @@ class CodeParserService:
             parse_success = error_count == 0
             syntax_errors = self._collect_detailed_errors(tree.root_node, content.split('\n'), language)
             
-            # Determine if error recovery was used
+            # Enhanced error classification and recovery assessment
             error_recovery_used = error_count > 0 and len(chunks) > 0
             valid_sections_count = len(chunks) if error_recovery_used else 0
             
-            return ParseResult(
-                chunks=chunks,
+            # Log detailed recovery statistics
+            if error_recovery_used:
+                recovery_rate = len(chunks) / max(1, error_count + len(chunks))
+                self.logger.info(f"Error recovery for {file_path}: {len(chunks)} chunks recovered "
+                               f"from {error_count} errors (recovery rate: {recovery_rate:.2%})")
+            
+            # Comprehensive chunk quality validation
+            validated_chunks, quality_issues = self._validate_chunk_quality(chunks, content.split('\n'), language)
+            
+            # Log quality issues if any
+            if quality_issues:
+                self.logger.warning(f"Chunk quality issues found in {file_path}:")
+                for issue in quality_issues:
+                    self.logger.warning(f"  - {issue}")
+            
+            # Create parse result
+            parse_result = ParseResult(
+                chunks=validated_chunks,
                 file_path=file_path,
                 language=language,
                 parse_success=parse_success,
@@ -210,9 +232,16 @@ class CodeParserService:
                 valid_sections_count=valid_sections_count
             )
             
+            # Enhanced logging with detailed error analysis
+            self._enhance_error_logging_in_parse(file_path, language, parse_result)
+            
+            return parse_result
+            
         except Exception as e:
-            self.logger.error(f"Failed to parse {file_path}: {e}")
-            return self._create_fallback_result(file_path, content, start_time, error=True)
+            self.logger.error(f"Critical parsing failure for {file_path}: {e}")
+            # Enhanced fallback with error context
+            return self._create_fallback_result(file_path, content, start_time, error=True, 
+                                              exception_context=str(e))
     
     def _extract_chunks(self, root_node: Node, file_path: str, content: str, language: str) -> List[CodeChunk]:
         """
@@ -1019,18 +1048,32 @@ class CodeParserService:
         )
     
     def _create_fallback_result(self, file_path: str, content: Optional[str], 
-                              start_time: float, error: bool = False) -> ParseResult:
+                              start_time: float, error: bool = False, 
+                              exception_context: Optional[str] = None) -> ParseResult:
         """Create a fallback ParseResult with whole-file chunk."""
         if content is None:
             content = ""
         
         processing_time = (time.time() - start_time) * 1000
         
-        # Create a single whole-file chunk
+        # Create a single whole-file chunk with enhanced error context
         chunks = []
         if content:
             language = self.detect_language(file_path) or "unknown"
-            chunks.append(self._create_whole_file_chunk(file_path, content, language))
+            chunks.append(self._create_whole_file_chunk(file_path, content, language, exception_context))
+        
+        # Create syntax error details if we have exception context
+        syntax_errors = []
+        if exception_context:
+            syntax_errors.append(CodeSyntaxError(
+                start_line=1,
+                end_line=len(content.split('\n')) if content else 1,
+                start_column=0,
+                end_column=0,
+                error_type="parsing_exception",
+                context=f"Exception during parsing: {exception_context}",
+                severity="critical"
+            ))
         
         return ParseResult(
             chunks=chunks,
@@ -1039,14 +1082,21 @@ class CodeParserService:
             parse_success=not error,
             error_count=1 if error else 0,
             fallback_used=True,
-            processing_time_ms=processing_time
+            processing_time_ms=processing_time,
+            syntax_errors=syntax_errors
         )
     
-    def _create_whole_file_chunk(self, file_path: str, content: str, language: str) -> CodeChunk:
+    def _create_whole_file_chunk(self, file_path: str, content: str, language: str, 
+                               exception_context: Optional[str] = None) -> CodeChunk:
         """Create a whole-file chunk as fallback."""
         lines = content.split('\n')
         chunk_id = self._generate_chunk_id(file_path, 1, len(lines), ChunkType.WHOLE_FILE)
         content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        # Create enhanced tags with exception context
+        tags = ["whole_file", "fallback"]
+        if exception_context:
+            tags.extend(["parsing_exception", "critical_error"])
         
         return CodeChunk(
             chunk_id=chunk_id,
@@ -1061,7 +1111,8 @@ class CodeParserService:
             breadcrumb=Path(file_path).stem,
             content_hash=content_hash,
             embedding_text=content,
-            indexed_at=datetime.now()
+            indexed_at=datetime.now(),
+            tags=tags
         )
     
     # Python-specific parsing methods
@@ -2492,3 +2543,486 @@ class CodeParserService:
             indexed_at=datetime.now(),
             tags=["heuristic_recovery", chunk_type.value]
         )
+    
+    def _validate_parse_tree(self, tree, file_path: str) -> bool:
+        """
+        Validate that the parse tree is well-formed and usable.
+        
+        Args:
+            tree: Tree-sitter parse tree
+            file_path: Path to the source file for logging
+            
+        Returns:
+            True if tree is valid, False if recovery is needed
+        """
+        if not tree or not tree.root_node:
+            self.logger.warning(f"Parse tree missing root node for {file_path}")
+            return False
+        
+        # Check for completely malformed trees (all ERROR nodes)
+        if tree.root_node.type == 'ERROR' and not tree.root_node.children:
+            self.logger.warning(f"Parse tree is entirely error nodes for {file_path}")
+            return False
+        
+        # Check for minimal structure - ensure we have some valid nodes
+        valid_nodes = self._count_valid_nodes(tree.root_node)
+        error_nodes = self._count_errors(tree.root_node)
+        
+        # If error ratio is too high, consider recovery
+        if error_nodes > 0 and valid_nodes > 0:
+            error_ratio = error_nodes / (valid_nodes + error_nodes)
+            if error_ratio > 0.8:  # More than 80% errors
+                self.logger.warning(f"High error ratio ({error_ratio:.2%}) in parse tree for {file_path}")
+                return False
+        
+        return True
+    
+    def _count_valid_nodes(self, node: Node) -> int:
+        """Count non-error nodes in the AST."""
+        count = 0 if node.type == 'ERROR' else 1
+        for child in node.children:
+            count += self._count_valid_nodes(child)
+        return count
+    
+    def _attempt_parse_recovery(self, parser: Parser, content: str, file_path: str, language: str):
+        """
+        Attempt alternative parsing strategies for recovery.
+        
+        Args:
+            parser: Tree-sitter parser
+            content: File content
+            file_path: Path to source file
+            language: Programming language
+            
+        Returns:
+            Recovered parse tree or original tree if recovery fails
+        """
+        self.logger.info(f"Attempting parse recovery for {file_path}")
+        
+        # Strategy 1: Try parsing with relaxed encoding
+        try:
+            # Try different encodings
+            for encoding in ['utf-8', 'latin1', 'cp1252']:
+                try:
+                    encoded_content = content.encode(encoding, errors='replace')
+                    recovery_tree = parser.parse(encoded_content)
+                    if self._validate_parse_tree(recovery_tree, file_path):
+                        self.logger.info(f"Parse recovery successful with {encoding} encoding for {file_path}")
+                        return recovery_tree
+                except Exception:
+                    continue
+        except Exception as e:
+            self.logger.debug(f"Encoding recovery failed for {file_path}: {e}")
+        
+        # Strategy 2: Try parsing with comment removal (may help with malformed comments)
+        try:
+            cleaned_content = self._remove_problematic_content(content, language)
+            recovery_tree = parser.parse(bytes(cleaned_content, 'utf8'))
+            if self._validate_parse_tree(recovery_tree, file_path):
+                self.logger.info(f"Parse recovery successful with content cleaning for {file_path}")
+                return recovery_tree
+        except Exception as e:
+            self.logger.debug(f"Content cleaning recovery failed for {file_path}: {e}")
+        
+        # Strategy 3: Return original tree and let error handling deal with it
+        self.logger.warning(f"Parse recovery failed for {file_path}, using original tree")
+        return parser.parse(bytes(content, 'utf8'))
+    
+    def _remove_problematic_content(self, content: str, language: str) -> str:
+        """
+        Remove potentially problematic content that might cause parsing issues.
+        
+        Args:
+            content: Original file content
+            language: Programming language
+            
+        Returns:
+            Cleaned content with problematic elements removed/replaced
+        """
+        lines = content.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            cleaned_line = line
+            
+            # Language-specific cleaning
+            if language == 'python':
+                # Remove potentially malformed string literals
+                if line.strip().startswith('#'):
+                    cleaned_line = line  # Keep comments as-is
+                elif '"""' in line or "'''" in line:
+                    # Handle malformed docstrings
+                    if line.count('"""') % 2 == 1 or line.count("'''") % 2 == 1:
+                        cleaned_line = line.replace('"""', '"').replace("'''", "'")
+            
+            elif language in ['javascript', 'typescript']:
+                # Handle malformed template literals
+                if '`' in line and line.count('`') % 2 == 1:
+                    cleaned_line = line.replace('`', '"')
+            
+            cleaned_lines.append(cleaned_line)
+        
+        return '\n'.join(cleaned_lines)
+    
+    def _validate_chunk_boundaries(self, chunks: List[CodeChunk], content_lines: List[str]) -> List[CodeChunk]:
+        """
+        Validate and fix chunk boundaries to ensure they don't exceed file bounds.
+        
+        Args:
+            chunks: List of extracted chunks
+            content_lines: File content split by lines
+            
+        Returns:
+            List of validated chunks with corrected boundaries
+        """
+        validated_chunks = []
+        max_line = len(content_lines)
+        
+        for chunk in chunks:
+            # Validate line boundaries
+            start_line = max(1, min(chunk.start_line, max_line))
+            end_line = max(start_line, min(chunk.end_line, max_line))
+            
+            # Create corrected chunk if boundaries changed
+            if start_line != chunk.start_line or end_line != chunk.end_line:
+                self.logger.debug(f"Corrected chunk boundaries from {chunk.start_line}-{chunk.end_line} "
+                                f"to {start_line}-{end_line} for {chunk.file_path}")
+                
+                # Recalculate content based on corrected boundaries
+                corrected_content = '\n'.join(content_lines[start_line-1:end_line])
+                corrected_chunk = CodeChunk(
+                    chunk_id=chunk.chunk_id,
+                    file_path=chunk.file_path,
+                    content=corrected_content,
+                    chunk_type=chunk.chunk_type,
+                    language=chunk.language,
+                    start_line=start_line,
+                    end_line=end_line,
+                    start_byte=chunk.start_byte,
+                    end_byte=chunk.end_byte,
+                    name=chunk.name,
+                    breadcrumb=chunk.breadcrumb,
+                    content_hash=hashlib.sha256(corrected_content.encode('utf-8')).hexdigest(),
+                    embedding_text=corrected_content,
+                    indexed_at=chunk.indexed_at,
+                    tags=chunk.tags + ["boundary_corrected"]
+                )
+                validated_chunks.append(corrected_chunk)
+            else:
+                validated_chunks.append(chunk)
+        
+        return validated_chunks
+    
+    def _validate_chunk_quality(self, chunks: List[CodeChunk], content_lines: List[str], 
+                               language: str) -> Tuple[List[CodeChunk], List[str]]:
+        """
+        Comprehensive chunk quality validation with detailed quality metrics.
+        
+        Args:
+            chunks: List of extracted chunks
+            content_lines: File content split by lines
+            language: Programming language
+            
+        Returns:
+            Tuple of (validated_chunks, quality_issues)
+        """
+        validated_chunks = []
+        quality_issues = []
+        
+        for i, chunk in enumerate(chunks):
+            issues = []
+            
+            # 1. Boundary validation
+            if chunk.start_line < 1 or chunk.end_line > len(content_lines):
+                issues.append(f"Invalid line boundaries: {chunk.start_line}-{chunk.end_line}")
+            
+            # 2. Content consistency validation
+            if chunk.start_line <= len(content_lines) and chunk.end_line <= len(content_lines):
+                expected_content = '\n'.join(content_lines[chunk.start_line-1:chunk.end_line])
+                if chunk.content != expected_content:
+                    issues.append("Content mismatch with file lines")
+            
+            # 3. Language-specific validation
+            lang_issues = self._validate_chunk_language_specific(chunk, language)
+            issues.extend(lang_issues)
+            
+            # 4. Chunk overlap detection
+            overlap_issues = self._detect_chunk_overlaps(chunk, chunks[:i], chunks[i+1:])
+            issues.extend(overlap_issues)
+            
+            # 5. Content quality validation
+            content_issues = self._validate_chunk_content_quality(chunk, language)
+            issues.extend(content_issues)
+            
+            if issues:
+                quality_issues.extend([f"Chunk {i+1} ({chunk.chunk_type.value}): {issue}" for issue in issues])
+                
+                # Try to fix fixable issues
+                fixed_chunk = self._attempt_chunk_repair(chunk, content_lines, issues)
+                if fixed_chunk:
+                    validated_chunks.append(fixed_chunk)
+                else:
+                    self.logger.warning(f"Chunk {i+1} has unfixable quality issues: {issues}")
+                    # Include with quality warning tags
+                    chunk.tags = (chunk.tags or []) + ["quality_issues"]
+                    validated_chunks.append(chunk)
+            else:
+                validated_chunks.append(chunk)
+        
+        return validated_chunks, quality_issues
+    
+    def _validate_chunk_language_specific(self, chunk: CodeChunk, language: str) -> List[str]:
+        """Validate chunk based on language-specific rules."""
+        issues = []
+        
+        if language == 'python':
+            # Check Python indentation consistency
+            if chunk.chunk_type in [ChunkType.FUNCTION, ChunkType.CLASS]:
+                lines = chunk.content.split('\n')
+                if len(lines) > 1:
+                    # Check if first line has proper definition structure
+                    first_line = lines[0].strip()
+                    if chunk.chunk_type == ChunkType.FUNCTION and not first_line.startswith('def '):
+                        issues.append("Python function chunk doesn't start with 'def'")
+                    elif chunk.chunk_type == ChunkType.CLASS and not first_line.startswith('class '):
+                        issues.append("Python class chunk doesn't start with 'class'")
+        
+        elif language in ['javascript', 'typescript']:
+            # Check JavaScript/TypeScript brace balance
+            if chunk.chunk_type in [ChunkType.FUNCTION, ChunkType.CLASS]:
+                brace_count = chunk.content.count('{') - chunk.content.count('}')
+                if abs(brace_count) > 1:  # Allow for small imbalances due to chunking
+                    issues.append(f"Unbalanced braces (difference: {brace_count})")
+        
+        elif language == 'java':
+            # Check Java class/method structure
+            if chunk.chunk_type == ChunkType.CLASS:
+                if 'class ' not in chunk.content and 'interface ' not in chunk.content:
+                    issues.append("Java class chunk missing class/interface declaration")
+        
+        return issues
+    
+    def _detect_chunk_overlaps(self, chunk: CodeChunk, before_chunks: List[CodeChunk], 
+                             after_chunks: List[CodeChunk]) -> List[str]:
+        """Detect overlapping chunks."""
+        issues = []
+        
+        for other_chunk in before_chunks + after_chunks:
+            # Check line overlap
+            if (chunk.start_line <= other_chunk.end_line and 
+                chunk.end_line >= other_chunk.start_line):
+                overlap_start = max(chunk.start_line, other_chunk.start_line)
+                overlap_end = min(chunk.end_line, other_chunk.end_line)
+                issues.append(f"Overlaps with {other_chunk.chunk_type.value} chunk at lines {overlap_start}-{overlap_end}")
+        
+        return issues
+    
+    def _validate_chunk_content_quality(self, chunk: CodeChunk, language: str) -> List[str]:
+        """Validate the quality of chunk content."""
+        issues = []
+        
+        # 1. Check for empty or whitespace-only content
+        if not chunk.content.strip():
+            issues.append("Empty or whitespace-only content")
+        
+        # 2. Check for reasonable size bounds
+        lines = chunk.content.split('\n')
+        if len(lines) > 1000:  # Very large chunk
+            issues.append(f"Unusually large chunk ({len(lines)} lines)")
+        elif len(lines) == 1 and chunk.chunk_type not in [ChunkType.IMPORT, ChunkType.CONSTANT]:
+            issues.append("Single-line chunk for multi-line construct")
+        
+        # 3. Check for incomplete constructs based on chunk type
+        if chunk.chunk_type == ChunkType.FUNCTION:
+            if not self._validate_function_completeness(chunk.content, language):
+                issues.append("Incomplete function definition")
+        elif chunk.chunk_type == ChunkType.CLASS:
+            if not self._validate_class_completeness(chunk.content, language):
+                issues.append("Incomplete class definition")
+        
+        return issues
+    
+    def _validate_function_completeness(self, content: str, language: str) -> bool:
+        """Check if function chunk appears to be complete."""
+        if language == 'python':
+            # Check for def keyword and basic structure
+            return 'def ' in content and ':' in content
+        elif language in ['javascript', 'typescript']:
+            # Check for function keyword or arrow function
+            return ('function' in content or '=>' in content) and '{' in content
+        elif language == 'java':
+            # Check for method signature with braces
+            return '{' in content and '}' in content
+        return True  # Default to valid for unknown patterns
+    
+    def _validate_class_completeness(self, content: str, language: str) -> bool:
+        """Check if class chunk appears to be complete."""
+        if language == 'python':
+            return 'class ' in content and ':' in content
+        elif language in ['javascript', 'typescript']:
+            return 'class ' in content and '{' in content
+        elif language == 'java':
+            return ('class ' in content or 'interface ' in content) and '{' in content
+        return True
+    
+    def _attempt_chunk_repair(self, chunk: CodeChunk, content_lines: List[str], 
+                            issues: List[str]) -> Optional[CodeChunk]:
+        """Attempt to repair fixable chunk issues."""
+        # For now, only fix boundary issues
+        for issue in issues:
+            if "Invalid line boundaries" in issue:
+                # Fix boundary issues
+                corrected_start = max(1, min(chunk.start_line, len(content_lines)))
+                corrected_end = max(corrected_start, min(chunk.end_line, len(content_lines)))
+                
+                if corrected_start != chunk.start_line or corrected_end != chunk.end_line:
+                    corrected_content = '\n'.join(content_lines[corrected_start-1:corrected_end])
+                    
+                    # Create repaired chunk
+                    repaired_chunk = CodeChunk(
+                        chunk_id=chunk.chunk_id,
+                        file_path=chunk.file_path,
+                        content=corrected_content,
+                        chunk_type=chunk.chunk_type,
+                        language=chunk.language,
+                        start_line=corrected_start,
+                        end_line=corrected_end,
+                        start_byte=chunk.start_byte,
+                        end_byte=chunk.end_byte,
+                        name=chunk.name,
+                        breadcrumb=chunk.breadcrumb,
+                        content_hash=hashlib.sha256(corrected_content.encode('utf-8')).hexdigest(),
+                        embedding_text=corrected_content,
+                        indexed_at=chunk.indexed_at,
+                        tags=(chunk.tags or []) + ["boundary_repaired"]
+                    )
+                    return repaired_chunk
+        
+        return None
+    
+    def _log_detailed_parse_failure(self, file_path: str, language: str, 
+                                   syntax_errors: List[CodeSyntaxError], 
+                                   processing_time_ms: float) -> None:
+        """
+        Log detailed information about parse failures for debugging and monitoring.
+        
+        Args:
+            file_path: Path to the failed file
+            language: Programming language
+            syntax_errors: List of detected syntax errors
+            processing_time_ms: Time taken for parsing attempt
+        """
+        # Classify errors by type and severity
+        error_types = {}
+        critical_count = 0
+        for error in syntax_errors:
+            error_type = error.error_type
+            if error_type not in error_types:
+                error_types[error_type] = 0
+            error_types[error_type] += 1
+            
+            if error.severity == "critical":
+                critical_count += 1
+        
+        # Log structured error information
+        self.logger.error(
+            f"Parse failure analysis for {file_path}:\n"
+            f"  Language: {language}\n"
+            f"  Total errors: {len(syntax_errors)}\n"
+            f"  Critical errors: {critical_count}\n"
+            f"  Processing time: {processing_time_ms:.2f}ms\n"
+            f"  Error types: {dict(error_types)}\n"
+            f"  File size: {self._get_file_size_info(file_path)}"
+        )
+        
+        # Log detailed error locations for the first few errors
+        max_detailed_errors = 3
+        for i, error in enumerate(syntax_errors[:max_detailed_errors]):
+            self.logger.debug(
+                f"Error {i+1} at line {error.start_line}: {error.error_type}\n"
+                f"Context:\n{error.context}"
+            )
+        
+        if len(syntax_errors) > max_detailed_errors:
+            self.logger.debug(f"... and {len(syntax_errors) - max_detailed_errors} more errors")
+    
+    def _get_file_size_info(self, file_path: str) -> str:
+        """Get human-readable file size information."""
+        try:
+            import os
+            size_bytes = os.path.getsize(file_path)
+            if size_bytes < 1024:
+                return f"{size_bytes} bytes"
+            elif size_bytes < 1024 * 1024:
+                return f"{size_bytes / 1024:.1f} KB"
+            else:
+                return f"{size_bytes / (1024 * 1024):.1f} MB"
+        except Exception:
+            return "unknown size"
+    
+    def _log_parse_success_metrics(self, file_path: str, language: str, 
+                                  chunks: List[CodeChunk], processing_time_ms: float,
+                                  error_recovery_used: bool) -> None:
+        """
+        Log metrics for successful parsing operations.
+        
+        Args:
+            file_path: Path to the successfully parsed file
+            language: Programming language
+            chunks: List of extracted chunks
+            processing_time_ms: Time taken for parsing
+            error_recovery_used: Whether error recovery was needed
+        """
+        # Analyze chunk types
+        chunk_types = {}
+        for chunk in chunks:
+            chunk_type = chunk.chunk_type.value
+            if chunk_type not in chunk_types:
+                chunk_types[chunk_type] = 0
+            chunk_types[chunk_type] += 1
+        
+        # Log success metrics
+        recovery_status = " (with error recovery)" if error_recovery_used else ""
+        self.logger.info(
+            f"Parse success for {file_path}{recovery_status}:\n"
+            f"  Language: {language}\n"
+            f"  Chunks extracted: {len(chunks)}\n"
+            f"  Chunk types: {dict(chunk_types)}\n"
+            f"  Processing time: {processing_time_ms:.2f}ms\n"
+            f"  Performance: {len(chunks) / max(1, processing_time_ms / 1000):.1f} chunks/sec"
+        )
+    
+    def _enhance_error_logging_in_parse(self, file_path: str, language: str, 
+                                       parse_result: ParseResult) -> None:
+        """
+        Enhanced logging for parse results with detailed error analysis.
+        
+        Args:
+            file_path: Path to the parsed file
+            language: Programming language
+            parse_result: Result of parsing operation
+        """
+        if not parse_result.parse_success:
+            # Log detailed failure analysis
+            self._log_detailed_parse_failure(
+                file_path, language, parse_result.syntax_errors or [], 
+                parse_result.processing_time_ms
+            )
+        elif parse_result.error_recovery_used:
+            # Log warning for files that needed error recovery
+            self.logger.warning(
+                f"Error recovery used for {file_path}: "
+                f"{parse_result.valid_sections_count} valid sections recovered "
+                f"from {parse_result.error_count} errors"
+            )
+            # Also log success metrics
+            self._log_parse_success_metrics(
+                file_path, language, parse_result.chunks, 
+                parse_result.processing_time_ms, True
+            )
+        else:
+            # Log success metrics for clean parses
+            self._log_parse_success_metrics(
+                file_path, language, parse_result.chunks, 
+                parse_result.processing_time_ms, False
+            )
