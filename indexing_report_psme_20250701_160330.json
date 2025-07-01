@@ -1,0 +1,188 @@
+{
+  "operation_type": "clear_existing",
+  "directory": "/Users/jeff/Documents/code_repo/test/psme",
+  "project_name": "psme",
+  "start_time": "2025-07-01T14:47:35.599128",
+  "end_time": "2025-07-01T16:03:30.634871",
+  "total_files": 4309,
+  "successful_files": 4308,
+  "failed_files": 1,
+  "error_summary": {
+    "embedding": 16
+  },
+  "has_critical_errors": false,
+  "errors": [],
+  "warnings": [
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915048",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915183",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/lspci/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915561",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/dmidecode/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915582",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/udevadm/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915807",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/iplink/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.915907",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/lsusb/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.916033",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/xmltodict/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.916046",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/ethtool/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.916198",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/kernelparams/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.916211",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/libs/cpuinfo/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.916319",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/common/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.919352",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/psme_xml_structure/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.919452",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/psme_xml_structure/managers/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.920239",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/psme_xml_structure/model/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.925854",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "psme/lui/OS/rootfs/opt/intel/rackscale/include/psme_xml_structure/lui_model_managers/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T16:03:27.928406",
+      "suggestion": ""
+    }
+  ],
+  "syntax_errors": [],
+  "performance_metrics": {
+    "memory_usage_mb": 744.234375,
+    "total_errors": 0,
+    "total_warnings": 16,
+    "total_syntax_errors": 0,
+    "success_rate": 99.97679275934091
+  },
+  "recommendations": [
+    "Embedding generation failed for some files. Check if Ollama is running and the model is available. Try: ollama pull nomic-embed-text"
+  ]
+}

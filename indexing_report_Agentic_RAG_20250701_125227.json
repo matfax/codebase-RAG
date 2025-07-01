@@ -1,0 +1,48 @@
+{
+  "operation_type": "clear_existing",
+  "directory": "./",
+  "project_name": "Agentic_RAG",
+  "start_time": "2025-07-01T12:51:36.197156",
+  "end_time": "2025-07-01T12:52:27.801214",
+  "total_files": 53,
+  "successful_files": 52,
+  "failed_files": 1,
+  "error_summary": {
+    "embedding": 2
+  },
+  "has_critical_errors": false,
+  "errors": [],
+  "warnings": [
+    {
+      "error_type": "embedding",
+      "file_path": "tests/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T12:52:26.921844",
+      "suggestion": ""
+    },
+    {
+      "error_type": "embedding",
+      "file_path": "src/__init__.py",
+      "line_number": null,
+      "error_message": "Failed to generate embedding for chunk",
+      "severity": "warning",
+      "context": "",
+      "timestamp": "2025-07-01T12:52:26.935769",
+      "suggestion": ""
+    }
+  ],
+  "syntax_errors": [],
+  "performance_metrics": {
+    "memory_usage_mb": 427.421875,
+    "total_errors": 0,
+    "total_warnings": 2,
+    "total_syntax_errors": 0,
+    "success_rate": 98.11320754716981
+  },
+  "recommendations": [
+    "Embedding generation failed for some files. Check if Ollama is running and the model is available. Try: ollama pull nomic-embed-text"
+  ]
+}
