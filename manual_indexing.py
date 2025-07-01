@@ -1,15 +1,39 @@
 #!/usr/bin/env python3
 """
-Manual Indexing Tool for Codebase RAG MCP Server
+Manual Indexing Tool for Codebase RAG MCP Server with Intelligent Code Chunking
 
-This standalone script allows users to perform indexing operations independently
-from the MCP server, particularly useful for large codebases that might take
-several minutes to process.
+This standalone script performs intelligent code indexing operations independently
+from the MCP server, using Tree-sitter parsers for syntax-aware code analysis.
+Particularly useful for large codebases that require function-level granular indexing.
 
-Usage:
-    python manual_indexing.py -d /path/to/repo/dir/ -m clear_existing
-    python manual_indexing.py -d /path/to/repo/dir/ -m incremental
-    python manual_indexing.py --directory ./src --mode incremental --verbose
+Key Features:
+- 🎯 Intelligent Code Chunking: Function, class, and method-level granular indexing
+- 🌐 Multi-Language Support: Python, JavaScript, TypeScript, Go, Rust, Java, and more
+- 🛡️ Syntax Error Tolerance: Graceful handling with detailed error reporting
+- ⚡ Performance Optimized: Parallel processing with memory monitoring
+- 📊 Comprehensive Reporting: Detailed syntax error statistics and recommendations
+
+Usage Examples:
+    # Full indexing with intelligent chunking (recommended for first-time indexing)
+    python manual_indexing.py -d /path/to/repo -m clear_existing
+    
+    # Incremental indexing (only process changed files)
+    python manual_indexing.py -d /path/to/repo -m incremental
+    
+    # Verbose output with detailed syntax error reporting
+    python manual_indexing.py -d ./src --mode incremental --verbose
+    
+    # Skip confirmation prompts for automated workflows
+    python manual_indexing.py -d /large/codebase -m clear_existing --no-confirm
+    
+    # Custom error report directory
+    python manual_indexing.py -d ./src -m clear_existing --error-report-dir ./reports
+
+Intelligent Chunking Benefits:
+- Function-level search precision instead of whole-file results
+- Rich metadata extraction (signatures, docstrings, breadcrumbs)
+- Better embedding quality for semantic search
+- Syntax error isolation (errors in one function don't affect others)
 """
 
 import argparse
@@ -970,44 +994,76 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="Manual Indexing Tool for Codebase RAG MCP Server",
+        description="Manual Indexing Tool with Intelligent Code Chunking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
+🎯 Intelligent Code Chunking Examples:
+
+Basic Usage:
   %(prog)s -d /path/to/repo -m clear_existing
+                        Full indexing with intelligent chunking (first-time setup)
   %(prog)s -d ./src -m incremental
-  %(prog)s --directory /large/codebase --mode clear_existing --verbose
+                        Process only changed files (fast updates)
+
+Advanced Usage:
+  %(prog)s -d /large/codebase -m clear_existing --verbose
+                        Verbose output with detailed syntax error reporting
+  %(prog)s -d ./project -m incremental --no-confirm
+                        Skip prompts for automated CI/CD workflows
+  %(prog)s -d ./src -m clear_existing --error-report-dir ./reports
+                        Save detailed error reports to custom directory
+
+Language-Specific Examples:
+  %(prog)s -d /python/project -m clear_existing --verbose
+                        Index Python project with function/class chunking
+  %(prog)s -d /frontend/app -m incremental
+                        Update TypeScript/JavaScript React application
+  %(prog)s -d /backend/go -m clear_existing
+                        Index Go microservice with struct/function analysis
+
+Performance Recommendations:
+  - Use clear_existing for first-time indexing or major refactoring
+  - Use incremental for daily development updates (80%+ faster)
+  - Enable --verbose for debugging syntax errors and performance monitoring
+  - Large projects (1000+ files): Run during off-hours or CI/CD
+  - Set INDEXING_CONCURRENCY env var to match your CPU cores
+
+Output Reports:
+  - Error statistics saved as JSON reports in current/specified directory
+  - Syntax error details with line numbers and recovery suggestions
+  - Performance metrics including processing rates and memory usage
+  - Actionable recommendations for improving indexing results
         """
     )
     
     parser.add_argument(
         '-d', '--directory',
         required=True,
-        help='Target directory path to index'
+        help='Target directory path to index with intelligent code chunking'
     )
     
     parser.add_argument(
         '-m', '--mode',
         required=True,
         choices=['clear_existing', 'incremental'],
-        help='Indexing mode: clear_existing (full reindex) or incremental (only changed files)'
+        help='Indexing mode: clear_existing (full reindex with intelligent chunking) or incremental (only changed files)'
     )
     
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
-        help='Enable verbose logging'
+        help='Enable verbose logging with detailed syntax error reporting and performance metrics'
     )
     
     parser.add_argument(
         '--no-confirm',
         action='store_true',
-        help='Skip confirmation prompts (use with caution)'
+        help='Skip confirmation prompts - useful for automated CI/CD workflows (use with caution)'
     )
     
     parser.add_argument(
         '--error-report-dir',
-        help='Directory to save error reports (default: current directory)'
+        help='Directory to save comprehensive error reports with syntax error details (default: current directory)'
     )
     
     args = parser.parse_args()
