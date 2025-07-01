@@ -14,8 +14,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 from services.project_analysis_service import ProjectAnalysisService
+from services.code_parser_service import CodeParserService
 from utils.performance_monitor import MemoryMonitor, ProgressTracker
 from utils.stage_logger import get_file_discovery_logger, get_file_reading_logger, log_timing, log_batch_summary
+from models.code_chunk import CodeChunk as ParsedCodeChunk, ChunkType
 
 @dataclass
 class Chunk:
@@ -25,6 +27,7 @@ class Chunk:
 class IndexingService:
     def __init__(self):
         self.project_analysis_service = ProjectAnalysisService()
+        self.code_parser_service = CodeParserService()
         self._lock = Lock()  # For thread-safe operations
         self._error_files = []  # Track files that failed processing
         self._processed_count = 0  # Atomic counter for processed files
@@ -134,16 +137,18 @@ class IndexingService:
                             file_path = future_to_file[future]
                             thread_id = threading.get_ident()
                             try:
-                                chunk = future.result()
-                                if chunk:  # Only add non-None chunks
-                                    chunks.append(chunk)
+                                file_chunks = future.result()
+                                if file_chunks:  # Only add non-None chunks
+                                    chunks.extend(file_chunks)  # Extend to add all chunks from the file
                                     batch_processed += 1
-                                    self.file_reading_logger.log_item_processed("file_processing", file_path=file_path)
+                                    self.file_reading_logger.log_item_processed("file_processing", 
+                                                                               file_path=file_path, 
+                                                                               chunks_created=len(file_chunks))
                                     with self._lock:
                                         self._processed_count += 1
                                         processing_stage.processed_count = self._processed_count
                                         self.progress_tracker.increment_processed()
-                                        self.logger.debug(f"[Thread-{thread_id}] Successfully processed file {file_path} ({self._processed_count}/{len(relevant_files)})")
+                                        self.logger.debug(f"[Thread-{thread_id}] Successfully processed file {file_path} -> {len(file_chunks)} chunks ({self._processed_count}/{len(relevant_files)})")
                             except Exception as e:
                                 batch_failed += 1
                                 self.file_reading_logger.log_item_failed("file_processing", error=str(e), file_path=file_path)
@@ -196,27 +201,80 @@ class IndexingService:
         
         return self.progress_tracker.get_progress_summary()
 
-    def _process_single_file(self, file_path: str) -> Chunk:
-        """Process a single file and return a Chunk. Thread-safe worker function."""
+    def _process_single_file(self, file_path: str) -> List[Chunk]:
+        """Process a single file using intelligent chunking and return list of Chunks. Thread-safe worker function."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Simple chunking: treat entire file as one chunk for now
-            # More sophisticated chunking can be added here (e.g., based on AST, lines, etc.)
-            return Chunk(
-                content=content,
-                metadata={
-                    "file_path": file_path,
-                    "chunk_index": 0, # Assuming single chunk for now
-                    "line_start": 1,
-                    "line_end": len(content.splitlines()),
-                    "language": self._detect_language(file_path) # Add language detection
-                }
-            )
+            # Use intelligent code parsing for supported languages
+            parse_result = self.code_parser_service.parse_file(file_path, content)
+            
+            # Convert parsed chunks to the existing Chunk format
+            chunks = []
+            if parse_result.chunks:
+                for i, parsed_chunk in enumerate(parse_result.chunks):
+                    chunk = self._convert_parsed_chunk_to_chunk(parsed_chunk, i)
+                    chunks.append(chunk)
+            else:
+                # Fallback to whole-file chunk if no intelligent chunks were created
+                chunks.append(self._create_fallback_chunk(file_path, content))
+            
+            return chunks
+            
         except Exception as e:
-            # Let the calling code handle the exception
-            raise e
+            # Log the error and create a fallback chunk
+            self.logger.warning(f"Failed to parse {file_path} intelligently, using fallback: {e}")
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return [self._create_fallback_chunk(file_path, content)]
+            except Exception as fallback_error:
+                # Let the calling code handle the exception
+                raise fallback_error
+    
+    def _convert_parsed_chunk_to_chunk(self, parsed_chunk: ParsedCodeChunk, chunk_index: int) -> Chunk:
+        """Convert a ParsedCodeChunk to the existing Chunk format."""
+        return Chunk(
+            content=parsed_chunk.content,
+            metadata={
+                "file_path": parsed_chunk.file_path,
+                "chunk_index": chunk_index,
+                "line_start": parsed_chunk.start_line,
+                "line_end": parsed_chunk.end_line,
+                "language": parsed_chunk.language,
+                # Additional intelligent chunking metadata
+                "chunk_id": parsed_chunk.chunk_id,
+                "chunk_type": parsed_chunk.chunk_type.value,
+                "name": parsed_chunk.name,
+                "parent_name": parsed_chunk.parent_name,
+                "signature": parsed_chunk.signature,
+                "docstring": parsed_chunk.docstring,
+                "breadcrumb": parsed_chunk.breadcrumb,
+                "content_hash": parsed_chunk.content_hash,
+                "embedding_text": parsed_chunk.embedding_text,
+                "tags": parsed_chunk.tags,
+                "complexity_score": parsed_chunk.complexity_score,
+                "dependencies": parsed_chunk.dependencies,
+                "context_before": parsed_chunk.context_before,
+                "context_after": parsed_chunk.context_after
+            }
+        )
+    
+    def _create_fallback_chunk(self, file_path: str, content: str) -> Chunk:
+        """Create a fallback whole-file chunk when intelligent parsing fails."""
+        return Chunk(
+            content=content,
+            metadata={
+                "file_path": file_path,
+                "chunk_index": 0,
+                "line_start": 1,
+                "line_end": len(content.splitlines()),
+                "language": self._detect_language(file_path),
+                "chunk_type": ChunkType.WHOLE_FILE.value,
+                "fallback_used": True
+            }
+        )
     
     def _get_optimal_worker_count(self) -> int:
         """Calculate optimal worker count based on CPU cores and configuration."""
@@ -386,9 +444,9 @@ class IndexingService:
                     for future in as_completed(future_to_file):
                         file_path = future_to_file[future]
                         try:
-                            chunk = future.result()
-                            if chunk:
-                                chunks.append(chunk)
+                            file_chunks = future.result()
+                            if file_chunks:
+                                chunks.extend(file_chunks)  # Extend to add all chunks from the file
                                 batch_processed += 1
                                 
                                 # Update progress
@@ -396,6 +454,8 @@ class IndexingService:
                                     self._processed_count += 1
                                     if self.progress_tracker:
                                         self.progress_tracker.update_progress(self._processed_count)
+                                    
+                                self.logger.debug(f"Processed {file_path} -> {len(file_chunks)} chunks")
                         except Exception as e:
                             self.logger.error(f"Failed to process {file_path}: {e}")
                             with self._lock:
