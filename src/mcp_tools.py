@@ -664,9 +664,9 @@ def _process_chunk_batch_for_streaming(
             language = chunk.metadata.get("language", "unknown")
             
             # Determine collection type
-            if language in ["json", "yaml", "config"]:
+            if language in ["json", "yaml", "toml", "ini", "config", "xml", "dockerfile", "terraform"]:
                 group_name = "config"
-            elif language in ["markdown", "documentation"]:
+            elif language in ["markdown", "restructuredtext", "text", "asciidoc", "latex", "documentation"]:
                 group_name = "documentation"
             else:
                 group_name = "code"
@@ -680,8 +680,19 @@ def _process_chunk_batch_for_streaming(
                 # Ensure collection exists
                 ensure_collection(collection_name, content_type=collection_name.split('_')[-1])
                 
-                # Prepare texts for batch embedding generation
-                texts = [chunk.content for chunk in collection_chunks]
+                # Prepare texts for batch embedding generation, filtering empty content
+                valid_chunks = []
+                texts = []
+                for chunk in collection_chunks:
+                    if chunk.content and chunk.content.strip():  # Check content is not empty or whitespace-only
+                        texts.append(chunk.content)
+                        valid_chunks.append(chunk)
+                    else:
+                        logger.warning(f"Skipping empty chunk from {chunk.metadata.get('file_path', 'unknown')} at line {chunk.metadata.get('line_start', 'unknown')}")
+                
+                if not texts:
+                    logger.warning(f"No valid content found for collection {collection_name}, skipping batch")
+                    continue
                 
                 # Generate embeddings in batch
                 start_time = time.time()
@@ -699,7 +710,7 @@ def _process_chunk_batch_for_streaming(
                 points = []
                 successful_embeddings = 0
                 
-                for chunk, embedding in zip(collection_chunks, embeddings):
+                for chunk, embedding in zip(valid_chunks, embeddings):
                     if embedding is None:
                         logger.warning(f"Skipping chunk from {chunk.metadata['file_path']} due to failed embedding")
                         continue
@@ -721,7 +732,21 @@ def _process_chunk_batch_for_streaming(
                         "line_start": chunk.metadata.get("line_start", 0),
                         "line_end": chunk.metadata.get("line_end", 0),
                         "language": chunk.metadata.get("language", "unknown"),
-                        "chunk_type": "file_chunk",
+                        "project": chunk.metadata.get("project", "unknown"),
+                        "chunk_type": chunk.metadata.get("chunk_type", "file_chunk"),
+                        # Enhanced breadcrumb navigation information
+                        "breadcrumb": chunk.metadata.get("breadcrumb", ""),
+                        "name": chunk.metadata.get("name", ""),
+                        "parent_name": chunk.metadata.get("parent_name", ""),
+                        "signature": chunk.metadata.get("signature", ""),
+                        "docstring": chunk.metadata.get("docstring", ""),
+                        # Additional context for better search experience
+                        "context_before": chunk.metadata.get("context_before", ""),
+                        "context_after": chunk.metadata.get("context_after", ""),
+                        "start_byte": chunk.metadata.get("start_byte", 0),
+                        "end_byte": chunk.metadata.get("end_byte", 0),
+                        "complexity_score": chunk.metadata.get("complexity_score", 0.0),
+                        "tags": chunk.metadata.get("tags", [])
                     }
                     
                     points.append(PointStruct(id=chunk_id, vector=embedding_list, payload=payload))
@@ -1290,7 +1315,12 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "type": "code" if "_code" in collection else ("config" if "_config" in collection else "docs"),
                     "language": payload.get("language", ""),
                     "line_start": payload.get("line_start", 0),
-                    "line_end": payload.get("line_end", 0)
+                    "line_end": payload.get("line_end", 0),
+                    "breadcrumb": payload.get("breadcrumb", ""),
+                    "chunk_name": payload.get("name", ""),
+                    "chunk_type": payload.get("chunk_type", ""),
+                    "parent_name": payload.get("parent_name", ""),
+                    "signature": payload.get("signature", "")
                 }
 
             all_results = _perform_hybrid_search(
