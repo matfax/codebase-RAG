@@ -40,13 +40,13 @@
   - [x] 2.5 建立通用的元資料提取和豐富化機制
   - [x] 2.6 實作文檔字串 (docstring) 提取和關聯功能
 
-- [ ] 3.0 整合現有系統並更新 MCP 工具
-  - [ ] 3.1 修改 IndexingService._process_single_file 整合 CodeParser
-  - [ ] 3.2 實作智慧分塊到現有 Chunk 格式的轉換機制
-  - [ ] 3.3 更新 index_directory MCP 工具，新增 project_name 參數
-  - [ ] 3.4 實作檔案內上下文增強（前後 5 行程式碼）
+- [x] 3.0 整合現有系統並更新 MCP 工具
+  - [x] 3.1 修改 IndexingService._process_single_file 整合 CodeParser
+  - [x] 3.2 實作智慧分塊到現有 Chunk 格式的轉換機制
+  - [x] 3.3 更新 index_directory MCP 工具，新增 project_name 參數
+  - [x] 3.4 實作檔案內上下文增強（前後 5 行程式碼）
   - [ ] 3.5 更新搜尋結果顯示，包含麵包屑導覽資訊
-  - [ ] 3.6 確保現有 MCP 工具的向下相容性
+  - [x] 3.6 確保現有 MCP 工具的向下相容性
 
 - [ ] 4.0 實作錯誤處理和容錯機制
   - [ ] 4.1 實作 Tree-sitter ERROR 節點的智慧處理邏輯

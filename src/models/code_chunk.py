@@ -184,6 +184,31 @@ class CodeChunk:
         )
 
 
+@dataclass 
+class SyntaxError:
+    """Information about a syntax error found during parsing."""
+    
+    start_line: int                   # Line where error starts (1-based)
+    end_line: int                     # Line where error ends (1-based)
+    start_column: int                 # Column where error starts (0-based)
+    end_column: int                   # Column where error ends (0-based)
+    error_type: str                   # Type of syntax error (e.g., 'missing_semicolon', 'unexpected_token')
+    context: str                      # Surrounding code context
+    severity: str = "error"           # Severity level: 'error', 'warning', 'info'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            'start_line': self.start_line,
+            'end_line': self.end_line,
+            'start_column': self.start_column,
+            'end_column': self.end_column,
+            'error_type': self.error_type,
+            'context': self.context,
+            'severity': self.severity
+        }
+
+
 @dataclass
 class ParseResult:
     """
@@ -199,6 +224,14 @@ class ParseResult:
     error_count: int = 0              # Number of syntax errors encountered
     fallback_used: bool = False       # Whether fallback to whole-file chunking was used
     processing_time_ms: float = 0.0   # Time taken to parse this file
+    syntax_errors: List[SyntaxError] = None  # Detailed syntax error information
+    error_recovery_used: bool = False # Whether error recovery was used
+    valid_sections_count: int = 0     # Number of valid code sections extracted during error recovery
+    
+    def __post_init__(self):
+        """Initialize default values for mutable fields."""
+        if self.syntax_errors is None:
+            self.syntax_errors = []
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert ParseResult to dictionary for logging and debugging."""
@@ -210,5 +243,8 @@ class ParseResult:
             'error_count': self.error_count,
             'fallback_used': self.fallback_used,
             'processing_time_ms': self.processing_time_ms,
-            'chunk_types': [chunk.chunk_type.value for chunk in self.chunks]
+            'chunk_types': [chunk.chunk_type.value for chunk in self.chunks],
+            'syntax_errors': [error.to_dict() for error in self.syntax_errors],
+            'error_recovery_used': self.error_recovery_used,
+            'valid_sections_count': self.valid_sections_count
         }

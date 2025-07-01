@@ -18,7 +18,7 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from ..models.code_chunk import CodeChunk, ChunkType, ParseResult
+from ..models.code_chunk import CodeChunk, ChunkType, ParseResult, SyntaxError
 from ..utils.file_system_utils import get_file_size, get_file_mtime
 
 
@@ -206,9 +206,14 @@ class CodeParserService:
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000
             
-            # Check for parsing errors
+            # Check for parsing errors and collect detailed error information
             error_count = self._count_errors(tree.root_node)
             parse_success = error_count == 0
+            syntax_errors = self._collect_detailed_errors(tree.root_node, content.split('\n'), language)
+            
+            # Determine if error recovery was used
+            error_recovery_used = error_count > 0 and len(chunks) > 0
+            valid_sections_count = len(chunks) if error_recovery_used else 0
             
             return ParseResult(
                 chunks=chunks,
@@ -217,7 +222,10 @@ class CodeParserService:
                 parse_success=parse_success,
                 error_count=error_count,
                 fallback_used=False,
-                processing_time_ms=processing_time
+                processing_time_ms=processing_time,
+                syntax_errors=syntax_errors,
+                error_recovery_used=error_recovery_used,
+                valid_sections_count=valid_sections_count
             )
             
         except Exception as e:
@@ -226,7 +234,7 @@ class CodeParserService:
     
     def _extract_chunks(self, root_node: Node, file_path: str, content: str, language: str) -> List[CodeChunk]:
         """
-        Extract code chunks from the parsed AST.
+        Extract code chunks from the parsed AST with intelligent error handling.
         
         Args:
             root_node: Root node of the parsed AST
@@ -237,12 +245,19 @@ class CodeParserService:
         Returns:
             List of extracted CodeChunk objects
         """
-        chunks = []
         content_lines = content.split('\n')
-        node_mappings = self._node_mappings.get(language, {})
         
-        # Traverse the AST and extract relevant nodes
-        self._traverse_ast(root_node, chunks, file_path, content, content_lines, language, node_mappings)
+        # Check for syntax errors and handle intelligently
+        error_count = self._count_errors(root_node)
+        
+        if error_count > 0:
+            # Use intelligent error handling
+            chunks = self._handle_syntax_errors(root_node, file_path, content, content_lines, language)
+        else:
+            # Normal parsing without errors
+            chunks = []
+            node_mappings = self._node_mappings.get(language, {})
+            self._traverse_ast(root_node, chunks, file_path, content, content_lines, language, node_mappings)
         
         # If no chunks were extracted, create a whole-file chunk
         if not chunks:
@@ -516,6 +531,292 @@ class CodeParserService:
             error_count += self._count_errors(child)
         
         return error_count
+    
+    def _handle_syntax_errors(self, node: Node, file_path: str, content: str, 
+                            content_lines: List[str], language: str) -> List[CodeChunk]:
+        """
+        Intelligently handle syntax errors by extracting valid code around errors.
+        
+        Args:
+            node: Root AST node that may contain errors
+            file_path: Path to the source file
+            content: File content as string
+            content_lines: File content split by lines
+            language: Programming language
+            
+        Returns:
+            List of chunks extracted from valid code sections
+        """
+        chunks = []
+        error_locations = []
+        
+        # First pass: collect all error locations
+        self._collect_error_locations(node, error_locations)
+        
+        if not error_locations:
+            # No errors found, proceed with normal parsing
+            return self._extract_chunks_normal(node, file_path, content, content_lines, language)
+        
+        self.logger.warning(f"Found {len(error_locations)} syntax errors in {file_path}")
+        
+        # Second pass: extract valid code sections between errors
+        valid_sections = self._identify_valid_sections(error_locations, content_lines)
+        
+        for section_start, section_end in valid_sections:
+            # Extract content for this valid section
+            section_content = '\n'.join(content_lines[section_start:section_end + 1])
+            
+            if len(section_content.strip()) > 10:  # Only process substantial sections
+                # Create a chunk for this valid section
+                chunk = self._create_valid_section_chunk(
+                    section_content, file_path, language, 
+                    section_start + 1, section_end + 1  # Convert to 1-based line numbers
+                )
+                if chunk:
+                    chunks.append(chunk)
+        
+        # If no valid sections found, create a whole-file chunk with error annotation
+        if not chunks:
+            chunks.append(self._create_error_annotated_chunk(file_path, content, language, error_locations))
+        
+        return chunks
+    
+    def _collect_error_locations(self, node: Node, error_locations: List[Tuple[int, int]]) -> None:
+        """Recursively collect all ERROR node locations."""
+        if node.type == 'ERROR':
+            error_locations.append((node.start_point[0], node.end_point[0]))
+        
+        for child in node.children:
+            self._collect_error_locations(child, error_locations)
+    
+    def _collect_detailed_errors(self, node: Node, content_lines: List[str], 
+                               language: str) -> List[SyntaxError]:
+        """Collect detailed syntax error information."""
+        errors = []
+        self._traverse_for_errors(node, content_lines, language, errors)
+        return errors
+    
+    def _traverse_for_errors(self, node: Node, content_lines: List[str], 
+                           language: str, errors: List[SyntaxError]) -> None:
+        """Recursively traverse AST to find and classify errors."""
+        if node.type == 'ERROR':
+            error = self._classify_syntax_error(node, content_lines, language)
+            if error:
+                errors.append(error)
+        
+        for child in node.children:
+            self._traverse_for_errors(child, content_lines, language, errors)
+    
+    def _classify_syntax_error(self, error_node: Node, content_lines: List[str], 
+                             language: str) -> Optional[SyntaxError]:
+        """Classify and create detailed information about a syntax error."""
+        start_line = error_node.start_point[0] + 1  # Convert to 1-based
+        end_line = error_node.end_point[0] + 1
+        start_column = error_node.start_point[1]
+        end_column = error_node.end_point[1]
+        
+        # Extract context around the error
+        context_lines = []
+        context_start = max(0, start_line - 3)  # 2 lines before
+        context_end = min(len(content_lines), end_line + 2)  # 2 lines after
+        
+        for i in range(context_start, context_end):
+            if i < len(content_lines):
+                line_marker = ">>> " if i + 1 == start_line else "    "
+                context_lines.append(f"{line_marker}{i + 1}: {content_lines[i]}")
+        
+        context = '\n'.join(context_lines)
+        
+        # Classify error type based on content and language
+        error_type = self._determine_error_type(error_node, content_lines, language, start_line - 1)
+        
+        return SyntaxError(
+            start_line=start_line,
+            end_line=end_line,
+            start_column=start_column,
+            end_column=end_column,
+            error_type=error_type,
+            context=context,
+            severity="error"
+        )
+    
+    def _determine_error_type(self, error_node: Node, content_lines: List[str], 
+                            language: str, line_index: int) -> str:
+        """Determine the specific type of syntax error."""
+        if line_index >= len(content_lines):
+            return "unknown_error"
+        
+        error_line = content_lines[line_index].strip()
+        error_text = error_node.text.decode('utf-8') if error_node.text else ""
+        
+        # Language-specific error classification
+        if language == 'python':
+            return self._classify_python_error(error_line, error_text)
+        elif language in ['javascript', 'typescript']:
+            return self._classify_js_error(error_line, error_text)
+        else:
+            return self._classify_generic_error(error_line, error_text)
+    
+    def _classify_python_error(self, error_line: str, error_text: str) -> str:
+        """Classify Python-specific syntax errors."""
+        if ':' not in error_line and ('def ' in error_line or 'class ' in error_line or 'if ' in error_line):
+            return "missing_colon"
+        elif error_line.count('(') != error_line.count(')'):
+            return "unmatched_parentheses"
+        elif error_line.count('[') != error_line.count(']'):
+            return "unmatched_brackets"
+        elif error_line.count('{') != error_line.count('}'):
+            return "unmatched_braces"
+        elif 'IndentationError' in error_text:
+            return "indentation_error"
+        elif error_line.startswith('import ') or error_line.startswith('from '):
+            return "import_error"
+        else:
+            return "python_syntax_error"
+    
+    def _classify_js_error(self, error_line: str, error_text: str) -> str:
+        """Classify JavaScript/TypeScript-specific syntax errors."""
+        if not error_line.endswith(';') and any(keyword in error_line for keyword in ['var ', 'let ', 'const ', 'return']):
+            return "missing_semicolon"
+        elif error_line.count('(') != error_line.count(')'):
+            return "unmatched_parentheses"
+        elif error_line.count('{') != error_line.count('}'):
+            return "unmatched_braces"
+        elif error_line.count('[') != error_line.count(']'):
+            return "unmatched_brackets"
+        elif 'function' in error_line:
+            return "function_declaration_error"
+        elif 'import' in error_line or 'export' in error_line:
+            return "module_error"
+        else:
+            return "javascript_syntax_error"
+    
+    def _classify_generic_error(self, error_line: str, error_text: str) -> str:
+        """Classify generic syntax errors for other languages."""
+        if error_line.count('(') != error_line.count(')'):
+            return "unmatched_parentheses"
+        elif error_line.count('{') != error_line.count('}'):
+            return "unmatched_braces"
+        elif error_line.count('[') != error_line.count(']'):
+            return "unmatched_brackets"
+        else:
+            return "syntax_error"
+    
+    def _identify_valid_sections(self, error_locations: List[Tuple[int, int]], 
+                               content_lines: List[str]) -> List[Tuple[int, int]]:
+        """
+        Identify continuous valid code sections between syntax errors.
+        
+        Args:
+            error_locations: List of (start_line, end_line) tuples for errors
+            content_lines: File content split by lines
+            
+        Returns:
+            List of (start_line, end_line) tuples for valid sections
+        """
+        if not error_locations:
+            return [(0, len(content_lines) - 1)]
+        
+        # Sort error locations by start line
+        sorted_errors = sorted(error_locations, key=lambda x: x[0])
+        valid_sections = []
+        
+        # Check for valid section before first error
+        first_error_start = sorted_errors[0][0]
+        if first_error_start > 0:
+            # Look for meaningful content before the first error
+            section_end = first_error_start - 1
+            section_start = self._find_section_start(content_lines, 0, section_end)
+            if section_start <= section_end:
+                valid_sections.append((section_start, section_end))
+        
+        # Check for valid sections between errors
+        for i in range(len(sorted_errors) - 1):
+            current_error_end = sorted_errors[i][1]
+            next_error_start = sorted_errors[i + 1][0]
+            
+            if current_error_end < next_error_start - 1:
+                section_start = self._find_section_start(content_lines, current_error_end + 1, next_error_start - 1)
+                section_end = next_error_start - 1
+                if section_start <= section_end:
+                    valid_sections.append((section_start, section_end))
+        
+        # Check for valid section after last error
+        last_error_end = sorted_errors[-1][1]
+        if last_error_end < len(content_lines) - 1:
+            section_start = self._find_section_start(content_lines, last_error_end + 1, len(content_lines) - 1)
+            if section_start < len(content_lines):
+                valid_sections.append((section_start, len(content_lines) - 1))
+        
+        return valid_sections
+    
+    def _find_section_start(self, content_lines: List[str], min_line: int, max_line: int) -> int:
+        """Find the first meaningful line of code in a range."""
+        for i in range(min_line, min(max_line + 1, len(content_lines))):
+            line = content_lines[i].strip()
+            if line and not line.startswith('#') and not line.startswith('//'):
+                return i
+        return min_line
+    
+    def _extract_chunks_normal(self, node: Node, file_path: str, content: str, 
+                             content_lines: List[str], language: str) -> List[CodeChunk]:
+        """Extract chunks using normal parsing when no errors are present."""
+        chunks = []
+        node_mappings = self._node_mappings.get(language, {})
+        self._traverse_ast(node, chunks, file_path, content, content_lines, language, node_mappings)
+        return chunks
+    
+    def _create_valid_section_chunk(self, content: str, file_path: str, language: str,
+                                  start_line: int, end_line: int) -> CodeChunk:
+        """Create a chunk for a valid code section around syntax errors."""
+        chunk_id = self._generate_chunk_id(file_path, start_line, end_line, ChunkType.RAW_CODE)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        return CodeChunk(
+            chunk_id=chunk_id,
+            file_path=file_path,
+            content=content,
+            chunk_type=ChunkType.RAW_CODE,
+            language=language,
+            start_line=start_line,
+            end_line=end_line,
+            start_byte=0,  # Approximate for section chunks
+            end_byte=len(content),
+            name=f"valid_section_{start_line}_{end_line}",
+            breadcrumb=f"{Path(file_path).stem}.valid_section_{start_line}_{end_line}",
+            content_hash=content_hash,
+            embedding_text=content,
+            indexed_at=datetime.now(),
+            tags=["syntax_error_recovery", "valid_section"]
+        )
+    
+    def _create_error_annotated_chunk(self, file_path: str, content: str, language: str,
+                                    error_locations: List[Tuple[int, int]]) -> CodeChunk:
+        """Create a whole-file chunk with error annotations when no valid sections found."""
+        chunk_id = self._generate_chunk_id(file_path, 1, len(content.split('\n')), ChunkType.WHOLE_FILE)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        error_summary = f"File contains {len(error_locations)} syntax errors"
+        embedding_text = f"{error_summary}\n\n{content}"
+        
+        return CodeChunk(
+            chunk_id=chunk_id,
+            file_path=file_path,
+            content=content,
+            chunk_type=ChunkType.WHOLE_FILE,
+            language=language,
+            start_line=1,
+            end_line=len(content.split('\n')),
+            start_byte=0,
+            end_byte=len(content),
+            name="error_file",
+            breadcrumb=f"{Path(file_path).stem}.error_file",
+            content_hash=content_hash,
+            embedding_text=embedding_text,
+            indexed_at=datetime.now(),
+            tags=["syntax_errors", "whole_file", "parse_failed"],
+            complexity_score=1.0  # Mark as high complexity due to errors
+        )
     
     def _create_fallback_result(self, file_path: str, content: Optional[str], 
                               start_time: float, error: bool = False) -> ParseResult:
