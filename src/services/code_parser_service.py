@@ -94,6 +94,7 @@ class CodeParserService:
                 ChunkType.FUNCTION: ['function_item'],
                 ChunkType.STRUCT: ['struct_item'],
                 ChunkType.ENUM: ['enum_item'],
+                ChunkType.IMPL: ['impl_item'],
                 ChunkType.CONSTANT: ['const_item'],
                 ChunkType.VARIABLE: ['let_declaration'],
                 ChunkType.IMPORT: ['use_declaration']
@@ -1587,6 +1588,22 @@ class CodeParserService:
             self._extract_rust_use_paths(node, names)
             return ', '.join(names) if names else None
         
+        elif node_type == 'impl_item':
+            # impl Type or impl Trait for Type
+            # Return the last type (the one being implemented for)
+            last_type = None
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    last_type = child.text.decode('utf-8')
+                elif child.type == 'scoped_type_identifier':
+                    # For qualified types, extract just the last part
+                    scoped_text = child.text.decode('utf-8')
+                    if '::' in scoped_text:
+                        last_type = scoped_text.split('::')[-1]
+                    else:
+                        last_type = scoped_text
+            return last_type
+        
         return None
     
     def _extract_rust_use_paths(self, node: Node, names: List[str]) -> None:
@@ -1676,6 +1693,36 @@ class CodeParserService:
                     signature_parts.append(child.text.decode('utf-8'))
                 elif child.type in ['type_identifier', 'primitive_type', 'reference_type']:
                     signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'impl_item':
+            # impl Type or impl Trait for Type
+            signature_parts = ['impl']
+            
+            found_for = False
+            
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'scoped_type_identifier':
+                    # Handle qualified types like fmt::Display
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'for':
+                    signature_parts.append('for')
+                    found_for = True
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'use_declaration':
+            # use path::to::module;
+            signature_parts = ['use']
+            
+            # Extract the full path for the signature
+            for child in node.children:
+                if child.type in ['identifier', 'scoped_identifier', 'use_list']:
                     signature_parts.append(child.text.decode('utf-8'))
                     break
             

@@ -22,6 +22,7 @@ class ChunkType(Enum):
     INTERFACE = "interface"
     STRUCT = "struct"
     ENUM = "enum"
+    IMPL = "impl"  # Rust implementation blocks
     
     # Variable-level chunks
     CONSTANT = "constant"
