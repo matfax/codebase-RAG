@@ -154,12 +154,29 @@ class MCPPromptsSystem:
                 include_usage_examples: Whether to provide usage examples and patterns
             """
             try:
-                # Search for the component in indexed codebase
-                search_query = f"{component_name} {component_type}" if component_type != "auto" else component_name
+                # Use enhanced component analysis service
+                from services.component_analysis_service import ComponentAnalysisService
+                analysis_service = ComponentAnalysisService()
                 
-                # Build component understanding prompt
-                understanding_prompt = self._build_component_understanding_prompt(
-                    component_name, component_type, include_dependencies, include_usage_examples, search_query
+                # Perform comprehensive component analysis
+                analysis_result = analysis_service.analyze_component(
+                    component_name=component_name,
+                    project_path=".",
+                    component_type=component_type,
+                    include_dependencies=include_dependencies,
+                    include_usage_examples=include_usage_examples,
+                    analyze_quality=True
+                )
+                
+                # Format the analysis results into a comprehensive summary
+                formatted_summary = analysis_service.format_analysis_summary(
+                    analysis_result, detail_level="detailed"
+                )
+                
+                # Create enhanced component understanding prompt
+                understanding_prompt = self._build_enhanced_component_prompt(
+                    component_name, analysis_result, include_dependencies, 
+                    include_usage_examples, formatted_summary
                 )
                 
                 return [base.Message(
@@ -169,12 +186,11 @@ class MCPPromptsSystem:
                 
             except Exception as e:
                 self.logger.error(f"Error in understand_component prompt: {e}")
-                return [base.Message(
-                    role="user",
-                    content=[base.TextContent(
-                        text=f"I need to understand the component '{component_name}' in this codebase. Can you help me analyze its purpose, interfaces, dependencies, and provide usage examples?"
-                    )]
-                )]
+                # Fallback to basic component analysis
+                return self._create_fallback_component_prompt(
+                    component_name, component_type, include_dependencies, 
+                    include_usage_examples, str(e)
+                )
     
     def _register_trace_functionality(self):
         """Register the trace_functionality prompt."""
@@ -605,6 +621,92 @@ Please help me get a {detail_level} understanding of this project's structure an
 6. **Development Approach:** Suggest the best order to explore and learn this codebase
 
 🚀 **Goal:** Provide me with actionable insights and a strategic approach to understanding this project quickly and effectively."""
+
+        return [base.Message(
+            role="user",
+            content=[base.TextContent(text=fallback_prompt)]
+        )]
+
+    def _build_enhanced_component_prompt(self, component_name: str, analysis_result, include_dependencies: bool, include_usage_examples: bool, formatted_summary: str) -> str:
+        """Build enhanced component understanding prompt with comprehensive analysis."""
+        base_prompt = f"""I need to deeply understand the component '{component_name}' in this codebase. I've conducted a comprehensive analysis and here are the results:
+
+{formatted_summary}
+
+🎯 **My Understanding Goals:**
+Based on the analysis, I want to fully comprehend how this {analysis_result.primary_component.component_type if analysis_result.primary_component else 'component'} works and how to use it effectively."""
+
+        if analysis_result.primary_component:
+            base_prompt += f"""
+
+🔍 **Key Information Discovered:**
+- **Location**: {Path(analysis_result.primary_component.file_path).name}:{analysis_result.primary_component.start_line}
+- **Type**: {analysis_result.primary_component.component_type}
+- **Language**: {analysis_result.primary_component.language}"""
+
+        if analysis_result.usage_patterns:
+            usage_count = len(analysis_result.usage_patterns)
+            base_prompt += f"\n- **Usage Examples Found**: {usage_count} different usage patterns"
+
+        base_prompt += """
+
+🤖 **Please help me understand:**
+
+1. **Core Functionality**: Based on the analysis, explain what this component does and why it exists
+2. **Interface Deep Dive**: Walk through the component's interface, parameters, and return values in detail
+3. **Usage Mastery**: Show me the best ways to use this component, including common patterns and edge cases
+4. **Integration Points**: How does this component fit into the larger system? What are its key relationships?
+5. **Practical Application**: Give me specific guidance on when and how to use this component in real scenarios"""
+
+        if include_dependencies and analysis_result.dependency_analysis:
+            base_prompt += "\n6. **Dependency Analysis**: Explain the component's dependencies and what depends on it"
+
+        if include_usage_examples and analysis_result.usage_patterns:
+            base_prompt += "\n7. **Usage Examples**: Show me real examples from the codebase and explain different usage patterns"
+
+        base_prompt += """
+
+🚀 **Use the analysis results above to provide specific, actionable insights that will help me:**
+- Understand the component's design and purpose
+- Use it correctly and effectively
+- Integrate it properly with other parts of the codebase
+- Avoid common pitfalls and follow best practices
+
+Please search the codebase to provide additional context and examples beyond what the automated analysis discovered."""
+
+        return base_prompt
+
+    def _create_fallback_component_prompt(self, component_name: str, component_type: str, include_dependencies: bool, include_usage_examples: bool, error_msg: str) -> List[base.Message]:
+        """Create fallback component prompt when enhanced analysis fails."""
+        fallback_prompt = f"""I need to understand the component '{component_name}' in this codebase but encountered some analysis limitations: {error_msg}
+
+🎯 **Component Understanding Request:**
+I want to deeply understand this {component_type if component_type != 'auto' else 'component'} and how to work with it effectively."""
+
+        fallback_prompt += """
+
+📋 **Please help me by:**
+
+1. **Component Discovery**: Search for and identify the component in the codebase
+2. **Purpose Analysis**: Explain what this component does and why it exists
+3. **Interface Exploration**: Show me the component's methods, parameters, and return types
+4. **Code Analysis**: Walk through the component's implementation and key logic"""
+
+        if include_dependencies:
+            fallback_prompt += "\n5. **Dependency Mapping**: Identify what this component depends on and what depends on it"
+
+        if include_usage_examples:
+            fallback_prompt += "\n6. **Usage Examples**: Find and explain real examples of how this component is used"
+
+        fallback_prompt += """
+
+🚀 **Goal**: Provide me with a comprehensive understanding of this component so I can:
+- Use it correctly in my own code
+- Understand its role in the overall system
+- Modify or extend it if needed
+- Follow the established patterns and conventions
+
+Please search the codebase systematically to find and analyze this component."""
 
         return [base.Message(
             role="user",
