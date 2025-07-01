@@ -24,13 +24,13 @@
 
 ## Tasks
 
-- [ ] 1.0 建立 CodeParser 服務基礎架構
-  - [ ] 1.1 在 pyproject.toml 中新增 Tree-sitter 相關依賴包
-  - [ ] 1.2 建立 CodeChunk 資料模型和 ChunkType 枚舉定義
-  - [ ] 1.3 建立 CodeParserService 服務框架和基礎介面
-  - [ ] 1.4 實作 Tree-sitter 解析器載入和快取機制
-  - [ ] 1.5 建立語言檢測和解析器管理系統
-  - [ ] 1.6 實作基礎的 AST 遍歷和節點識別功能
+- [x] 1.0 建立 CodeParser 服務基礎架構
+  - [x] 1.1 在 pyproject.toml 中新增 Tree-sitter 相關依賴包
+  - [x] 1.2 建立 CodeChunk 資料模型和 ChunkType 枚舉定義
+  - [x] 1.3 建立 CodeParserService 服務框架和基礎介面
+  - [x] 1.4 實作 Tree-sitter 解析器載入和快取機制
+  - [x] 1.5 建立語言檢測和解析器管理系統
+  - [x] 1.6 實作基礎的 AST 遍歷和節點識別功能
 
 - [ ] 2.0 實作核心智慧分塊邏輯
   - [ ] 2.1 實作 Python 語言的函數和類別分塊邏輯

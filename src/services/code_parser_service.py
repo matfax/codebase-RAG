@@ -266,7 +266,7 @@ class CodeParserService:
             node_mappings: Mapping of chunk types to AST node types
         """
         # Check if this node represents a chunk we want to extract
-        chunk_type = self._get_chunk_type(node, node_mappings)
+        chunk_type = self._get_chunk_type(node, node_mappings, language)
         
         if chunk_type:
             chunk = self._create_chunk_from_node(
@@ -279,13 +279,14 @@ class CodeParserService:
         for child in node.children:
             self._traverse_ast(child, chunks, file_path, content, content_lines, language, node_mappings)
     
-    def _get_chunk_type(self, node: Node, node_mappings: Dict[ChunkType, List[str]]) -> Optional[ChunkType]:
+    def _get_chunk_type(self, node: Node, node_mappings: Dict[ChunkType, List[str]], language: str) -> Optional[ChunkType]:
         """
         Determine the chunk type for a given AST node.
         
         Args:
             node: AST node to classify
             node_mappings: Mapping of chunk types to node types
+            language: Programming language for intelligent classification
             
         Returns:
             ChunkType if the node should be extracted, None otherwise
@@ -294,9 +295,33 @@ class CodeParserService:
         
         for chunk_type, node_types in node_mappings.items():
             if node_type in node_types:
+                # Special handling for Python assignments to distinguish constants vs variables
+                if language == 'python' and node_type == 'assignment':
+                    return self._classify_python_assignment(node)
                 return chunk_type
         
         return None
+    
+    def _classify_python_assignment(self, node: Node) -> ChunkType:
+        """
+        Classify Python assignment as constant or variable based on naming convention.
+        
+        Args:
+            node: Assignment AST node
+            
+        Returns:
+            ChunkType.CONSTANT for UPPERCASE names, ChunkType.VARIABLE otherwise
+        """
+        # Extract the variable name
+        for child in node.children:
+            if child.type == 'identifier':
+                name = child.text.decode('utf-8')
+                # Python convention: UPPERCASE names are constants
+                if name.isupper() and len(name) > 1:
+                    return ChunkType.CONSTANT
+                break
+        
+        return ChunkType.VARIABLE
     
     def _create_chunk_from_node(self, node: Node, chunk_type: ChunkType, file_path: str,
                               content: str, content_lines: List[str], language: str) -> Optional[CodeChunk]:
@@ -372,19 +397,42 @@ class CodeParserService:
     
     def _extract_name(self, node: Node, language: str) -> Optional[str]:
         """Extract the name of a code construct (function, class, etc.)."""
-        # This is a simplified implementation - would need language-specific logic
-        # For now, return placeholder
-        return "extracted_name"  # TODO: Implement language-specific name extraction
+        if language == 'python':
+            return self._extract_python_name(node)
+        elif language in ['javascript', 'typescript']:
+            return self._extract_js_name(node)
+        elif language == 'go':
+            return self._extract_go_name(node)
+        elif language == 'rust':
+            return self._extract_rust_name(node)
+        elif language == 'java':
+            return self._extract_java_name(node)
+        
+        return None
     
     def _extract_signature(self, node: Node, language: str) -> Optional[str]:
         """Extract the signature of a code construct."""
-        # This is a simplified implementation - would need language-specific logic
-        return None  # TODO: Implement language-specific signature extraction
+        if language == 'python':
+            return self._extract_python_signature(node)
+        elif language in ['javascript', 'typescript']:
+            return self._extract_js_signature(node)
+        elif language == 'go':
+            return self._extract_go_signature(node)
+        elif language == 'rust':
+            return self._extract_rust_signature(node)
+        elif language == 'java':
+            return self._extract_java_signature(node)
+        
+        return None
     
     def _extract_docstring(self, node: Node, content_lines: List[str], language: str) -> Optional[str]:
         """Extract associated documentation string."""
-        # This is a simplified implementation - would need language-specific logic
-        return None  # TODO: Implement language-specific docstring extraction
+        if language == 'python':
+            return self._extract_python_docstring(node, content_lines)
+        elif language in ['javascript', 'typescript']:
+            return self._extract_js_docstring(node, content_lines)
+        # Other languages don't have standard docstring conventions yet
+        return None
     
     def _create_breadcrumb(self, file_path: str, name: Optional[str]) -> str:
         """Create a breadcrumb path for the code chunk."""
@@ -492,3 +540,145 @@ class CodeParserService:
             embedding_text=content,
             indexed_at=datetime.now()
         )
+    
+    # Python-specific parsing methods
+    def _extract_python_name(self, node: Node) -> Optional[str]:
+        """Extract name from Python AST node."""
+        node_type = node.type
+        
+        if node_type in ['function_definition', 'async_function_definition']:
+            # Look for identifier child node
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'class_definition':
+            # Look for identifier child node after 'class' keyword
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'assignment':
+            # Look for the assigned variable name
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type in ['import_statement', 'import_from_statement']:
+            # Extract import module names
+            names = []
+            for child in node.children:
+                if child.type in ['dotted_name', 'identifier']:
+                    names.append(child.text.decode('utf-8'))
+            return ', '.join(names) if names else None
+        
+        return None
+    
+    def _extract_python_signature(self, node: Node) -> Optional[str]:
+        """Extract function/class signature from Python AST node."""
+        node_type = node.type
+        
+        if node_type in ['function_definition', 'async_function_definition']:
+            # Get the function signature (name + parameters)
+            signature_parts = []
+            
+            # Add async keyword if present
+            if node_type == 'async_function_definition':
+                signature_parts.append('async')
+            
+            signature_parts.append('def')
+            
+            # Extract function name and parameters
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'parameters':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'type' and child.text.decode('utf-8').startswith('->'):
+                    # Return type annotation
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'class_definition':
+            # Get class signature with inheritance
+            signature_parts = ['class']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'argument_list':
+                    # Base classes
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        return None
+    
+    def _extract_python_docstring(self, node: Node, content_lines: List[str]) -> Optional[str]:
+        """Extract docstring from Python function or class."""
+        # Look for the first string literal in the body
+        for child in node.children:
+            if child.type == 'block':
+                # Look for expression_statement containing a string
+                for stmt in child.children:
+                    if stmt.type == 'expression_statement':
+                        for expr in stmt.children:
+                            if expr.type == 'string':
+                                # Extract and clean the docstring
+                                docstring = expr.text.decode('utf-8')
+                                # Remove quotes and clean up formatting
+                                if docstring.startswith('"""') or docstring.startswith("'''"):
+                                    docstring = docstring[3:-3]
+                                elif docstring.startswith('"') or docstring.startswith("'"):
+                                    docstring = docstring[1:-1]
+                                return docstring.strip()
+        return None
+    
+    # Placeholder methods for other languages (to be implemented)
+    def _extract_js_name(self, node: Node) -> Optional[str]:
+        """Extract name from JavaScript/TypeScript AST node."""
+        # TODO: Implement JavaScript name extraction
+        return None
+    
+    def _extract_js_signature(self, node: Node) -> Optional[str]:
+        """Extract signature from JavaScript/TypeScript AST node."""
+        # TODO: Implement JavaScript signature extraction
+        return None
+    
+    def _extract_js_docstring(self, node: Node, content_lines: List[str]) -> Optional[str]:
+        """Extract JSDoc comment from JavaScript/TypeScript function or class."""
+        # TODO: Implement JavaScript docstring extraction
+        return None
+    
+    def _extract_go_name(self, node: Node) -> Optional[str]:
+        """Extract name from Go AST node."""
+        # TODO: Implement Go name extraction
+        return None
+    
+    def _extract_go_signature(self, node: Node) -> Optional[str]:
+        """Extract signature from Go AST node."""
+        # TODO: Implement Go signature extraction
+        return None
+    
+    def _extract_rust_name(self, node: Node) -> Optional[str]:
+        """Extract name from Rust AST node."""
+        # TODO: Implement Rust name extraction
+        return None
+    
+    def _extract_rust_signature(self, node: Node) -> Optional[str]:
+        """Extract signature from Rust AST node."""
+        # TODO: Implement Rust signature extraction
+        return None
+    
+    def _extract_java_name(self, node: Node) -> Optional[str]:
+        """Extract name from Java AST node."""
+        # TODO: Implement Java name extraction
+        return None
+    
+    def _extract_java_signature(self, node: Node) -> Optional[str]:
+        """Extract signature from Java AST node."""
+        # TODO: Implement Java signature extraction
+        return None
