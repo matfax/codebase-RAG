@@ -56,12 +56,12 @@ class CodeParserService:
         self._node_mappings = {
             'python': {
                 ChunkType.FUNCTION: ['function_definition'],
-                ChunkType.ASYNC_FUNCTION: ['async_function_definition'],
                 ChunkType.CLASS: ['class_definition'],
                 ChunkType.CONSTANT: ['assignment'],  # We'll filter these by context
                 ChunkType.VARIABLE: ['assignment'],
-                ChunkType.IMPORT: ['import_statement', 'import_from_statement'],
-                ChunkType.DOCSTRING: ['expression_statement']  # String literals at module/class/function level
+                ChunkType.IMPORT: ['import_statement', 'import_from_statement']
+                # Note: ASYNC_FUNCTION will be detected by checking for 'async' child in function_definition
+                # Note: DOCSTRING detection will be handled specially to avoid over-extraction
             },
             'javascript': {
                 ChunkType.FUNCTION: ['function_declaration', 'arrow_function', 'method_definition'],
@@ -277,16 +277,124 @@ class CodeParserService:
         """
         node_type = node.type
         
+        # Special handling for Python
+        if language == 'python':
+            if node_type == 'function_definition':
+                # Check if it's an async function
+                if self._is_async_function(node):
+                    return ChunkType.ASYNC_FUNCTION
+                else:
+                    return ChunkType.FUNCTION
+            elif node_type == 'assignment':
+                # Only include module-level assignments, skip those inside functions/classes
+                if self._is_module_level_assignment(node):
+                    return self._classify_python_assignment(node)
+                else:
+                    return None  # Skip assignments inside functions/classes
+        
+        # Special handling for JavaScript/TypeScript
+        elif language in ['javascript', 'typescript', 'tsx']:
+            if node_type == 'method_definition':
+                # Check if it's an async method
+                if self._is_async_function(node):
+                    return ChunkType.ASYNC_FUNCTION
+                else:
+                    return ChunkType.FUNCTION
+            elif node_type == 'function_declaration':
+                # Check if it's an async function
+                if self._is_async_function(node):
+                    return ChunkType.ASYNC_FUNCTION
+                else:
+                    return ChunkType.FUNCTION
+            elif node_type == 'arrow_function':
+                # Only extract arrow functions that are not part of variable declarations
+                # (those will be handled by the lexical_declaration extraction)
+                parent = node.parent
+                if parent and parent.type == 'variable_declarator':
+                    # This arrow function is part of a variable assignment, skip it
+                    # The variable declaration will handle both the name and function
+                    return None
+                
+                # Standalone arrow functions can also be async
+                if self._is_async_function(node):
+                    return ChunkType.ASYNC_FUNCTION
+                else:
+                    return ChunkType.FUNCTION
+            elif node_type in ['lexical_declaration', 'variable_declaration']:
+                # Only include module-level declarations, skip those inside functions/classes
+                if self._is_module_level_js_declaration(node):
+                    return self._classify_js_declaration(node)
+                else:
+                    return None  # Skip declarations inside functions/classes
+        
+        # Standard mapping lookup for other cases
         for chunk_type, node_types in node_mappings.items():
             if node_type in node_types:
                 # Special handling for assignments to distinguish constants vs variables
                 if language == 'python' and node_type == 'assignment':
-                    return self._classify_python_assignment(node)
+                    # This is now handled above for better context filtering
+                    continue
                 elif language in ['javascript', 'typescript'] and node_type == 'lexical_declaration':
                     return self._classify_js_declaration(node)
                 return chunk_type
         
         return None
+    
+    def _is_async_function(self, node: Node) -> bool:
+        """Check if a function_definition node represents an async function."""
+        for child in node.children:
+            if child.type == 'async':
+                return True
+        return False
+    
+    def _is_module_level_assignment(self, node: Node) -> bool:
+        """
+        Check if an assignment is at module level (not inside a function or class).
+        
+        This is a heuristic approach - we check the parent hierarchy to see
+        if we're inside a function or class definition.
+        """
+        # For this implementation, we'll use a simple approach:
+        # If the assignment is directly under a module or under a simple block,
+        # consider it module-level. This may need refinement based on actual usage.
+        
+        parent = node.parent
+        while parent:
+            if parent.type in ['function_definition', 'class_definition']:
+                return False
+            elif parent.type == 'module':
+                return True
+            parent = parent.parent
+        
+        # If we can't determine, err on the side of inclusion
+        return True
+    
+    def _is_module_level_js_declaration(self, node: Node) -> bool:
+        """
+        Check if a JavaScript declaration is at module level (not inside a function or class).
+        
+        Args:
+            node: The lexical_declaration or variable_declaration node
+            
+        Returns:
+            True if at module level, False if inside function/class/method
+        """
+        parent = node.parent
+        while parent:
+            if parent.type in ['function_declaration', 'method_definition', 'arrow_function', 'class_declaration']:
+                return False
+            elif parent.type == 'program':  # JavaScript uses 'program' instead of 'module'
+                return True
+            # Also check for statement blocks that might be inside functions
+            elif parent.type == 'statement_block':
+                # Look at the grandparent to see what contains this statement block
+                grandparent = parent.parent
+                if grandparent and grandparent.type in ['function_declaration', 'method_definition', 'arrow_function']:
+                    return False
+            parent = parent.parent
+        
+        # If we can't determine, err on the side of inclusion
+        return True
     
     def _classify_python_assignment(self, node: Node) -> ChunkType:
         """
@@ -311,15 +419,33 @@ class CodeParserService:
     
     def _classify_js_declaration(self, node: Node) -> ChunkType:
         """
-        Classify JavaScript/TypeScript lexical declaration as constant or variable.
+        Classify JavaScript/TypeScript lexical declaration as constant, variable, or function.
         
         Args:
             node: Lexical declaration AST node
             
         Returns:
-            ChunkType.CONSTANT for const declarations, ChunkType.VARIABLE for let
+            ChunkType.FUNCTION/ASYNC_FUNCTION for arrow functions, 
+            ChunkType.CONSTANT for const declarations, 
+            ChunkType.VARIABLE for let declarations
         """
-        # Check if this is a const declaration
+        # First check if this declaration contains an arrow function
+        arrow_function_node = None
+        for child in node.children:
+            if child.type == 'variable_declarator':
+                for declarator_child in child.children:
+                    if declarator_child.type == 'arrow_function':
+                        arrow_function_node = declarator_child
+                        break
+        
+        # If it contains an arrow function, classify based on async status
+        if arrow_function_node:
+            if self._is_async_function(arrow_function_node):
+                return ChunkType.ASYNC_FUNCTION
+            else:
+                return ChunkType.FUNCTION
+        
+        # Otherwise, classify based on declaration type (const/let/var)
         for child in node.children:
             if child.type == 'const' or child.text.decode('utf-8') == 'const':
                 return ChunkType.CONSTANT
@@ -870,12 +996,13 @@ class CodeParserService:
         """Extract function/class signature from Python AST node."""
         node_type = node.type
         
-        if node_type in ['function_definition', 'async_function_definition']:
+        if node_type == 'function_definition':
             # Get the function signature (name + parameters)
             signature_parts = []
             
-            # Add async keyword if present
-            if node_type == 'async_function_definition':
+            # Check if this is an async function by looking for async child
+            is_async = self._is_async_function(node)
+            if is_async:
                 signature_parts.append('async')
             
             signature_parts.append('def')
@@ -940,10 +1067,21 @@ class CodeParserService:
                 if child.type == 'identifier':
                     return child.text.decode('utf-8')
         
+        elif node_type == 'method_definition':
+            # Look for property_identifier for method name
+            for child in node.children:
+                if child.type == 'property_identifier':
+                    return child.text.decode('utf-8')
+        
         elif node_type == 'arrow_function':
-            # Arrow functions might not have explicit names, look for assignment context
-            # This would need parent context analysis for proper naming
-            return 'arrow_function'  # Placeholder
+            # For arrow functions, we need to look at the parent context
+            # to find the variable name it's assigned to
+            parent = node.parent
+            if parent and parent.type == 'variable_declarator':
+                for child in parent.children:
+                    if child.type == 'identifier':
+                        return child.text.decode('utf-8')
+            return 'arrow_function'  # Fallback if no context found
         
         elif node_type == 'class_declaration':
             # Look for identifier child node after 'class' keyword
@@ -990,12 +1128,13 @@ class CodeParserService:
         """Extract signature from JavaScript/TypeScript AST node."""
         node_type = node.type
         
-        if node_type in ['function_declaration', 'async_function_declaration']:
+        if node_type == 'function_declaration':
             # Get the function signature
             signature_parts = []
             
-            # Add async keyword if present
-            if node_type == 'async_function_declaration':
+            # Check for async keyword
+            is_async = self._is_async_function(node)
+            if is_async:
                 signature_parts.append('async')
             
             signature_parts.append('function')
@@ -1014,9 +1153,37 @@ class CodeParserService:
             
             return ' '.join(signature_parts)
         
+        elif node_type == 'method_definition':
+            # Method definition signature
+            signature_parts = []
+            
+            # Check for async keyword
+            is_async = self._is_async_function(node)
+            if is_async:
+                signature_parts.append('async')
+            
+            # Extract method name and parameters
+            for child in node.children:
+                if child.type == 'property_identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'formal_parameters':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'type_annotation':
+                    # TypeScript return type annotation
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
         elif node_type == 'arrow_function':
             # Arrow function signature
             signature_parts = []
+            
+            # Check for async keyword
+            is_async = self._is_async_function(node)
+            if is_async:
+                signature_parts.append('async')
             
             for child in node.children:
                 if child.type == 'formal_parameters':
@@ -1048,19 +1215,45 @@ class CodeParserService:
             # Variable/const declaration signature
             signature_parts = []
             
-            # Add declaration keyword (const, let, var)
+            # Check if this contains an arrow function
+            arrow_function_node = None
+            variable_name = None
+            
             for child in node.children:
                 if child.type in ['const', 'let', 'var']:
                     signature_parts.append(child.text.decode('utf-8'))
                 elif child.type == 'variable_declarator':
-                    # Get variable name and type
+                    # Get variable name and check for arrow function
                     for declarator_child in child.children:
                         if declarator_child.type == 'identifier':
-                            signature_parts.append(declarator_child.text.decode('utf-8'))
+                            variable_name = declarator_child.text.decode('utf-8')
+                            signature_parts.append(variable_name)
+                        elif declarator_child.type == 'arrow_function':
+                            arrow_function_node = declarator_child
                         elif declarator_child.type == 'type_annotation':
                             signature_parts.append(':')
                             signature_parts.append(declarator_child.text.decode('utf-8'))
                     break
+            
+            # If this contains an arrow function, create a function-style signature
+            if arrow_function_node:
+                # Replace the const/let with async if needed
+                if self._is_async_function(arrow_function_node):
+                    signature_parts[0] = 'async'
+                else:
+                    # Remove the const/let for function-style signature
+                    signature_parts = signature_parts[1:]
+                
+                # Add arrow function parameters
+                for child in arrow_function_node.children:
+                    if child.type == 'formal_parameters':
+                        signature_parts.append(child.text.decode('utf-8'))
+                    elif child.type == 'type_annotation':
+                        signature_parts.append(':')
+                        signature_parts.append(child.text.decode('utf-8'))
+                        break
+                
+                signature_parts.append('=>')
             
             return ' '.join(signature_parts)
         

@@ -22,17 +22,17 @@
 
 ## Tasks
 
-- [ ] 1.0 Diagnose and Fix Tree-sitter Dependencies
+- [x] 1.0 Diagnose and Fix Tree-sitter Dependencies
   - [x] 1.1 Investigate Tree-sitter version compatibility issues and `PyCapsule` errors
   - [x] 1.2 Update Tree-sitter dependencies to compatible versions in requirements.txt and pyproject.toml
   - [x] 1.3 Create TreeSitterManager utility class for robust parser initialization
-  - [ ] 1.4 Fix Language object validation in CodeParserService._initialize_parsers()
-  - [ ] 1.5 Add comprehensive error logging for Tree-sitter initialization failures
-  - [ ] 1.6 Test parser initialization for all supported languages (Python, JS, TS, Go, Rust, Java)
+  - [x] 1.4 Fix Language object validation in CodeParserService._initialize_parsers()
+  - [x] 1.5 Add comprehensive error logging for Tree-sitter initialization failures
+  - [x] 1.6 Test parser initialization for all supported languages (Python, JS, TS, Go, Rust, Java)
 
 - [ ] 2.0 Restore Intelligent Chunking for Existing Languages
-  - [ ] 2.1 Verify and fix AST node mappings for Python (functions, classes, methods, imports)
-  - [ ] 2.2 Verify and fix AST node mappings for JavaScript/TypeScript (functions, classes, interfaces, exports)
+  - [x] 2.1 Verify and fix AST node mappings for Python (functions, classes, methods, imports)
+  - [x] 2.2 Verify and fix AST node mappings for JavaScript/TypeScript (functions, classes, interfaces, exports)
   - [ ] 2.3 Verify and fix AST node mappings for Java (methods, classes, interfaces, imports)
   - [ ] 2.4 Verify and fix AST node mappings for Go (functions, structs, interfaces, imports)
   - [ ] 2.5 Verify and fix AST node mappings for Rust (functions, structs, enums, modules)
