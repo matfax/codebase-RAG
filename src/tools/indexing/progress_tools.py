@@ -9,8 +9,8 @@ import logging
 from typing import Dict, Any
 from mcp.server.fastmcp import FastMCP
 
-from ..core.error_utils import handle_tool_error, log_tool_usage
-from ..core.errors import IndexingError
+from tools.core.error_utils import handle_tool_error, log_tool_usage
+from tools.core.errors import IndexingError
 from utils.performance_monitor import MemoryMonitor
 
 # Configure logging

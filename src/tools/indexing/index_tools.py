@@ -17,17 +17,17 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-from ..core.errors import (
+from tools.core.errors import (
     QdrantConnectionError, IndexingError, ProjectError, 
     EmbeddingError, ValidationError, ConfigurationError
 )
-from ..core.memory_utils import (
+from tools.core.memory_utils import (
     get_memory_usage_mb, log_memory_usage, force_memory_cleanup,
     should_cleanup_memory, get_adaptive_batch_size, clear_processing_variables,
     check_memory_usage, get_memory_stats
 )
-from ..core.retry_utils import retry_operation
-from ..database.qdrant_utils import (
+from tools.core.retry_utils import retry_operation
+from tools.database.qdrant_utils import (
     check_qdrant_health, retry_qdrant_operation,
     retry_individual_points, log_database_metrics
 )

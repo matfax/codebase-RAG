@@ -16,7 +16,7 @@ from qdrant_client.http.models import (
     PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue
 )
 
-from ..core.errors import QdrantConnectionError
+from tools.core.errors import QdrantConnectionError
 
 logger = logging.getLogger(__name__)
 

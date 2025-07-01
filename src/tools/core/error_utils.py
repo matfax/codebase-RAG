@@ -9,7 +9,7 @@ import functools
 from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 from datetime import datetime
 
-from .errors import MCPToolError, ServiceError, ValidationError
+from tools.core.errors import MCPToolError, ServiceError, ValidationError
 
 logger = logging.getLogger(__name__)
 

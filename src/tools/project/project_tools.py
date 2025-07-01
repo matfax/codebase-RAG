@@ -8,9 +8,9 @@ import logging
 from typing import Dict, Any, List, Optional
 from mcp.server.fastmcp import FastMCP
 
-from ..core.error_utils import handle_tool_error, log_tool_usage
-from ..core.errors import ProjectError
-from .project_utils import get_current_project, clear_project_collections
+from tools.core.error_utils import handle_tool_error, log_tool_usage
+from tools.core.errors import ProjectError
+from tools.project.project_utils import get_current_project, clear_project_collections
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ def get_project_info(directory: str = ".") -> Dict[str, Any]:
                 }
             
             # Get additional project statistics
-            from ...tools.database.qdrant_utils import check_existing_index
+            from tools.database.qdrant_utils import check_existing_index
             index_info = check_existing_index(project_info)
             
             return {
@@ -73,7 +73,7 @@ def list_indexed_projects() -> Dict[str, Any]:
     """
     with log_tool_usage("list_indexed_projects", {}):
         try:
-            from ..database.qdrant_utils import get_qdrant_client
+            from tools.database.qdrant_utils import get_qdrant_client
             
             client = get_qdrant_client()
             collections = client.get_collections().collections
