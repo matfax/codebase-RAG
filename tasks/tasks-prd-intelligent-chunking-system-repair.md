@@ -41,13 +41,13 @@
 
 - [x] 2.0 Restore Intelligent Chunking for Existing Languages
 
-- [ ] 3.0 Add C++ Language Support
-  - [ ] 3.1 Add tree-sitter-cpp dependency to requirements.txt and pyproject.toml
-  - [ ] 3.2 Extend CodeParserService._supported_languages to include C++ variants (cpp, c, hpp, h)
-  - [ ] 3.3 Define AST node mappings for C++ (functions, classes, namespaces, includes, templates)
-  - [ ] 3.4 Update language detection in IndexingService to properly map C++ file extensions
-  - [ ] 3.5 Create comprehensive test cases for C++ header (.hpp) and source (.cpp) files
-  - [ ] 3.6 Validate C++ template and namespace parsing works correctly
+- [x] 3.0 Add C++ Language Support
+  - [x] 3.1 Add tree-sitter-cpp dependency to requirements.txt and pyproject.toml
+  - [x] 3.2 Extend CodeParserService._supported_languages to include C++ variants (cpp, c, hpp, h)
+  - [x] 3.3 Define AST node mappings for C++ (functions, classes, namespaces, includes, templates)
+  - [x] 3.4 Update language detection in IndexingService to properly map C++ file extensions
+  - [x] 3.5 Create comprehensive test cases for C++ header (.hpp) and source (.cpp) files
+  - [x] 3.6 Validate C++ template and namespace parsing works correctly
 
 - [ ] 4.0 Enhance Error Handling and Fallback Mechanisms
   - [ ] 4.1 Create LanguageRegistry utility to centralize language support information

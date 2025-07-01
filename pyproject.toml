@@ -25,6 +25,7 @@ tree-sitter-typescript = "*"
 tree-sitter-go = "*"
 tree-sitter-rust = "0.21.2"
 tree-sitter-java = "*"
+tree-sitter-cpp = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

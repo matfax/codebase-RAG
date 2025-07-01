@@ -422,8 +422,8 @@ class IndexingService:
             ".tsx": "typescript",
             
             # C/C++
-            ".c": "c",
-            ".h": "c",
+            ".c": "cpp",
+            ".h": "cpp", 
             ".cpp": "cpp",
             ".cxx": "cpp",
             ".cc": "cpp",

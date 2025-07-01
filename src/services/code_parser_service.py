@@ -108,6 +108,18 @@ class CodeParserService:
                 ChunkType.CONSTANT: ['field_declaration'],  # Static final fields
                 ChunkType.VARIABLE: ['field_declaration'],
                 ChunkType.IMPORT: ['import_declaration']
+            },
+            'cpp': {
+                ChunkType.FUNCTION: ['function_definition', 'function_declarator'],
+                ChunkType.CLASS: ['class_specifier'],
+                ChunkType.STRUCT: ['struct_specifier'],
+                ChunkType.NAMESPACE: ['namespace_definition'],
+                ChunkType.CONSTANT: ['declaration'],  # const declarations (will filter by context)
+                ChunkType.VARIABLE: ['declaration'],  # variable declarations
+                ChunkType.IMPORT: ['preproc_include'],  # #include statements
+                ChunkType.CONSTRUCTOR: ['function_definition'],  # constructors (special handling needed)
+                ChunkType.DESTRUCTOR: ['function_definition'],  # destructors (special handling needed)
+                ChunkType.TEMPLATE: ['template_declaration']  # template definitions
             }
         }
     
@@ -351,6 +363,26 @@ class CodeParserService:
                 # Default to STRUCT if we can't determine
                 return ChunkType.STRUCT
         
+        # Special handling for C++
+        elif language == 'cpp':
+            if node_type == 'function_definition':
+                # Check if it's a constructor, destructor, or regular function
+                func_name = self._extract_cpp_function_name(node)
+                if func_name:
+                    if func_name.startswith('~'):
+                        return ChunkType.DESTRUCTOR
+                    elif self._is_cpp_constructor(node, func_name):
+                        return ChunkType.CONSTRUCTOR
+                    else:
+                        return ChunkType.FUNCTION
+                return ChunkType.FUNCTION
+            elif node_type == 'declaration':
+                # Distinguish between constants and variables
+                if self._is_cpp_const_declaration(node):
+                    return ChunkType.CONSTANT
+                else:
+                    return ChunkType.VARIABLE
+        
         # Standard mapping lookup for other cases
         for chunk_type, node_types in node_mappings.items():
             if node_type in node_types:
@@ -585,6 +617,8 @@ class CodeParserService:
             return self._extract_rust_name(node)
         elif language == 'java':
             return self._extract_java_name(node)
+        elif language == 'cpp':
+            return self._extract_cpp_name(node)
         
         return None
     
@@ -600,6 +634,8 @@ class CodeParserService:
             return self._extract_rust_signature(node)
         elif language == 'java':
             return self._extract_java_signature(node)
+        elif language == 'cpp':
+            return self._extract_cpp_signature(node)
         
         return None
     
@@ -676,7 +712,13 @@ class CodeParserService:
     def _handle_syntax_errors(self, node: Node, file_path: str, content: str, 
                             content_lines: List[str], language: str) -> List[CodeChunk]:
         """
-        Intelligently handle syntax errors by extracting valid code around errors.
+        Enhanced intelligent syntax error handling with improved recovery strategies.
+        
+        This method uses multiple recovery techniques:
+        1. Valid section extraction between errors
+        2. Partial AST traversal for recoverable nodes  
+        3. Heuristic-based code block detection
+        4. Language-specific error recovery patterns
         
         Args:
             node: Root AST node that may contain errors
@@ -691,34 +733,51 @@ class CodeParserService:
         chunks = []
         error_locations = []
         
-        # First pass: collect all error locations
-        self._collect_error_locations(node, error_locations)
+        # First pass: collect all error locations with severity analysis
+        self._collect_error_locations_enhanced(node, error_locations, content_lines)
         
         if not error_locations:
             # No errors found, proceed with normal parsing
             return self._extract_chunks_normal(node, file_path, content, content_lines, language)
         
-        self.logger.warning(f"Found {len(error_locations)} syntax errors in {file_path}")
+        # Classify errors by severity and impact
+        critical_errors, recoverable_errors = self._classify_errors_by_severity(error_locations, content_lines, language)
         
-        # Second pass: extract valid code sections between errors
-        valid_sections = self._identify_valid_sections(error_locations, content_lines)
+        self.logger.warning(f"Found {len(error_locations)} syntax errors in {file_path} ({len(critical_errors)} critical, {len(recoverable_errors)} recoverable)")
+        
+        # Strategy 1: Try partial AST traversal for recoverable sections
+        partial_chunks = self._extract_from_partial_ast(node, file_path, content, content_lines, language, error_locations)
+        chunks.extend(partial_chunks)
+        
+        # Strategy 2: Extract valid sections between errors using enhanced detection
+        valid_sections = self._identify_valid_sections_enhanced(error_locations, content_lines, language)
         
         for section_start, section_end in valid_sections:
-            # Extract content for this valid section
+            # Skip sections that were already processed by partial AST
+            if self._section_already_processed(section_start, section_end, chunks):
+                continue
+                
             section_content = '\n'.join(content_lines[section_start:section_end + 1])
             
-            if len(section_content.strip()) > 10:  # Only process substantial sections
-                # Create a chunk for this valid section
+            # Enhanced validation for section content
+            if self._is_valid_code_section(section_content, language):
                 chunk = self._create_valid_section_chunk(
                     section_content, file_path, language, 
-                    section_start + 1, section_end + 1  # Convert to 1-based line numbers
+                    section_start + 1, section_end + 1
                 )
                 if chunk:
                     chunks.append(chunk)
         
-        # If no valid sections found, create a whole-file chunk with error annotation
+        # Strategy 3: Language-specific heuristic recovery
+        heuristic_chunks = self._recover_using_heuristics(content_lines, file_path, language, error_locations)
+        chunks.extend(heuristic_chunks)
+        
+        # If still no valid chunks found, create annotated whole-file chunk
         if not chunks:
             chunks.append(self._create_error_annotated_chunk(file_path, content, language, error_locations))
+        else:
+            # Sort chunks by line number for consistency
+            chunks.sort(key=lambda c: c.start_line)
         
         return chunks
     
@@ -1882,3 +1941,554 @@ class CodeParserService:
             return ' '.join(signature_parts)
         
         return None
+    
+    # C++ specific parsing methods
+    def _extract_cpp_function_name(self, node: Node) -> Optional[str]:
+        """Extract function name from C++ function_definition node."""
+        # Look for function_declarator child which contains the function name
+        for child in node.children:
+            if child.type == 'function_declarator':
+                for declarator_child in child.children:
+                    if declarator_child.type == 'identifier':
+                        return declarator_child.text.decode('utf-8')
+                    elif declarator_child.type == 'destructor_name':
+                        # Destructors have special naming
+                        return declarator_child.text.decode('utf-8')
+        return None
+    
+    def _is_cpp_constructor(self, node: Node, func_name: str) -> bool:
+        """Check if a C++ function is a constructor."""
+        # In C++, constructors have the same name as their class
+        # We need to look at the context to determine the class name
+        # For now, we'll use a heuristic: if the function has no return type, it's likely a constructor
+        
+        # Look for a return type - constructors don't have explicit return types
+        for child in node.children:
+            if child.type in ['primitive_type', 'type_identifier', 'qualified_identifier']:
+                # Has return type, so not a constructor
+                return False
+        
+        # Additional check: constructor names typically match class names (uppercase)
+        return func_name and func_name[0].isupper()
+    
+    def _is_cpp_const_declaration(self, node: Node) -> bool:
+        """Check if a C++ declaration is a const declaration."""
+        # Look for 'const' keyword in the declaration
+        for child in node.children:
+            if child.type == 'storage_class_specifier':
+                if child.text.decode('utf-8') == 'const':
+                    return True
+            elif child.type == 'type_qualifier':
+                if child.text.decode('utf-8') == 'const':
+                    return True
+        return False
+    
+    def _extract_cpp_name(self, node: Node) -> Optional[str]:
+        """Extract name from C++ AST node."""
+        node_type = node.type
+        
+        if node_type == 'function_definition':
+            return self._extract_cpp_function_name(node)
+        
+        elif node_type in ['class_specifier', 'struct_specifier']:
+            # Look for type_identifier child
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'namespace_definition':
+            # Look for identifier child
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'template_declaration':
+            # Template declarations wrap other declarations
+            for child in node.children:
+                if child.type in ['class_specifier', 'struct_specifier', 'function_definition']:
+                    return self._extract_cpp_name(child)
+        
+        elif node_type == 'declaration':
+            # Look for init_declarator and then identifier
+            for child in node.children:
+                if child.type == 'init_declarator':
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            return declarator_child.text.decode('utf-8')
+        
+        elif node_type == 'preproc_include':
+            # Extract include file name
+            for child in node.children:
+                if child.type in ['string_literal', 'system_lib_string']:
+                    include_path = child.text.decode('utf-8').strip('"<>')
+                    # Return just the filename, not the full path
+                    return include_path.split('/')[-1]
+        
+        return None
+    
+    def _extract_cpp_signature(self, node: Node) -> Optional[str]:
+        """Extract signature from C++ AST node."""
+        node_type = node.type
+        
+        if node_type == 'function_definition':
+            # Extract full function signature including return type
+            signature_parts = []
+            
+            # Look for return type, function name, and parameters
+            for child in node.children:
+                if child.type in ['primitive_type', 'type_identifier', 'qualified_identifier']:
+                    # Return type
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'function_declarator':
+                    # Function name and parameters
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type in ['class_specifier', 'struct_specifier']:
+            # class/struct Name [: base_classes]
+            signature_parts = [node_type.replace('_specifier', '')]
+            
+            for child in node.children:
+                if child.type == 'type_identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'base_class_clause':
+                    # Inheritance information
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'namespace_definition':
+            # namespace Name
+            signature_parts = ['namespace']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'template_declaration':
+            # template<...> declaration
+            signature_parts = []
+            
+            # Add template parameters
+            for child in node.children:
+                if child.type == 'template_parameter_list':
+                    signature_parts.append('template')
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['class_specifier', 'struct_specifier', 'function_definition']:
+                    # Add the templated declaration
+                    inner_signature = self._extract_cpp_signature(child)
+                    if inner_signature:
+                        signature_parts.append(inner_signature)
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'declaration':
+            # Variable/constant declaration
+            signature_parts = []
+            
+            for child in node.children:
+                if child.type in ['storage_class_specifier', 'type_qualifier']:
+                    # const, static, etc.
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type in ['primitive_type', 'type_identifier']:
+                    # Type
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'init_declarator':
+                    # Variable name
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            signature_parts.append(declarator_child.text.decode('utf-8'))
+                            break
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'preproc_include':
+            # #include <file> or #include "file"
+            signature_parts = ['#include']
+            
+            for child in node.children:
+                if child.type in ['string_literal', 'system_lib_string']:
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        return None
+    
+    # Enhanced error recovery methods
+    def _collect_error_locations_enhanced(self, node: Node, error_locations: List[Tuple[int, int, str]], content_lines: List[str]) -> None:
+        """Collect error locations with enhanced context information."""
+        if node.type == 'ERROR':
+            start_line = node.start_point[0]
+            end_line = node.end_point[0]
+            
+            # Get error context for better classification
+            error_context = ""
+            if start_line < len(content_lines):
+                error_context = content_lines[start_line].strip()
+            
+            error_locations.append((start_line, end_line, error_context))
+        
+        for child in node.children:
+            self._collect_error_locations_enhanced(child, error_locations, content_lines)
+    
+    def _classify_errors_by_severity(self, error_locations: List[Tuple[int, int, str]], 
+                                   content_lines: List[str], language: str) -> Tuple[List[Tuple[int, int, str]], List[Tuple[int, int, str]]]:
+        """Classify errors into critical and recoverable categories."""
+        critical_errors = []
+        recoverable_errors = []
+        
+        for start_line, end_line, context in error_locations:
+            if self._is_critical_error(context, language):
+                critical_errors.append((start_line, end_line, context))
+            else:
+                recoverable_errors.append((start_line, end_line, context))
+        
+        return critical_errors, recoverable_errors
+    
+    def _is_critical_error(self, error_context: str, language: str) -> bool:
+        """Determine if an error is critical and likely to break parsing."""
+        if not error_context:
+            return True
+        
+        # Language-specific critical error patterns
+        critical_patterns = {
+            'python': ['class ', 'def ', 'import ', 'from '],
+            'javascript': ['function ', 'class ', 'import ', 'export '],
+            'typescript': ['function ', 'class ', 'interface ', 'import ', 'export '],
+            'java': ['class ', 'public class ', 'interface ', 'import '],
+            'cpp': ['class ', 'namespace ', '#include ', 'template'],
+            'go': ['func ', 'type ', 'package ', 'import'],
+            'rust': ['fn ', 'struct ', 'impl ', 'use ']
+        }
+        
+        patterns = critical_patterns.get(language, [])
+        return any(pattern in error_context.lower() for pattern in patterns)
+    
+    def _extract_from_partial_ast(self, node: Node, file_path: str, content: str, 
+                                content_lines: List[str], language: str, 
+                                error_locations: List[Tuple[int, int, str]]) -> List[CodeChunk]:
+        """Extract chunks from non-error parts of the AST."""
+        chunks = []
+        
+        # Get error line numbers for filtering
+        error_lines = set()
+        for start_line, end_line, _ in error_locations:
+            error_lines.update(range(start_line, end_line + 1))
+        
+        # Traverse AST and extract valid nodes that don't overlap with errors
+        node_mappings = self._node_mappings.get(language, {})
+        self._traverse_ast_with_error_filtering(node, chunks, file_path, content, content_lines, 
+                                              language, node_mappings, error_lines)
+        
+        return chunks
+    
+    def _traverse_ast_with_error_filtering(self, node: Node, chunks: List[CodeChunk], 
+                                         file_path: str, content: str, content_lines: List[str], 
+                                         language: str, node_mappings: Dict[ChunkType, List[str]], 
+                                         error_lines: Set[int]) -> None:
+        """Traverse AST while filtering out nodes that overlap with errors."""
+        # Skip if this node or its subtree contains errors
+        if node.type == 'ERROR':
+            return
+        
+        # Check if this node overlaps with error locations
+        node_start = node.start_point[0]
+        node_end = node.end_point[0]
+        
+        # If node overlaps with error lines, skip it
+        if any(line in error_lines for line in range(node_start, node_end + 1)):
+            # Still traverse children in case some parts are valid
+            for child in node.children:
+                self._traverse_ast_with_error_filtering(child, chunks, file_path, content, 
+                                                       content_lines, language, node_mappings, error_lines)
+            return
+        
+        # Check if this node represents a chunk we want to extract
+        chunk_type = self._get_chunk_type(node, node_mappings, language)
+        
+        if chunk_type:
+            chunk = self._create_chunk_from_node(
+                node, chunk_type, file_path, content, content_lines, language
+            )
+            if chunk:
+                chunks.append(chunk)
+        
+        # Recursively process child nodes
+        for child in node.children:
+            self._traverse_ast_with_error_filtering(child, chunks, file_path, content, 
+                                                   content_lines, language, node_mappings, error_lines)
+    
+    def _identify_valid_sections_enhanced(self, error_locations: List[Tuple[int, int, str]], 
+                                        content_lines: List[str], language: str) -> List[Tuple[int, int]]:
+        """Enhanced valid section identification with language-specific heuristics."""
+        if not error_locations:
+            return [(0, len(content_lines) - 1)]
+        
+        # Sort error locations by start line
+        sorted_errors = sorted(error_locations, key=lambda x: x[0])
+        valid_sections = []
+        
+        # Check for valid section before first error
+        first_error_start = sorted_errors[0][0]
+        if first_error_start > 0:
+            section_end = first_error_start - 1
+            section_start = self._find_section_start_enhanced(content_lines, 0, section_end, language)
+            if section_start <= section_end:
+                valid_sections.append((section_start, section_end))
+        
+        # Check for valid sections between errors
+        for i in range(len(sorted_errors) - 1):
+            current_error_end = sorted_errors[i][1]
+            next_error_start = sorted_errors[i + 1][0]
+            
+            if current_error_end < next_error_start - 1:
+                section_start = self._find_section_start_enhanced(content_lines, current_error_end + 1, 
+                                                                next_error_start - 1, language)
+                section_end = next_error_start - 1
+                if section_start <= section_end:
+                    valid_sections.append((section_start, section_end))
+        
+        # Check for valid section after last error
+        last_error_end = sorted_errors[-1][1]
+        if last_error_end < len(content_lines) - 1:
+            section_start = self._find_section_start_enhanced(content_lines, last_error_end + 1, 
+                                                            len(content_lines) - 1, language)
+            if section_start < len(content_lines):
+                valid_sections.append((section_start, len(content_lines) - 1))
+        
+        return valid_sections
+    
+    def _find_section_start_enhanced(self, content_lines: List[str], min_line: int, 
+                                   max_line: int, language: str) -> int:
+        """Find the first meaningful line of code with language-specific patterns."""
+        # Language-specific meaningful line patterns
+        meaningful_patterns = {
+            'python': ['def ', 'class ', 'import ', 'from ', '@'],
+            'javascript': ['function ', 'class ', 'const ', 'let ', 'var ', 'import ', 'export '],
+            'typescript': ['function ', 'class ', 'interface ', 'const ', 'let ', 'var ', 'import ', 'export '],
+            'java': ['public ', 'private ', 'protected ', 'class ', 'interface ', 'import '],
+            'cpp': ['class ', 'struct ', 'namespace ', 'template', 'int ', 'void ', 'double '],
+            'go': ['func ', 'type ', 'var ', 'const ', 'package ', 'import '],
+            'rust': ['fn ', 'struct ', 'impl ', 'pub ', 'use ', 'mod ']
+        }
+        
+        patterns = meaningful_patterns.get(language, [])
+        
+        for i in range(min_line, min(max_line + 1, len(content_lines))):
+            line = content_lines[i].strip()
+            if line and not line.startswith('#') and not line.startswith('//'):
+                # Check for language-specific meaningful patterns
+                if any(pattern in line for pattern in patterns):
+                    return i
+                # Also accept non-comment, non-empty lines
+                if len(line) > 5:  # Reasonable minimum line length
+                    return i
+        
+        return min_line
+    
+    def _section_already_processed(self, section_start: int, section_end: int, 
+                                 existing_chunks: List[CodeChunk]) -> bool:
+        """Check if a section has already been processed by looking at existing chunks."""
+        for chunk in existing_chunks:
+            # Check for overlap
+            chunk_start = chunk.start_line - 1  # Convert to 0-based
+            chunk_end = chunk.end_line - 1
+            
+            if (section_start <= chunk_end and section_end >= chunk_start):
+                return True
+        
+        return False
+    
+    def _is_valid_code_section(self, section_content: str, language: str) -> bool:
+        """Enhanced validation for code section content."""
+        lines = section_content.strip().split('\n')
+        
+        if len(lines) == 0:
+            return False
+        
+        # Filter out empty lines and comments
+        meaningful_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#') and not stripped.startswith('//'):
+                meaningful_lines.append(stripped)
+        
+        # Must have at least one meaningful line
+        if len(meaningful_lines) == 0:
+            return False
+        
+        # Check for minimum complexity
+        total_chars = sum(len(line) for line in meaningful_lines)
+        if total_chars < 20:  # Too short to be meaningful
+            return False
+        
+        # Language-specific validation
+        if language == 'python':
+            # Check for valid Python constructs
+            return any(':' in line or '=' in line or 'def ' in line or 'class ' in line 
+                     for line in meaningful_lines)
+        elif language in ['javascript', 'typescript']:
+            # Check for valid JS/TS constructs
+            return any('{' in line or '}' in line or '=' in line or 'function' in line 
+                     or 'class' in line for line in meaningful_lines)
+        elif language in ['java', 'cpp']:
+            # Check for valid Java/C++ constructs
+            return any('{' in line or '}' in line or ';' in line 
+                     for line in meaningful_lines)
+        
+        return True  # Default to valid for other languages
+    
+    def _recover_using_heuristics(self, content_lines: List[str], file_path: str, 
+                                language: str, error_locations: List[Tuple[int, int, str]]) -> List[CodeChunk]:
+        """Use language-specific heuristics to recover code chunks."""
+        chunks = []
+        
+        # Language-specific heuristic patterns
+        if language == 'python':
+            chunks.extend(self._recover_python_heuristics(content_lines, file_path))
+        elif language in ['javascript', 'typescript']:
+            chunks.extend(self._recover_js_heuristics(content_lines, file_path, language))
+        elif language == 'java':
+            chunks.extend(self._recover_java_heuristics(content_lines, file_path))
+        elif language == 'cpp':
+            chunks.extend(self._recover_cpp_heuristics(content_lines, file_path))
+        
+        return chunks
+    
+    def _recover_python_heuristics(self, content_lines: List[str], file_path: str) -> List[CodeChunk]:
+        """Python-specific heuristic recovery."""
+        chunks = []
+        
+        for i, line in enumerate(content_lines):
+            stripped = line.strip()
+            
+            # Look for function definitions
+            if stripped.startswith('def ') and ':' in stripped:
+                # Find the end of the function
+                end_line = self._find_python_block_end(content_lines, i)
+                if end_line > i:
+                    func_content = '\n'.join(content_lines[i:end_line + 1])
+                    chunks.append(self._create_heuristic_chunk(
+                        func_content, file_path, "python", i + 1, end_line + 1, ChunkType.FUNCTION
+                    ))
+            
+            # Look for class definitions
+            elif stripped.startswith('class ') and ':' in stripped:
+                end_line = self._find_python_block_end(content_lines, i)
+                if end_line > i:
+                    class_content = '\n'.join(content_lines[i:end_line + 1])
+                    chunks.append(self._create_heuristic_chunk(
+                        class_content, file_path, "python", i + 1, end_line + 1, ChunkType.CLASS
+                    ))
+        
+        return chunks
+    
+    def _find_python_block_end(self, content_lines: List[str], start_line: int) -> int:
+        """Find the end of a Python code block using indentation."""
+        if start_line >= len(content_lines):
+            return start_line
+        
+        base_indent = len(content_lines[start_line]) - len(content_lines[start_line].lstrip())
+        
+        for i in range(start_line + 1, len(content_lines)):
+            line = content_lines[i]
+            if line.strip() == '':
+                continue  # Skip empty lines
+            
+            current_indent = len(line) - len(line.lstrip())
+            if current_indent <= base_indent:
+                return i - 1
+        
+        return len(content_lines) - 1
+    
+    def _recover_js_heuristics(self, content_lines: List[str], file_path: str, language: str) -> List[CodeChunk]:
+        """JavaScript/TypeScript-specific heuristic recovery."""
+        chunks = []
+        
+        for i, line in enumerate(content_lines):
+            stripped = line.strip()
+            
+            # Look for function definitions
+            if 'function ' in stripped and '{' in stripped:
+                end_line = self._find_brace_block_end(content_lines, i)
+                if end_line > i:
+                    func_content = '\n'.join(content_lines[i:end_line + 1])
+                    chunks.append(self._create_heuristic_chunk(
+                        func_content, file_path, language, i + 1, end_line + 1, ChunkType.FUNCTION
+                    ))
+            
+            # Look for class definitions
+            elif 'class ' in stripped and '{' in stripped:
+                end_line = self._find_brace_block_end(content_lines, i)
+                if end_line > i:
+                    class_content = '\n'.join(content_lines[i:end_line + 1])
+                    chunks.append(self._create_heuristic_chunk(
+                        class_content, file_path, language, i + 1, end_line + 1, ChunkType.CLASS
+                    ))
+        
+        return chunks
+    
+    def _recover_java_heuristics(self, content_lines: List[str], file_path: str) -> List[CodeChunk]:
+        """Java-specific heuristic recovery."""
+        return self._recover_js_heuristics(content_lines, file_path, "java")  # Similar brace-based structure
+    
+    def _recover_cpp_heuristics(self, content_lines: List[str], file_path: str) -> List[CodeChunk]:
+        """C++-specific heuristic recovery."""
+        return self._recover_js_heuristics(content_lines, file_path, "cpp")  # Similar brace-based structure
+    
+    def _find_brace_block_end(self, content_lines: List[str], start_line: int) -> int:
+        """Find the end of a brace-delimited block."""
+        if start_line >= len(content_lines):
+            return start_line
+        
+        brace_count = 0
+        found_opening = False
+        
+        for i in range(start_line, len(content_lines)):
+            line = content_lines[i]
+            
+            for char in line:
+                if char == '{':
+                    brace_count += 1
+                    found_opening = True
+                elif char == '}':
+                    brace_count -= 1
+                    
+                    if found_opening and brace_count == 0:
+                        return i
+        
+        return len(content_lines) - 1
+    
+    def _create_heuristic_chunk(self, content: str, file_path: str, language: str,
+                              start_line: int, end_line: int, chunk_type: ChunkType) -> CodeChunk:
+        """Create a chunk using heuristic recovery."""
+        chunk_id = self._generate_chunk_id(file_path, start_line, end_line, chunk_type)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        return CodeChunk(
+            chunk_id=chunk_id,
+            file_path=file_path,
+            content=content,
+            chunk_type=chunk_type,
+            language=language,
+            start_line=start_line,
+            end_line=end_line,
+            start_byte=0,  # Approximate for heuristic chunks
+            end_byte=len(content),
+            name=f"heuristic_{chunk_type.value}_{start_line}_{end_line}",
+            breadcrumb=f"{Path(file_path).stem}.heuristic_{chunk_type.value}_{start_line}_{end_line}",
+            content_hash=content_hash,
+            embedding_text=content,
+            indexed_at=datetime.now(),
+            tags=["heuristic_recovery", chunk_type.value]
+        )

@@ -15,6 +15,7 @@ class ChunkType(Enum):
     FUNCTION = "function"
     METHOD = "method"
     CONSTRUCTOR = "constructor"
+    DESTRUCTOR = "destructor"  # C++ destructors
     ASYNC_FUNCTION = "async_function"
     
     # Class-level chunks
@@ -23,6 +24,7 @@ class ChunkType(Enum):
     STRUCT = "struct"
     ENUM = "enum"
     IMPL = "impl"  # Rust implementation blocks
+    NAMESPACE = "namespace"  # C++ namespace blocks
     
     # Variable-level chunks
     CONSTANT = "constant"
@@ -45,6 +47,7 @@ class ChunkType(Enum):
     # Type definition chunks (TypeScript, etc.)
     TYPE_ALIAS = "type_alias"
     TYPE_DEFINITION = "type_definition"
+    TEMPLATE = "template"  # C++ template definitions
     
     # Fallback for unrecognized or whole-file content
     RAW_CODE = "raw_code"

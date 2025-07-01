@@ -66,6 +66,11 @@ class TreeSitterManager:
                 'module': 'tree_sitter_java',
                 'function': 'language',
                 'extensions': ['.java']
+            },
+            'cpp': {
+                'module': 'tree_sitter_cpp',
+                'function': 'language',
+                'extensions': ['.cpp', '.cxx', '.cc', '.c', '.hpp', '.hxx', '.hh', '.h']
             }
         }
         

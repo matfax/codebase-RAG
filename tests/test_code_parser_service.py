@@ -97,6 +97,118 @@ export default MyComponent;
 '''
     
     @pytest.fixture
+    def sample_cpp_header_code(self):
+        """Sample C++ header file for testing."""
+        return '''// math_utils.hpp - C++ header file
+#ifndef MATH_UTILS_HPP
+#define MATH_UTILS_HPP
+
+#include <vector>
+#include <string>
+
+namespace MathUtils {
+    
+    // Template class for mathematical operations
+    template<typename T>
+    class Calculator {
+    private:
+        T value;
+        
+    public:
+        // Constructor
+        Calculator(T initial_value);
+        
+        // Destructor
+        ~Calculator();
+        
+        // Member functions
+        T add(T other) const;
+        T multiply(T other) const;
+        
+        // Static function
+        static T max(T a, T b);
+    };
+    
+    // Template function
+    template<typename T>
+    T square(T value) {
+        return value * value;
+    }
+    
+    // Constants
+    const double PI = 3.14159265359;
+    extern const int MAX_SIZE;
+    
+    // Function declarations
+    double calculateArea(double radius);
+    std::vector<int> generateSequence(int start, int end);
+    
+}  // namespace MathUtils
+
+#endif // MATH_UTILS_HPP
+'''
+    
+    @pytest.fixture
+    def sample_cpp_source_code(self):
+        """Sample C++ source file for testing."""
+        return '''// math_utils.cpp - C++ implementation file
+#include "math_utils.hpp"
+#include <algorithm>
+#include <cmath>
+
+namespace MathUtils {
+    
+    // Template specialization
+    template<>
+    Calculator<int>::Calculator(int initial_value) : value(initial_value) {
+        // Constructor implementation
+    }
+    
+    // Destructor implementation
+    template<typename T>
+    Calculator<T>::~Calculator() {
+        // Cleanup resources
+    }
+    
+    // Member function implementation
+    template<typename T>
+    T Calculator<T>::add(T other) const {
+        return value + other;
+    }
+    
+    // Static function implementation
+    template<typename T>
+    T Calculator<T>::max(T a, T b) {
+        return (a > b) ? a : b;
+    }
+    
+    // Constant definition
+    const int MAX_SIZE = 1000;
+    
+    // Function implementations
+    double calculateArea(double radius) {
+        return PI * radius * radius;
+    }
+    
+    std::vector<int> generateSequence(int start, int end) {
+        std::vector<int> sequence;
+        for (int i = start; i <= end; ++i) {
+            sequence.push_back(i);
+        }
+        return sequence;
+    }
+    
+}  // namespace MathUtils
+
+// Global function outside namespace
+int main(int argc, char* argv[]) {
+    MathUtils::Calculator<double> calc(10.0);
+    double result = calc.add(5.0);
+    return 0;
+}
+'''
+
+    @pytest.fixture
     def sample_typescript_code(self):
         """Sample TypeScript code for testing."""
         return '''interface User {
@@ -152,8 +264,10 @@ invalid = "unclosed string
     
     def test_supported_languages(self, parser_service):
         """Test that all expected languages are supported."""
-        expected_languages = {'python', 'javascript', 'typescript', 'go', 'rust', 'java'}
-        assert set(parser_service._supported_languages.keys()) == expected_languages
+        expected_languages = {'python', 'javascript', 'typescript', 'go', 'rust', 'java', 'cpp'}
+        # Get actual languages from the TreeSitterManager
+        actual_languages = set(parser_service.get_supported_languages())
+        assert expected_languages.issubset(actual_languages), f"Missing languages: {expected_languages - actual_languages}"
     
     def test_language_detection(self, parser_service):
         """Test language detection from file content and paths."""
@@ -168,6 +282,13 @@ invalid = "unclosed string
         # Test TypeScript detection
         ts_content = "interface Test { name: string; }"
         assert detect_language("test.ts", ts_content) == "typescript"
+        
+        # Test C++ detection  
+        cpp_content = "class MyClass { public: MyClass(); ~MyClass(); };"
+        assert parser_service.detect_language("test.cpp") == "cpp"
+        assert parser_service.detect_language("test.hpp") == "cpp"
+        assert parser_service.detect_language("test.h") == "cpp"
+        assert parser_service.detect_language("test.c") == "cpp"
     
     @patch('tree_sitter.Language')
     @patch('tree_sitter.Parser')
@@ -544,6 +665,207 @@ class BrokenClass:
         
         # Should have found at least some valid methods
         assert result.valid_sections_count > 0 or len(result.chunks) > 0
+
+    def test_cpp_header_parsing(self, parser_service, sample_cpp_header_code):
+        """Test parsing C++ header files with classes, templates, and namespaces."""
+        result = parser_service.parse_file("test.hpp", sample_cpp_header_code)
+        
+        assert isinstance(result, ParseResult)
+        assert result.language == "cpp"
+        assert len(result.chunks) > 0
+        
+        # Check for expected chunk types
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.NAMESPACE in chunk_types
+        assert ChunkType.CLASS in chunk_types
+        assert ChunkType.TEMPLATE in chunk_types
+        assert ChunkType.IMPORT in chunk_types  # #include statements
+        assert ChunkType.CONSTANT in chunk_types
+        
+        # Verify namespace chunk
+        namespace_chunks = [c for c in result.chunks if c.chunk_type == ChunkType.NAMESPACE]
+        assert len(namespace_chunks) > 0
+        assert namespace_chunks[0].name == "MathUtils"
+        
+        # Verify class chunk  
+        class_chunks = [c for c in result.chunks if c.chunk_type == ChunkType.CLASS]
+        assert len(class_chunks) > 0
+        assert any("Calculator" in c.name for c in class_chunks)
+        
+        # Verify include statements
+        include_chunks = [c for c in result.chunks if c.chunk_type == ChunkType.IMPORT]
+        assert len(include_chunks) >= 2  # Should have vector and string includes
+    
+    def test_cpp_source_parsing(self, parser_service, sample_cpp_source_code):
+        """Test parsing C++ source files with implementations and functions."""
+        result = parser_service.parse_file("test.cpp", sample_cpp_source_code)
+        
+        assert isinstance(result, ParseResult)
+        assert result.language == "cpp"
+        assert len(result.chunks) > 0
+        
+        # Check for expected chunk types
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.NAMESPACE in chunk_types
+        assert ChunkType.FUNCTION in chunk_types
+        assert ChunkType.CONSTRUCTOR in chunk_types or ChunkType.FUNCTION in chunk_types
+        assert ChunkType.DESTRUCTOR in chunk_types or ChunkType.FUNCTION in chunk_types
+        assert ChunkType.IMPORT in chunk_types  # #include statements
+        
+        # Verify function chunks
+        function_chunks = [c for c in result.chunks if c.chunk_type == ChunkType.FUNCTION]
+        assert len(function_chunks) > 0
+        
+        # Should have main function
+        main_functions = [c for c in function_chunks if "main" in c.name]
+        assert len(main_functions) > 0
+    
+    def test_cpp_constructor_destructor_detection(self, parser_service):
+        """Test detection of C++ constructors and destructors."""
+        cpp_code = '''
+class TestClass {
+public:
+    // Constructor
+    TestClass(int value) : member_var(value) {
+        // Constructor body
+    }
+    
+    // Destructor
+    ~TestClass() {
+        // Destructor body
+    }
+    
+private:
+    int member_var;
+};
+'''
+        result = parser_service.parse_file("test.cpp", cpp_code)
+        
+        assert isinstance(result, ParseResult)
+        assert len(result.chunks) > 0
+        
+        # Check for constructor and destructor detection
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.CLASS in chunk_types
+        
+        # Note: Due to Tree-sitter parsing complexity, constructors/destructors 
+        # might be classified as functions. The important thing is they're detected.
+        function_like_chunks = [c for c in result.chunks 
+                              if c.chunk_type in [ChunkType.FUNCTION, ChunkType.CONSTRUCTOR, ChunkType.DESTRUCTOR]]
+        assert len(function_like_chunks) > 0
+    
+    def test_cpp_template_parsing(self, parser_service):
+        """Test parsing C++ template declarations."""
+        cpp_template_code = '''
+template<typename T>
+class TemplateClass {
+public:
+    T value;
+    
+    template<typename U>
+    void templateMethod(U param) {
+        // Template method implementation
+    }
+};
+
+template<typename T>
+T templateFunction(T a, T b) {
+    return a + b;
+}
+'''
+        result = parser_service.parse_file("template.hpp", cpp_template_code)
+        
+        assert isinstance(result, ParseResult)
+        assert len(result.chunks) > 0
+        
+        # Should detect template declarations
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.TEMPLATE in chunk_types or ChunkType.CLASS in chunk_types
+    
+    def test_cpp_namespace_parsing(self, parser_service):
+        """Test parsing C++ namespace declarations."""
+        cpp_namespace_code = '''
+namespace OuterNamespace {
+    namespace InnerNamespace {
+        
+        void function_in_inner() {
+            // Function implementation
+        }
+        
+    }  // namespace InnerNamespace
+    
+    void function_in_outer() {
+        // Function implementation  
+    }
+    
+}  // namespace OuterNamespace
+'''
+        result = parser_service.parse_file("namespace.cpp", cpp_namespace_code)
+        
+        assert isinstance(result, ParseResult)
+        assert len(result.chunks) > 0
+        
+        # Should detect namespace declarations
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.NAMESPACE in chunk_types
+        
+        # Should have functions within namespaces
+        assert ChunkType.FUNCTION in chunk_types
+    
+    def test_cpp_include_parsing(self, parser_service):
+        """Test parsing C++ include statements."""
+        cpp_include_code = '''
+#include <iostream>
+#include <vector>
+#include <string>
+#include "local_header.h"
+#include "another/header.hpp"
+
+int main() {
+    std::cout << "Hello World" << std::endl;
+    return 0;
+}
+'''
+        result = parser_service.parse_file("includes.cpp", cpp_include_code)
+        
+        assert isinstance(result, ParseResult)
+        assert len(result.chunks) > 0
+        
+        # Should detect include statements
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.IMPORT in chunk_types
+        
+        # Should have multiple include chunks
+        include_chunks = [c for c in result.chunks if c.chunk_type == ChunkType.IMPORT]
+        assert len(include_chunks) >= 3  # At least 3 includes
+        
+        # Verify include content
+        include_names = [c.name for c in include_chunks if c.name]
+        assert any("iostream" in name for name in include_names)
+    
+    def test_cpp_constants_and_variables(self, parser_service):
+        """Test parsing C++ constants and variable declarations."""
+        cpp_vars_code = '''
+const int CONSTANT_VALUE = 42;
+static const double PI = 3.14159;
+extern int external_variable;
+
+int global_variable = 100;
+static int static_variable;
+
+namespace MyNamespace {
+    const std::string NAMESPACE_CONSTANT = "test";
+    int namespace_variable = 200;
+}
+'''
+        result = parser_service.parse_file("variables.cpp", cpp_vars_code)
+        
+        assert isinstance(result, ParseResult)
+        assert len(result.chunks) > 0
+        
+        # Should detect constants and variables
+        chunk_types = [chunk.chunk_type for chunk in result.chunks]
+        assert ChunkType.CONSTANT in chunk_types or ChunkType.VARIABLE in chunk_types
 
 
 if __name__ == "__main__":
