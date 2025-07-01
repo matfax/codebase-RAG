@@ -89,23 +89,34 @@ def check_memory_usage(context: str = "") -> Tuple[float, bool]:
 
 
 def force_memory_cleanup(context: str = "") -> None:
-    """Force garbage collection and log memory usage.
+    """Force comprehensive memory cleanup.
     
     Args:
         context: Context string for logging
     """
-    logger.info(f"Forcing memory cleanup{' ' + context if context else ''}...")
+    logger.info(f"Forcing memory cleanup{' for ' + context if context else ''}")
     
-    before_mb, _ = check_memory_usage("before cleanup")
+    # Force garbage collection multiple times for thoroughness
+    for i in range(3):
+        collected = gc.collect()
+        if collected > 0:
+            logger.debug(f"GC cycle {i+1}: collected {collected} objects")
     
-    # Force garbage collection
-    gc.collect()
+    # Clear any cached objects if possible
+    if hasattr(gc, 'set_threshold'):
+        # Temporarily lower GC thresholds to be more aggressive
+        original_thresholds = gc.get_threshold()
+        gc.set_threshold(100, 10, 10)
+        gc.collect()
+        gc.set_threshold(*original_thresholds)
     
-    after_mb, _ = check_memory_usage("after cleanup")
+    memory_after = log_memory_usage("after cleanup")
     
-    if before_mb > 0 and after_mb > 0:
-        freed_mb = before_mb - after_mb
-        logger.info(f"Memory cleanup freed {freed_mb:.1f}MB")
+    if memory_after > FORCE_CLEANUP_THRESHOLD_MB:
+        logger.warning(
+            f"Memory still high ({memory_after:.1f}MB) after cleanup. "
+            f"Consider reducing batch sizes or processing fewer files."
+        )
 
 
 def should_cleanup_memory(batch_count: int, force_check: bool = False) -> bool:
@@ -153,8 +164,45 @@ def clear_processing_variables(*variables) -> None:
     """
     for var in variables:
         if var is not None:
-            if hasattr(var, 'clear'):
+            if hasattr(var, 'clear') and callable(getattr(var, 'clear')):
                 var.clear()
-            elif hasattr(var, 'close'):
+            elif hasattr(var, 'close') and callable(getattr(var, 'close')):
                 var.close()
+            del var
     gc.collect()
+
+
+def get_memory_usage_mb() -> float:
+    """Get current memory usage in MB.
+    
+    Returns:
+        float: Current memory usage in MB, or 0.0 if unavailable
+    """
+    if not PSUTIL_AVAILABLE:
+        return 0.0
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        return memory_info.rss / (1024 * 1024)  # Convert bytes to MB
+    except Exception as e:
+        logger.warning(f"Failed to get memory usage: {e}")
+        return 0.0
+
+
+def log_memory_usage(context: str = "") -> float:
+    """Log current memory usage and return the value in MB.
+    
+    Args:
+        context: Context string for logging
+        
+    Returns:
+        float: Current memory usage in MB
+    """
+    memory_mb = get_memory_usage_mb()
+    if memory_mb > 0:
+        logger.info(f"Memory usage{' ' + context if context else ''}: {memory_mb:.1f}MB")
+        if memory_mb > MEMORY_WARNING_THRESHOLD_MB:
+            logger.warning(
+                f"Memory usage ({memory_mb:.1f}MB) exceeds warning threshold ({MEMORY_WARNING_THRESHOLD_MB}MB)"
+            )
+    return memory_mb

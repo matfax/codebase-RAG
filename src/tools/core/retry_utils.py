@@ -54,3 +54,54 @@ def retry_operation(
                 )
                 time.sleep(current_delay)
                 current_delay *= backoff_factor
+
+
+def retry_with_context(
+    func: Callable[..., T],
+    operation_name: str,
+    max_retries: int = None,
+    retry_delay: float = None,
+    backoff_factor: float = 2.0
+) -> T:
+    """Retry operation with environment-based configuration.
+    
+    This is a more sophisticated retry function that uses environment variables
+    for configuration and provides enhanced logging.
+    
+    Args:
+        func: Function to retry
+        operation_name: Name of operation for detailed logging
+        max_retries: Maximum retry attempts (uses DB_RETRY_ATTEMPTS from env if None)
+        retry_delay: Initial delay between retries (uses DB_RETRY_DELAY from env if None)
+        backoff_factor: Exponential backoff multiplier
+        
+    Returns:
+        Result of the function call
+        
+    Raises:
+        Exception: The last exception if all attempts fail
+    """
+    import os
+    
+    max_retries = max_retries or int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
+    retry_delay = retry_delay or float(os.getenv("DB_RETRY_DELAY", "1.0"))
+    
+    last_error = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            result = func()
+            if attempt > 0:
+                logger.info(f"{operation_name} succeeded after {attempt + 1} attempts")
+            return result
+        except Exception as e:
+            last_error = e
+            if attempt == max_retries:
+                logger.error(f"{operation_name} failed after {max_retries + 1} attempts: {e}")
+                break
+            
+            delay = retry_delay * (backoff_factor ** attempt)  # Exponential backoff
+            logger.warning(f"{operation_name} attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s...")
+            time.sleep(delay)
+    
+    raise last_error if last_error else Exception("Unknown error during retry")

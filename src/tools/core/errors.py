@@ -51,3 +51,62 @@ class ProjectError(MCPToolError):
     def __init__(self, message: str, project_path: str, details: Optional[str] = None):
         super().__init__(message, details)
         self.project_path = project_path
+
+
+class EmbeddingError(MCPToolError):
+    """Raised when embedding generation fails."""
+    
+    def __init__(self, message: str, model_name: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.model_name = model_name
+
+
+class ParsingError(MCPToolError):
+    """Raised when code parsing fails."""
+    
+    def __init__(self, message: str, file_path: str = None, language: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.file_path = file_path
+        self.language = language
+
+
+class ChunkingError(MCPToolError):
+    """Raised when code chunking fails."""
+    
+    def __init__(self, message: str, file_path: str = None, chunk_type: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.file_path = file_path
+        self.chunk_type = chunk_type
+
+
+class MetadataError(MCPToolError):
+    """Raised when metadata operations fail."""
+    
+    def __init__(self, message: str, metadata_type: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.metadata_type = metadata_type
+
+
+class ServiceError(MCPToolError):
+    """Raised when service operations fail."""
+    
+    def __init__(self, message: str, service_name: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.service_name = service_name
+
+
+class ConfigurationError(MCPToolError):
+    """Raised when configuration is invalid or missing."""
+    
+    def __init__(self, message: str, config_key: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.config_key = config_key
+
+
+class ValidationError(MCPToolError):
+    """Raised when data validation fails."""
+    
+    def __init__(self, message: str, field_name: str = None, value: str = None, details: Optional[str] = None):
+        super().__init__(message, details)
+        self.field_name = field_name
+        self.value = value
