@@ -18,11 +18,13 @@ try:
     from services.project_analysis_service import ProjectAnalysisService
     from services.indexing_service import IndexingService  
     from services.embedding_service import EmbeddingService
+    from services.rag_search_strategy import RAGSearchStrategy
 except ImportError:
     # For testing without full service dependencies
     ProjectAnalysisService = None
     IndexingService = None
     EmbeddingService = None
+    RAGSearchStrategy = None
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,12 @@ class ProjectExplorationResult:
     recommended_reading_order: List[str] = field(default_factory=list)
     key_concepts_to_understand: List[str] = field(default_factory=list)
     
+    # RAG-based insights (NEW)
+    rag_architecture_analysis: Dict[str, Any] = field(default_factory=dict)
+    rag_entry_points: List[Dict[str, Any]] = field(default_factory=list)
+    rag_component_relationships: Dict[str, Any] = field(default_factory=dict)
+    rag_insights_enabled: bool = False
+    
     # Metadata
     analysis_duration_seconds: float = 0.0
     files_analyzed: int = 0
@@ -92,11 +100,15 @@ class ProjectExplorationService:
     detection, component identification, dependency mapping, and learning guidance.
     """
     
-    def __init__(self):
+    def __init__(self, enable_rag: bool = True):
         self.logger = logger
         self.analysis_service = ProjectAnalysisService() if ProjectAnalysisService else None
         self.indexing_service = IndexingService() if IndexingService else None
         self.embedding_service = EmbeddingService() if EmbeddingService else None
+        
+        # RAG Search Strategy (NEW)
+        self.rag_search_strategy = RAGSearchStrategy() if RAGSearchStrategy and enable_rag else None
+        self.enable_rag = enable_rag and RAGSearchStrategy is not None
         
         # Pattern databases for recognition
         self.architecture_patterns = self._load_architecture_patterns()
@@ -160,7 +172,12 @@ class ProjectExplorationService:
                 complexity = self._analyze_complexity(project_path, basic_analysis)
                 self._update_result_with_complexity(result, complexity)
             
-            # Phase 6: Generate learning recommendations
+            # Phase 6: RAG-based analysis (NEW)
+            if self.enable_rag:
+                rag_results = self._perform_rag_analysis(project_path, focus_area, detail_level)
+                self._integrate_rag_results(result, rag_results)
+            
+            # Phase 7: Generate learning recommendations (enhanced with RAG)
             learning_recs = self._generate_learning_recommendations(result, detail_level, focus_area)
             self._update_result_with_learning_recommendations(result, learning_recs)
             
@@ -169,6 +186,8 @@ class ProjectExplorationService:
             result.confidence_score = self._calculate_confidence_score(result)
             
             self.logger.info(f"Project exploration completed in {result.analysis_duration_seconds:.2f}s")
+            if self.enable_rag:
+                self.logger.info(f"RAG-enhanced analysis included architecture detection, entry points, and component relationships")
             return result
             
         except Exception as e:
@@ -762,6 +781,184 @@ class ProjectExplorationService:
         # This would normally load from a configuration file
         return {}
     
+    # NEW: RAG-based analysis methods
+    
+    def _perform_rag_analysis(
+        self, 
+        project_path: Path, 
+        focus_area: Optional[str], 
+        detail_level: str
+    ) -> Dict[str, Any]:
+        """
+        Perform RAG-based project analysis.
+        
+        Args:
+            project_path: Path to the project
+            focus_area: Specific focus area
+            detail_level: Level of detail required
+            
+        Returns:
+            Dictionary containing RAG analysis results
+        """
+        if not self.rag_search_strategy:
+            return {}
+        
+        self.logger.info("Performing RAG-based project analysis")
+        rag_start_time = time.time()
+        
+        try:
+            rag_results = {
+                "architecture_analysis": {},
+                "entry_points": [],
+                "component_relationships": {},
+                "analysis_duration": 0.0
+            }
+            
+            # Architecture pattern detection using RAG
+            if detail_level in ["detailed", "comprehensive"]:
+                self.logger.debug("Running RAG architecture pattern detection")
+                arch_results = self.rag_search_strategy.detect_architecture_patterns(
+                    project_path=str(project_path),
+                    max_results=10
+                )
+                rag_results["architecture_analysis"] = arch_results
+            
+            # Entry point discovery using RAG
+            self.logger.debug("Running RAG entry point discovery")
+            entry_results = self.rag_search_strategy.discover_entry_points(
+                project_path=str(project_path),
+                max_results=15
+            )
+            rag_results["entry_points"] = entry_results
+            
+            # Component relationship analysis (for comprehensive mode)
+            if detail_level == "comprehensive":
+                self.logger.debug("Running RAG component relationship analysis")
+                relationship_results = self.rag_search_strategy.analyze_component_relationships(
+                    project_path=str(project_path),
+                    similarity_threshold=0.7,
+                    max_components=20
+                )
+                rag_results["component_relationships"] = relationship_results
+            
+            rag_results["analysis_duration"] = time.time() - rag_start_time
+            
+            self.logger.info(f"RAG analysis completed in {rag_results['analysis_duration']:.2f}s")
+            return rag_results
+            
+        except Exception as e:
+            self.logger.warning(f"RAG analysis failed: {e}")
+            return {
+                "architecture_analysis": {},
+                "entry_points": [],
+                "component_relationships": {},
+                "analysis_duration": time.time() - rag_start_time,
+                "error": str(e)
+            }
+    
+    def _integrate_rag_results(self, result: ProjectExplorationResult, rag_results: Dict[str, Any]):
+        """
+        Integrate RAG analysis results into the project exploration result.
+        
+        Args:
+            result: ProjectExplorationResult to enhance
+            rag_results: RAG analysis results to integrate
+        """
+        if not rag_results:
+            return
+        
+        result.rag_insights_enabled = True
+        
+        # Store raw RAG results
+        result.rag_architecture_analysis = rag_results.get("architecture_analysis", {})
+        result.rag_component_relationships = rag_results.get("component_relationships", {})
+        
+        # Process entry points
+        entry_point_data = rag_results.get("entry_points", {})
+        if entry_point_data:
+            result.rag_entry_points = entry_point_data.get("primary_entry_points", [])
+            
+            # Enhance existing entry points with RAG findings
+            rag_entry_point_files = [
+                ep.get("file_path", "") for ep in result.rag_entry_points
+            ]
+            
+            for entry_file in rag_entry_point_files:
+                if entry_file and entry_file not in result.entry_points:
+                    result.entry_points.append(entry_file)
+        
+        # Enhance architecture pattern with RAG findings
+        arch_analysis = result.rag_architecture_analysis
+        if arch_analysis and arch_analysis.get("primary_pattern"):
+            primary_pattern = arch_analysis["primary_pattern"]
+            rag_pattern = primary_pattern.get("pattern_name", "")
+            rag_confidence = primary_pattern.get("confidence", 0.0)
+            
+            # If RAG found a high-confidence pattern, use it
+            if rag_confidence > 0.7 and result.architecture_pattern == "unknown":
+                result.architecture_pattern = rag_pattern
+                self.logger.info(f"Architecture pattern enhanced by RAG: {rag_pattern} (confidence: {rag_confidence:.2f})")
+        
+        # Enhance core modules with component relationship findings
+        component_analysis = result.rag_component_relationships
+        if component_analysis and component_analysis.get("core_components"):
+            rag_components = component_analysis["core_components"]
+            
+            for component in rag_components[:5]:  # Top 5 components
+                component_file = component.get("file_path", "")
+                if component_file and component_file not in result.core_modules:
+                    result.core_modules.append(component_file)
+        
+        # Add RAG-derived insights to learning recommendations
+        self._enhance_learning_recommendations_with_rag(result, rag_results)
+    
+    def _enhance_learning_recommendations_with_rag(
+        self, 
+        result: ProjectExplorationResult, 
+        rag_results: Dict[str, Any]
+    ):
+        """
+        Enhance learning recommendations using RAG insights.
+        
+        Args:
+            result: ProjectExplorationResult to enhance
+            rag_results: RAG analysis results
+        """
+        # Add architecture-specific insights
+        arch_analysis = rag_results.get("architecture_analysis", {})
+        if arch_analysis and arch_analysis.get("primary_pattern"):
+            pattern_name = arch_analysis["primary_pattern"].get("pattern_name", "")
+            if pattern_name:
+                pattern_recommendation = f"Study {pattern_name} architecture pattern implementation"
+                if pattern_recommendation not in result.key_concepts_to_understand:
+                    result.key_concepts_to_understand.insert(0, pattern_recommendation)
+        
+        # Add entry point insights
+        entry_analysis = rag_results.get("entry_points", {})
+        if entry_analysis and entry_analysis.get("primary_entry_points"):
+            primary_entries = entry_analysis["primary_entry_points"]
+            
+            # Add entry points to reading order
+            for entry_point in primary_entries[:3]:  # Top 3
+                entry_file = entry_point.get("file_path", "")
+                entry_name = entry_point.get("function_name", "")
+                
+                if entry_file:
+                    entry_description = f"{entry_file}"
+                    if entry_name:
+                        entry_description += f" ({entry_name})"
+                    
+                    if entry_description not in result.recommended_reading_order:
+                        result.recommended_reading_order.insert(0, entry_description)
+        
+        # Add component relationship insights
+        relationship_analysis = rag_results.get("component_relationships", {})
+        if relationship_analysis and relationship_analysis.get("architectural_insights"):
+            insights = relationship_analysis["architectural_insights"]
+            for insight in insights[:2]:  # Top 2 insights
+                if insight not in result.coding_patterns:
+                    result.coding_patterns.append(insight)
+
     def format_exploration_summary(self, result: ProjectExplorationResult, detail_level: str = "overview") -> str:
         """Format exploration result into a human-readable summary."""
         summary_parts = []
@@ -831,10 +1028,42 @@ class ProjectExplorationService:
                 summary_parts.append(f"- {dep}")
             summary_parts.append("")
         
+        # RAG-Enhanced Insights (NEW)
+        if result.rag_insights_enabled:
+            summary_parts.append("## 🔍 **RAG-Enhanced Insights**")
+            
+            # RAG Architecture Analysis
+            if result.rag_architecture_analysis and result.rag_architecture_analysis.get("primary_pattern"):
+                primary_pattern = result.rag_architecture_analysis["primary_pattern"]
+                pattern_name = primary_pattern.get("pattern_name", "Unknown")
+                confidence = primary_pattern.get("confidence", 0.0)
+                summary_parts.append(f"- **Architecture Pattern Detected**: {pattern_name} (confidence: {confidence:.1%})")
+            
+            # RAG Entry Points
+            if result.rag_entry_points:
+                summary_parts.append(f"- **Function-Level Entry Points Found**: {len(result.rag_entry_points)}")
+                for entry in result.rag_entry_points[:3]:  # Top 3
+                    entry_type = entry.get("entry_type", "Entry Point")
+                    entry_name = entry.get("function_name", "")
+                    entry_file = entry.get("file_path", "").split("/")[-1]  # Just filename
+                    summary_parts.append(f"  - {entry_type}: `{entry_name}` in `{entry_file}`")
+            
+            # RAG Component Relationships
+            if result.rag_component_relationships and result.rag_component_relationships.get("analysis_summary"):
+                rel_summary = result.rag_component_relationships["analysis_summary"]
+                components_count = rel_summary.get("components_analyzed", 0)
+                relationships_count = rel_summary.get("relationships_found", 0)
+                if components_count > 0:
+                    summary_parts.append(f"- **Component Analysis**: {components_count} components, {relationships_count} relationships")
+            
+            summary_parts.append("")
+        
         # Analysis Info
         summary_parts.append("## ⏱️ **Analysis Info**")
         summary_parts.append(f"- **Duration**: {result.analysis_duration_seconds:.2f} seconds")
         summary_parts.append(f"- **Confidence**: {result.confidence_score:.1%}")
         summary_parts.append(f"- **Timestamp**: {result.analysis_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        if result.rag_insights_enabled:
+            summary_parts.append(f"- **RAG Analysis**: Enabled (function-level insights included)")
         
         return "\n".join(summary_parts)
