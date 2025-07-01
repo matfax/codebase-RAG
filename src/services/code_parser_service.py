@@ -85,8 +85,7 @@ class CodeParserService:
             },
             'go': {
                 ChunkType.FUNCTION: ['function_declaration', 'method_declaration'],
-                ChunkType.STRUCT: ['type_declaration'],  # Go structs
-                ChunkType.INTERFACE: ['interface_type'],
+                ChunkType.STRUCT: ['type_declaration'],  # Go structs and interfaces (distinguished by special handling)
                 ChunkType.CONSTANT: ['const_declaration'],
                 ChunkType.VARIABLE: ['var_declaration'],
                 ChunkType.IMPORT: ['import_declaration']
@@ -336,6 +335,20 @@ class CodeParserService:
                     return ChunkType.CONSTRUCTOR
                 else:
                     return ChunkType.FUNCTION
+        
+        # Special handling for Go
+        elif language == 'go':
+            if node_type == 'type_declaration':
+                # Check if it's a struct or interface within the type_declaration
+                for child in node.children:
+                    if child.type == 'type_spec':
+                        for spec_child in child.children:
+                            if spec_child.type == 'struct_type':
+                                return ChunkType.STRUCT
+                            elif spec_child.type == 'interface_type':
+                                return ChunkType.INTERFACE
+                # Default to STRUCT if we can't determine
+                return ChunkType.STRUCT
         
         # Standard mapping lookup for other cases
         for chunk_type, node_types in node_mappings.items():
@@ -1332,10 +1345,16 @@ class CodeParserService:
         """Extract name from Go AST node."""
         node_type = node.type
         
-        if node_type in ['function_declaration', 'method_declaration']:
+        if node_type == 'function_declaration':
             # Look for identifier child node
             for child in node.children:
                 if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'method_declaration':
+            # Look for field_identifier (method name) child node
+            for child in node.children:
+                if child.type == 'field_identifier':
                     return child.text.decode('utf-8')
         
         elif node_type == 'type_declaration':
@@ -1370,14 +1389,30 @@ class CodeParserService:
         elif node_type == 'import_declaration':
             # Extract imported package names
             names = []
+            
+            def extract_import_from_spec(spec_node):
+                for spec_child in spec_node.children:
+                    if spec_child.type in ['interpreted_string_literal', 'raw_string_literal']:
+                        # Extract package path from quotes
+                        package_path = spec_child.text.decode('utf-8').strip('"\'`')
+                        package_name = package_path.split('/')[-1]  # Get last part
+                        return package_name
+                return None
+            
             for child in node.children:
                 if child.type == 'import_spec':
+                    # Single import
+                    name = extract_import_from_spec(child)
+                    if name:
+                        names.append(name)
+                elif child.type == 'import_spec_list':
+                    # Multiple imports in parentheses
                     for spec_child in child.children:
-                        if spec_child.type in ['interpreted_string_literal', 'raw_string_literal']:
-                            # Extract package path from quotes
-                            package_path = spec_child.text.decode('utf-8').strip('"\'`')
-                            package_name = package_path.split('/')[-1]  # Get last part
-                            names.append(package_name)
+                        if spec_child.type == 'import_spec':
+                            name = extract_import_from_spec(spec_child)
+                            if name:
+                                names.append(name)
+            
             return ', '.join(names) if names else None
         
         return None
@@ -1414,7 +1449,8 @@ class CodeParserService:
                         signature_parts.append(param_text)
                     else:  # Second parameter list is parameters
                         signature_parts.append(param_text)
-                elif child.type == 'identifier':
+                elif child.type == 'field_identifier':
+                    # Method name
                     signature_parts.append(child.text.decode('utf-8'))
                 elif child.type in ['type_identifier', 'parenthesized_type', 'pointer_type']:
                     # Return type
@@ -1471,6 +1507,41 @@ class CodeParserService:
                         elif spec_child.type in ['type_identifier', 'pointer_type', 'array_type', 'slice_type']:
                             signature_parts.append(spec_child.text.decode('utf-8'))
                     break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'import_declaration':
+            # import "package" or import ( ... )
+            signature_parts = ['import']
+            
+            # Get all the imported packages for the signature
+            names = []
+            
+            def extract_import_from_spec(spec_node):
+                for spec_child in spec_node.children:
+                    if spec_child.type in ['interpreted_string_literal', 'raw_string_literal']:
+                        return spec_child.text.decode('utf-8')
+                return None
+            
+            for child in node.children:
+                if child.type == 'import_spec':
+                    # Single import
+                    name = extract_import_from_spec(child)
+                    if name:
+                        names.append(name)
+                elif child.type == 'import_spec_list':
+                    # Multiple imports in parentheses
+                    for spec_child in child.children:
+                        if spec_child.type == 'import_spec':
+                            name = extract_import_from_spec(spec_child)
+                            if name:
+                                names.append(name)
+            
+            if names:
+                if len(names) == 1:
+                    signature_parts.append(names[0])
+                else:
+                    signature_parts.append(f"({', '.join(names)})")
             
             return ' '.join(signature_parts)
         
