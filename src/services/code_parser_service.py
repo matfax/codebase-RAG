@@ -7,8 +7,11 @@ into meaningful chunks based on code structure rather than simple text splitting
 
 import logging
 import time
+import json
+import yaml
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import Dict, List, Optional, Tuple, Any, Set, Union
 import hashlib
 from datetime import datetime
 
@@ -148,6 +151,14 @@ class CodeParserService:
             # Handle .tsx files that could be parsed as either tsx or typescript
             if extension == '.tsx' and self._tree_sitter_manager.is_language_supported('tsx'):
                 return 'tsx'
+            # Handle JSON/YAML files for structured chunking
+            elif extension in ['.json', '.jsonl']:
+                return 'json'
+            elif extension in ['.yaml', '.yml']:
+                return 'yaml'
+            # Handle Markdown files for hierarchical chunking
+            elif extension in ['.md', '.markdown']:
+                return 'markdown'
         
         return detected
     
@@ -166,7 +177,15 @@ class CodeParserService:
         
         # Detect language
         language = self.detect_language(file_path)
-        if not language or language not in self._parsers:
+        if not language:
+            return self._create_fallback_result(file_path, content, start_time)
+        
+        # Handle JSON/YAML/Markdown files with structured parsing
+        if language in ['json', 'yaml', 'markdown']:
+            return self._parse_structured_file(file_path, content, language, start_time)
+        
+        # Handle Tree-sitter parseable languages
+        if language not in self._parsers:
             return self._create_fallback_result(file_path, content, start_time)
         
         # Read file content if not provided
@@ -3479,3 +3498,362 @@ class CodeParserService:
             indexed_at=datetime.now(),
             tags=["alternative_chunking", chunk_type.value, "smart_fallback"]
         )
+    
+    def _parse_structured_file(self, file_path: str, content: Optional[str], 
+                             language: str, start_time: float) -> ParseResult:
+        """
+        Parse JSON/YAML files into structured chunks.
+        
+        Args:
+            file_path: Path to the file
+            content: File content (if None, will read from file)
+            language: File type ('json' or 'yaml')
+            start_time: Processing start time
+            
+        Returns:
+            ParseResult with structured chunks
+        """
+        # Read file content if not provided
+        if content is None:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except (OSError, UnicodeDecodeError) as e:
+                self.logger.error(f"Failed to read {language} file {file_path}: {e}")
+                return self._create_fallback_result(file_path, "", start_time, error=True)
+        
+        # Parse the structured content
+        try:
+            if language == 'json':
+                parsed_data = json.loads(content)
+                chunks = self._extract_structured_chunks(parsed_data, file_path, content, language)
+            elif language == 'yaml':
+                parsed_data = yaml.safe_load(content)
+                chunks = self._extract_structured_chunks(parsed_data, file_path, content, language)
+            elif language == 'markdown':
+                chunks = self._extract_markdown_chunks(file_path, content)
+            else:
+                return self._create_fallback_result(file_path, content, start_time)
+            
+            # Calculate processing time
+            processing_time = (time.time() - start_time) * 1000
+            
+            # Create ParseResult
+            result = ParseResult(
+                chunks=chunks,
+                file_path=file_path,
+                language=language,
+                parse_success=True,
+                processing_time_ms=processing_time,
+                error_count=0,
+                fallback_used=False
+            )
+            
+            self._log_parse_success_metrics(file_path, language, chunks, processing_time, False)
+            return result
+            
+        except (json.JSONDecodeError, yaml.YAMLError) as e:
+            self.logger.warning(f"Failed to parse {language} file {file_path}: {e}")
+            return self._create_fallback_result(file_path, content, start_time, error=True)
+        except Exception as e:
+            self.logger.error(f"Unexpected error parsing {language} file {file_path}: {e}")
+            return self._create_fallback_result(file_path, content, start_time, error=True)
+    
+    def _extract_structured_chunks(self, data: Union[dict, list], file_path: str, 
+                                 content: str, language: str) -> List[CodeChunk]:
+        """
+        Extract meaningful chunks from parsed JSON/YAML data.
+        
+        Args:
+            data: Parsed JSON/YAML data
+            file_path: Source file path
+            content: Original file content
+            language: File type ('json' or 'yaml')
+            
+        Returns:
+            List of CodeChunk objects
+        """
+        chunks = []
+        content_lines = content.split('\n')
+        
+        if isinstance(data, dict):
+            chunks.extend(self._extract_dict_chunks(data, file_path, content_lines, language))
+        elif isinstance(data, list):
+            chunks.extend(self._extract_list_chunks(data, file_path, content_lines, language))
+        else:
+            # Single value file - create one chunk
+            chunks.append(self._create_structured_chunk(
+                content, file_path, language, 1, len(content_lines),
+                ChunkType.CONSTANT, "root_value"
+            ))
+        
+        return chunks
+    
+    def _extract_dict_chunks(self, data: dict, file_path: str, content_lines: List[str], 
+                           language: str) -> List[CodeChunk]:
+        """Extract chunks from dictionary data."""
+        chunks = []
+        
+        for key, value in data.items():
+            # Find the approximate line range for this key-value pair
+            start_line, end_line = self._find_key_lines(key, value, content_lines, language)
+            
+            if isinstance(value, (dict, list)) and len(str(value)) > 100:
+                # Large nested structure - create a separate chunk
+                value_content = self._format_structured_content(key, value, language)
+                chunk_type = ChunkType.CLASS if isinstance(value, dict) else ChunkType.CONSTANT
+                chunks.append(self._create_structured_chunk(
+                    value_content, file_path, language, start_line, end_line,
+                    chunk_type, key
+                ))
+            else:
+                # Simple value - group with other simple values
+                simple_content = self._format_structured_content(key, value, language)
+                chunks.append(self._create_structured_chunk(
+                    simple_content, file_path, language, start_line, end_line,
+                    ChunkType.VARIABLE, key
+                ))
+        
+        return chunks
+    
+    def _extract_list_chunks(self, data: list, file_path: str, content_lines: List[str], 
+                           language: str) -> List[CodeChunk]:
+        """Extract chunks from list data."""
+        chunks = []
+        
+        # If it's a list of objects, treat each as a separate chunk
+        for i, item in enumerate(data):
+            start_line, end_line = self._find_list_item_lines(i, item, content_lines, language)
+            
+            if isinstance(item, (dict, list)):
+                item_content = self._format_structured_content(f"item_{i}", item, language)
+                chunk_type = ChunkType.CLASS if isinstance(item, dict) else ChunkType.CONSTANT
+            else:
+                item_content = self._format_structured_content(f"item_{i}", item, language)
+                chunk_type = ChunkType.VARIABLE
+            
+            chunks.append(self._create_structured_chunk(
+                item_content, file_path, language, start_line, end_line,
+                chunk_type, f"item_{i}"
+            ))
+        
+        return chunks
+    
+    def _find_key_lines(self, key: str, value: Any, content_lines: List[str], 
+                       language: str) -> Tuple[int, int]:
+        """Find the line range for a key-value pair."""
+        # Simple heuristic - find the key in the content
+        for i, line in enumerate(content_lines):
+            if key in line:
+                # Estimate the end line based on value complexity
+                if isinstance(value, (dict, list)):
+                    # Complex value - estimate multiple lines
+                    value_str = str(value)
+                    estimated_lines = min(max(value_str.count('\n'), 1), 20)
+                    return i + 1, i + estimated_lines + 1
+                else:
+                    # Simple value - probably one line
+                    return i + 1, i + 1
+        
+        # Fallback if key not found
+        return 1, len(content_lines)
+    
+    def _find_list_item_lines(self, index: int, item: Any, content_lines: List[str], 
+                            language: str) -> Tuple[int, int]:
+        """Find the line range for a list item."""
+        # Estimate based on item position and complexity
+        total_lines = len(content_lines)
+        estimated_start = max(1, (index * total_lines) // max(len(content_lines), 1))
+        
+        if isinstance(item, (dict, list)):
+            estimated_lines = min(max(str(item).count('\n'), 1), 10)
+        else:
+            estimated_lines = 1
+        
+        return estimated_start, min(estimated_start + estimated_lines, total_lines)
+    
+    def _format_structured_content(self, key: str, value: Any, language: str) -> str:
+        """Format structured content for embedding."""
+        if language == 'json':
+            if isinstance(value, (dict, list)):
+                return f'"{key}": {json.dumps(value, indent=2)}'
+            else:
+                return f'"{key}": {json.dumps(value)}'
+        else:  # yaml
+            if isinstance(value, (dict, list)):
+                return f'{key}:\n{yaml.dump(value, indent=2)}'
+            else:
+                return f'{key}: {yaml.dump(value).strip()}'
+    
+    def _create_structured_chunk(self, content: str, file_path: str, language: str,
+                               start_line: int, end_line: int, chunk_type: ChunkType,
+                               name: str) -> CodeChunk:
+        """Create a structured chunk for JSON/YAML content."""
+        chunk_id = self._generate_chunk_id(file_path, start_line, end_line, chunk_type)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+        
+        return CodeChunk(
+            chunk_id=chunk_id,
+            file_path=file_path,
+            content=content,
+            chunk_type=chunk_type,
+            language=language,
+            start_line=start_line,
+            end_line=end_line,
+            start_byte=0,  # Approximate
+            end_byte=len(content),
+            name=name,
+            breadcrumb=f"{Path(file_path).stem}.{name}",
+            content_hash=content_hash,
+            embedding_text=f"Name: {name}\nType: {chunk_type.value}\nContent: {content}",
+            indexed_at=datetime.now(),
+            tags=["structured_data", language, chunk_type.value]
+        )
+    
+    def _extract_markdown_chunks(self, file_path: str, content: str) -> List[CodeChunk]:
+        """
+        Extract hierarchical chunks from Markdown content based on header levels.
+        
+        Args:
+            file_path: Path to the Markdown file
+            content: File content
+            
+        Returns:
+            List of CodeChunk objects representing sections
+        """
+        chunks = []
+        content_lines = content.split('\n')
+        
+        # Find all headers with their levels and positions
+        headers = self._find_markdown_headers(content_lines)
+        
+        if not headers:
+            # No headers found - create a single chunk for the entire content
+            chunks.append(self._create_structured_chunk(
+                content, file_path, 'markdown', 1, len(content_lines),
+                ChunkType.CONSTANT, "document"
+            ))
+            return chunks
+        
+        # Create chunks for each section
+        for i, (level, title, start_line) in enumerate(headers):
+            # Determine end line for this section
+            if i + 1 < len(headers):
+                end_line = headers[i + 1][2] - 1  # End before next header
+            else:
+                end_line = len(content_lines)
+            
+            # Extract section content
+            section_lines = content_lines[start_line - 1:end_line]
+            section_content = '\n'.join(section_lines)
+            
+            # Determine chunk type based on header level
+            chunk_type = self._get_markdown_chunk_type(level)
+            
+            # Create breadcrumb path
+            breadcrumb = self._create_markdown_breadcrumb(file_path, title, level, headers[:i + 1])
+            
+            chunk = CodeChunk(
+                chunk_id=self._generate_chunk_id(file_path, start_line, end_line, chunk_type),
+                file_path=file_path,
+                content=section_content,
+                chunk_type=chunk_type,
+                language='markdown',
+                start_line=start_line,
+                end_line=end_line,
+                start_byte=0,  # Approximate
+                end_byte=len(section_content),
+                name=title,
+                breadcrumb=breadcrumb,
+                content_hash=hashlib.sha256(section_content.encode('utf-8')).hexdigest(),
+                embedding_text=f"Section: {title}\nLevel: {level}\nContent: {section_content}",
+                indexed_at=datetime.now(),
+                tags=["markdown", f"level_{level}", chunk_type.value]
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _find_markdown_headers(self, content_lines: List[str]) -> List[Tuple[int, str, int]]:
+        """
+        Find all Markdown headers and their levels.
+        
+        Args:
+            content_lines: List of content lines
+            
+        Returns:
+            List of tuples: (level, title, line_number)
+        """
+        headers = []
+        
+        for i, line in enumerate(content_lines):
+            line = line.strip()
+            
+            # ATX-style headers (# ## ### etc.)
+            if line.startswith('#'):
+                level = 0
+                for char in line:
+                    if char == '#':
+                        level += 1
+                    else:
+                        break
+                
+                if level <= 6 and line[level:].strip():  # Valid header
+                    title = line[level:].strip()
+                    headers.append((level, title, i + 1))
+            
+            # Setext-style headers (underlined with = or -)
+            elif i > 0 and line and all(c in '=-' for c in line):
+                prev_line = content_lines[i - 1].strip()
+                if prev_line:  # Previous line has content
+                    level = 1 if line[0] == '=' else 2
+                    headers.append((level, prev_line, i))  # Use previous line number
+        
+        return headers
+    
+    def _get_markdown_chunk_type(self, level: int) -> ChunkType:
+        """Get appropriate chunk type for header level."""
+        if level == 1:
+            return ChunkType.CLASS      # Main sections
+        elif level == 2:
+            return ChunkType.FUNCTION   # Subsections
+        elif level == 3:
+            return ChunkType.CONSTANT   # Sub-subsections
+        else:
+            return ChunkType.VARIABLE   # Deeper levels
+    
+    def _create_markdown_breadcrumb(self, file_path: str, title: str, level: int,
+                                  header_hierarchy: List[Tuple[int, str, int]]) -> str:
+        """
+        Create a hierarchical breadcrumb for Markdown sections.
+        
+        Args:
+            file_path: Path to the file
+            title: Current section title
+            level: Current header level
+            header_hierarchy: List of headers up to and including current
+            
+        Returns:
+            Breadcrumb string showing hierarchical path
+        """
+        file_stem = Path(file_path).stem
+        
+        # Build hierarchical path
+        path_parts = [file_stem]
+        
+        # Add parent headers to build proper hierarchy
+        current_level = level
+        for header_level, header_title, _ in reversed(header_hierarchy[:-1]):  # Exclude current header
+            if header_level < current_level:
+                # Clean title for breadcrumb
+                clean_title = re.sub(r'[^\w\s-]', '', header_title).strip()
+                clean_title = re.sub(r'\s+', '_', clean_title)
+                path_parts.insert(-1, clean_title)  # Insert before current title
+                current_level = header_level
+        
+        # Add current title
+        clean_current = re.sub(r'[^\w\s-]', '', title).strip()
+        clean_current = re.sub(r'\s+', '_', clean_current)
+        path_parts.append(clean_current)
+        
+        return '.'.join(path_parts)
