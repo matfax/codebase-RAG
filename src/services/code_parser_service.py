@@ -20,6 +20,7 @@ except ImportError:
 
 from models.code_chunk import CodeChunk, ChunkType, ParseResult, CodeSyntaxError
 from utils.file_system_utils import get_file_size, get_file_mtime
+from utils.tree_sitter_manager import TreeSitterManager
 
 
 class CodeParserService:
@@ -33,16 +34,23 @@ class CodeParserService:
     def __init__(self):
         """Initialize the CodeParser service with language support."""
         self.logger = logging.getLogger(__name__)
+        
+        # Use TreeSitterManager for robust parser management
+        self._tree_sitter_manager = TreeSitterManager()
+        
+        # Get initialization summary for logging
+        summary = self._tree_sitter_manager.get_initialization_summary()
+        self.logger.info(f"Initialized Tree-sitter parsers: {summary['successful_languages']}/{summary['total_languages']} languages successful")
+        
+        if summary['failed_languages']:
+            self.logger.warning(f"Failed to initialize: {', '.join(summary['failed_languages'])}")
+        
+        # Legacy attributes for backward compatibility
         self._parsers: Dict[str, Parser] = {}
         self._languages: Dict[str, Language] = {}
-        self._supported_languages = {
-            'python': 'tree_sitter_python',
-            'javascript': 'tree_sitter_javascript', 
-            'typescript': 'tree_sitter_typescript.tsx',  # Supports both TS and TSX
-            'go': 'tree_sitter_go',
-            'rust': 'tree_sitter_rust',
-            'java': 'tree_sitter_java'
-        }
+        for lang in summary['supported_languages']:
+            self._parsers[lang] = self._tree_sitter_manager.get_parser(lang)
+            self._languages[lang] = self._tree_sitter_manager.get_language(lang)
         
         # Language-specific node types for different code constructs
         self._node_mappings = {
@@ -101,35 +109,6 @@ class CodeParserService:
                 ChunkType.IMPORT: ['import_declaration']
             }
         }
-        
-        self._initialize_parsers()
-    
-    def _initialize_parsers(self) -> None:
-        """Initialize Tree-sitter parsers for supported languages."""
-        for lang_name, module_name in self._supported_languages.items():
-            try:
-                # Import the language module dynamically
-                if '.' in module_name:
-                    # Handle TypeScript which has submodules
-                    parts = module_name.split('.')
-                    module = __import__(parts[0], fromlist=[parts[1]])
-                    language_func = getattr(module, parts[1])
-                else:
-                    module = __import__(module_name)
-                    language_func = getattr(module, 'language')
-                
-                # Create language and parser
-                language = language_func()
-                parser = Parser()
-                parser.set_language(language)
-                
-                self._languages[lang_name] = language
-                self._parsers[lang_name] = parser
-                
-                self.logger.info(f"Initialized {lang_name} parser")
-                
-            except (ImportError, AttributeError) as e:
-                self.logger.warning(f"Failed to initialize {lang_name} parser: {e}")
     
     def get_supported_languages(self) -> List[str]:
         """Get list of supported programming languages."""
@@ -145,22 +124,18 @@ class CodeParserService:
         Returns:
             Language name if supported, None otherwise
         """
-        path = Path(file_path)
-        extension = path.suffix.lower()
+        # Use TreeSitterManager for language detection
+        detected = self._tree_sitter_manager.detect_language_from_extension(file_path)
         
-        # Extension to language mapping
-        ext_map = {
-            '.py': 'python',
-            '.js': 'javascript',
-            '.jsx': 'javascript',
-            '.ts': 'typescript',
-            '.tsx': 'typescript',
-            '.go': 'go',
-            '.rs': 'rust',
-            '.java': 'java'
-        }
+        # Special handling for TSX files - TreeSitterManager returns 'tsx' but we also support 'typescript'
+        if detected is None:
+            path = Path(file_path)
+            extension = path.suffix.lower()
+            # Handle .tsx files that could be parsed as either tsx or typescript
+            if extension == '.tsx' and self._tree_sitter_manager.is_language_supported('tsx'):
+                return 'tsx'
         
-        return ext_map.get(extension)
+        return detected
     
     def parse_file(self, file_path: str, content: Optional[str] = None) -> ParseResult:
         """

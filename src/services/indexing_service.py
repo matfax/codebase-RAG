@@ -45,6 +45,26 @@ class IndexingService:
         # Progress tracker for external monitoring
         self.progress_tracker: Optional[ProgressTracker] = None
 
+    def _sanitize_file_path(self, file_path: str, base_directory: str) -> str:
+        """Convert absolute file path to relative path for security."""
+        try:
+            # Convert to absolute paths to handle edge cases
+            abs_file_path = os.path.abspath(file_path)
+            abs_base_dir = os.path.abspath(base_directory)
+            
+            # Get relative path
+            relative_path = os.path.relpath(abs_file_path, abs_base_dir)
+            
+            # Ensure path doesn't go outside the base directory (security check)
+            if relative_path.startswith('..'):
+                self.logger.warning(f"File path {file_path} is outside base directory {base_directory}")
+                return os.path.basename(file_path)  # Fallback to just filename
+            
+            return relative_path
+        except Exception as e:
+            self.logger.warning(f"Error sanitizing path {file_path}: {e}")
+            return os.path.basename(file_path)  # Fallback to just filename
+
     def process_codebase_for_indexing(self, source_path: str, incremental_mode: bool = False, project_name: Optional[str] = None) -> List[Chunk]:
         self.logger.info(f"Processing codebase from: {source_path}")
 
@@ -126,7 +146,7 @@ class IndexingService:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     try:
                         # Submit batch processing tasks
-                        future_to_file = {executor.submit(self._process_single_file, file_path): file_path 
+                        future_to_file = {executor.submit(self._process_single_file, file_path, project_name, directory_to_index): file_path 
                                          for file_path in batch_files}
                         
                         batch_processed = 0
@@ -201,7 +221,7 @@ class IndexingService:
         
         return self.progress_tracker.get_progress_summary()
 
-    def _process_single_file(self, file_path: str) -> List[Chunk]:
+    def _process_single_file(self, file_path: str, project_name: Optional[str] = None, base_directory: Optional[str] = None) -> List[Chunk]:
         """Process a single file using intelligent chunking and return list of Chunks. Thread-safe worker function."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -214,11 +234,11 @@ class IndexingService:
             chunks = []
             if parse_result.chunks:
                 for i, parsed_chunk in enumerate(parse_result.chunks):
-                    chunk = self._convert_parsed_chunk_to_chunk(parsed_chunk, i)
+                    chunk = self._convert_parsed_chunk_to_chunk(parsed_chunk, i, project_name, base_directory)
                     chunks.append(chunk)
             else:
                 # Fallback to whole-file chunk if no intelligent chunks were created
-                chunks.append(self._create_fallback_chunk(file_path, content))
+                chunks.append(self._create_fallback_chunk(file_path, content, project_name, base_directory))
             
             return chunks
             
@@ -228,21 +248,26 @@ class IndexingService:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                return [self._create_fallback_chunk(file_path, content)]
+                return [self._create_fallback_chunk(file_path, content, project_name, base_directory)]
             except Exception as fallback_error:
                 # Let the calling code handle the exception
                 raise fallback_error
     
-    def _convert_parsed_chunk_to_chunk(self, parsed_chunk: ParsedCodeChunk, chunk_index: int) -> Chunk:
+    def _convert_parsed_chunk_to_chunk(self, parsed_chunk: ParsedCodeChunk, chunk_index: int, project_name: Optional[str] = None, base_directory: Optional[str] = None) -> Chunk:
         """Convert a ParsedCodeChunk to the existing Chunk format."""
+        # Sanitize file path for security
+        sanitized_path = self._sanitize_file_path(parsed_chunk.file_path, base_directory) if base_directory else parsed_chunk.file_path
+        
         return Chunk(
             content=parsed_chunk.content,
             metadata={
-                "file_path": parsed_chunk.file_path,
+                "file_path": sanitized_path,
+                "full_path": parsed_chunk.file_path,  # Keep original for internal use
                 "chunk_index": chunk_index,
                 "line_start": parsed_chunk.start_line,
                 "line_end": parsed_chunk.end_line,
                 "language": parsed_chunk.language,
+                "project": project_name or "unknown",
                 # Additional intelligent chunking metadata
                 "chunk_id": parsed_chunk.chunk_id,
                 "chunk_type": parsed_chunk.chunk_type.value,
@@ -261,16 +286,21 @@ class IndexingService:
             }
         )
     
-    def _create_fallback_chunk(self, file_path: str, content: str) -> Chunk:
+    def _create_fallback_chunk(self, file_path: str, content: str, project_name: Optional[str] = None, base_directory: Optional[str] = None) -> Chunk:
         """Create a fallback whole-file chunk when intelligent parsing fails."""
+        # Sanitize file path for security
+        sanitized_path = self._sanitize_file_path(file_path, base_directory) if base_directory else file_path
+        
         return Chunk(
             content=content,
             metadata={
-                "file_path": file_path,
+                "file_path": sanitized_path,
+                "full_path": file_path,  # Keep original for internal use
                 "chunk_index": 0,
                 "line_start": 1,
                 "line_end": len(content.splitlines()),
                 "language": self._detect_language(file_path),
+                "project": project_name or "unknown",
                 "chunk_type": ChunkType.WHOLE_FILE.value,
                 "fallback_used": True
             }
@@ -373,35 +403,153 @@ class IndexingService:
             self.logger.propagate = False
     
     def _detect_language(self, file_path: str) -> str:
-        # Basic language detection based on file extension
+        """Enhanced language detection based on file extension."""
         extension = os.path.splitext(file_path)[1].lower()
-        if extension == ".py":
-            return "python"
-        elif extension == ".js":
-            return "javascript"
-        elif extension == ".ts":
-            return "typescript"
-        elif extension == ".java":
-            return "java"
-        elif extension == ".go":
-            return "go"
-        elif extension == ".rs":
-            return "rust"
-        elif extension == ".md":
-            return "markdown"
-        elif extension == ".json":
-            return "json"
-        elif extension == ".yaml" or extension == ".yml":
-            return "yaml"
-        else:
-            return "unknown"
+        
+        # Create comprehensive language mapping
+        language_map = {
+            # Python
+            ".py": "python",
+            ".pyw": "python",
+            ".pyi": "python",
+            
+            # JavaScript/TypeScript
+            ".js": "javascript",
+            ".jsx": "javascript", 
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            
+            # C/C++
+            ".c": "c",
+            ".h": "c",
+            ".cpp": "cpp",
+            ".cxx": "cpp",
+            ".cc": "cpp",
+            ".hpp": "cpp",
+            ".hxx": "cpp",
+            ".hh": "cpp",
+            
+            # Java
+            ".java": "java",
+            ".class": "java",
+            
+            # C#
+            ".cs": "csharp",
+            ".csx": "csharp",
+            
+            # Go
+            ".go": "go",
+            
+            # Rust
+            ".rs": "rust",
+            
+            # Ruby
+            ".rb": "ruby",
+            ".rake": "ruby",
+            ".gemspec": "ruby",
+            
+            # PHP
+            ".php": "php",
+            ".phtml": "php",
+            ".php3": "php",
+            ".php4": "php",
+            ".php5": "php",
+            
+            # Swift
+            ".swift": "swift",
+            
+            # Kotlin
+            ".kt": "kotlin",
+            ".kts": "kotlin",
+            
+            # Scala
+            ".scala": "scala",
+            ".sc": "scala",
+            
+            # Other languages
+            ".clj": "clojure",
+            ".cljs": "clojure",
+            ".ex": "elixir",
+            ".exs": "elixir",
+            ".erl": "erlang",
+            ".hrl": "erlang",
+            ".hs": "haskell",
+            ".lhs": "haskell",
+            ".lua": "lua",
+            ".pl": "perl",
+            ".pm": "perl",
+            ".r": "r",
+            ".R": "r",
+            ".m": "matlab",
+            ".dart": "dart",
+            
+            # Shell scripts
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "zsh",
+            ".fish": "fish",
+            ".ps1": "powershell",
+            ".psm1": "powershell",
+            
+            # Web technologies
+            ".html": "html",
+            ".htm": "html",
+            ".xhtml": "html",
+            ".css": "css",
+            ".scss": "scss",
+            ".sass": "sass",
+            ".less": "less",
+            
+            # Configuration formats
+            ".json": "json",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".toml": "toml",
+            ".ini": "ini",
+            ".cfg": "ini",
+            ".conf": "config",
+            ".config": "config",
+            ".xml": "xml",
+            ".plist": "xml",
+            
+            # Documentation
+            ".md": "markdown",
+            ".markdown": "markdown",
+            ".rst": "restructuredtext",
+            ".txt": "text",
+            ".adoc": "asciidoc",
+            ".tex": "latex",
+            
+            # Database
+            ".sql": "sql",
+            
+            # Infrastructure
+            ".dockerfile": "dockerfile",
+            ".tf": "terraform",
+            ".tfvars": "terraform",
+            
+            # Build files
+            ".makefile": "makefile",
+            ".cmake": "cmake",
+            ".gradle": "gradle",
+            
+            # Editor files
+            ".vim": "vim",
+            ".vimrc": "vim",
+        }
+        
+        return language_map.get(extension, "unknown")
     
-    def process_specific_files(self, file_paths: List[str]) -> List[Chunk]:
+    def process_specific_files(self, file_paths: List[str], project_name: Optional[str] = None, base_directory: Optional[str] = None) -> List[Chunk]:
         """
         Process a specific list of files for incremental indexing.
         
         Args:
             file_paths: List of file paths to process
+            project_name: Name of the project for metadata
+            base_directory: Base directory for path sanitization
             
         Returns:
             List of Chunk objects
@@ -437,7 +585,7 @@ class IndexingService:
                 # Process batch with threading
                 with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
                     future_to_file = {
-                        executor.submit(self._process_single_file, file_path): file_path 
+                        executor.submit(self._process_single_file, file_path, project_name, base_directory): file_path 
                         for file_path in batch_files
                     }
                     

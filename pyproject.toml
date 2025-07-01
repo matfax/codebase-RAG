@@ -18,12 +18,12 @@ python-dotenv = "^1.0.0"
 mcp = {extras = ["cli"], version = "^1.9.4"}
 numpy = "<2.0"
 psutil = "^5.9.0"
-tree-sitter = "^0.20.0"
+tree-sitter = "^0.24.0"
 tree-sitter-python = "*"
 tree-sitter-javascript = "*"
 tree-sitter-typescript = "*"
 tree-sitter-go = "*"
-tree-sitter-rust = "*"
+tree-sitter-rust = "0.21.2"
 tree-sitter-java = "*"
 
 [tool.poetry.group.dev.dependencies]
