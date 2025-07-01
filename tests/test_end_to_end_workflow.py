@@ -22,13 +22,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# Import MCP tools for testing
-from mcp_tools import (
-    index_directory,
-    search,
-    clear_project_collections,
-    get_current_project
-)
+# Import MCP tools for testing (using new modular structure)
+from tools.indexing.index_tools import index_directory
+from tools.indexing.search_tools import search
+from tools.project.project_tools import clear_project_data as clear_project_collections
+from tools.project.project_utils import get_current_project
 from services.indexing_service import IndexingService
 from services.code_parser_service import CodeParserService
 from services.qdrant_service import QdrantService
