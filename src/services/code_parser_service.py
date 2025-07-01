@@ -18,8 +18,8 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from ..models.code_chunk import CodeChunk, ChunkType, ParseResult, SyntaxError
-from ..utils.file_system_utils import get_file_size, get_file_mtime
+from models.code_chunk import CodeChunk, ChunkType, ParseResult, CodeSyntaxError
+from utils.file_system_utils import get_file_size, get_file_mtime
 
 
 class CodeParserService:
@@ -584,14 +584,14 @@ class CodeParserService:
             self._collect_error_locations(child, error_locations)
     
     def _collect_detailed_errors(self, node: Node, content_lines: List[str], 
-                               language: str) -> List[SyntaxError]:
+                               language: str) -> List[CodeSyntaxError]:
         """Collect detailed syntax error information."""
         errors = []
         self._traverse_for_errors(node, content_lines, language, errors)
         return errors
     
     def _traverse_for_errors(self, node: Node, content_lines: List[str], 
-                           language: str, errors: List[SyntaxError]) -> None:
+                           language: str, errors: List[CodeSyntaxError]) -> None:
         """Recursively traverse AST to find and classify errors."""
         if node.type == 'ERROR':
             error = self._classify_syntax_error(node, content_lines, language)
@@ -602,7 +602,7 @@ class CodeParserService:
             self._traverse_for_errors(child, content_lines, language, errors)
     
     def _classify_syntax_error(self, error_node: Node, content_lines: List[str], 
-                             language: str) -> Optional[SyntaxError]:
+                             language: str) -> Optional[CodeSyntaxError]:
         """Classify and create detailed information about a syntax error."""
         start_line = error_node.start_point[0] + 1  # Convert to 1-based
         end_line = error_node.end_point[0] + 1
@@ -624,7 +624,7 @@ class CodeParserService:
         # Classify error type based on content and language
         error_type = self._determine_error_type(error_node, content_lines, language, start_line - 1)
         
-        return SyntaxError(
+        return CodeSyntaxError(
             start_line=start_line,
             end_line=end_line,
             start_column=start_column,

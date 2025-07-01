@@ -185,7 +185,7 @@ class CodeChunk:
 
 
 @dataclass 
-class SyntaxError:
+class CodeSyntaxError:
     """Information about a syntax error found during parsing."""
     
     start_line: int                   # Line where error starts (1-based)
@@ -224,7 +224,7 @@ class ParseResult:
     error_count: int = 0              # Number of syntax errors encountered
     fallback_used: bool = False       # Whether fallback to whole-file chunking was used
     processing_time_ms: float = 0.0   # Time taken to parse this file
-    syntax_errors: List[SyntaxError] = None  # Detailed syntax error information
+    syntax_errors: List[CodeSyntaxError] = None  # Detailed syntax error information
     error_recovery_used: bool = False # Whether error recovery was used
     valid_sections_count: int = 0     # Number of valid code sections extracted during error recovery
     
