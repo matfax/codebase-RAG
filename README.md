@@ -13,13 +13,62 @@ This project implements a Retrieval-Augmented Generation (RAG) Model-Controller-
 - **Metal Performance Shaders (MPS) Acceleration**: Automatically utilizes MPS on macOS for faster embedding generation
 - **Natural Language Querying**: Ask questions about your codebase in natural language and retrieve relevant code snippets
 
+## Intelligent Code Chunking
+
+This system implements state-of-the-art **syntax-aware code chunking** using Tree-sitter parsers to break down source code into meaningful, semantically coherent chunks instead of processing entire files as single units.
+
+### Key Benefits
+
+- **🎯 Precise Retrieval**: Find specific functions, classes, or methods instead of entire files
+- **📈 Better Embeddings**: Each chunk represents a complete semantic unit, improving vector quality
+- **🔍 Function-Level Search**: Query for specific functionality and get exact matches
+- **📚 Rich Metadata**: Each chunk includes detailed information like function signatures, docstrings, and context
+
+### Supported Languages
+
+**Phase 1 (Fully Supported):**
+- Python (.py) - Functions, classes, methods, constants
+- JavaScript (.js, .jsx) - Functions, objects, modules
+- TypeScript (.ts, .tsx) - Interfaces, types, classes, functions
+
+**Phase 2 (Extended Support):**
+- Go (.go) - Functions, structs, interfaces, methods
+- Rust (.rs) - Functions, structs, impl blocks, traits
+- Java (.java) - Classes, methods, interfaces
+- C/C++ (.c, .cpp, .h) - Functions, structs, classes
+
+**Structured Files:**
+- JSON/YAML - Object-level chunking (e.g., separate chunks for `scripts`, `dependencies`)
+- Markdown - Header-based hierarchical chunking
+- Configuration files - Section-based parsing
+
+### How It Works
+
+1. **AST Parsing**: Uses Tree-sitter to generate syntax trees for each source file
+2. **Semantic Extraction**: Identifies functions, classes, methods, and other semantic units
+3. **Context Enhancement**: Preserves surrounding context (imports, docstrings, inline comments)
+4. **Metadata Enrichment**: Extracts signatures, parameter types, access modifiers, and relationships
+5. **Error Handling**: Gracefully handles syntax errors with smart fallback to whole-file processing
+
+### Chunk Types
+
+- `function` - Standalone functions with their complete implementation
+- `class` - Class definitions including properties and documentation
+- `method` - Individual methods within classes
+- `interface` - TypeScript/Java interfaces and type definitions
+- `constant` - Important constants and configuration objects
+- `config_object` - Structured configuration sections
+
 ### Advanced Features
+- **🎯 Intelligent Code Chunking**: Function-level and class-level intelligent chunking using Tree-sitter for precise code understanding and retrieval
 - **🚀 Incremental Indexing**: Only process changed files for dramatically faster re-indexing (80%+ time savings)
 - **🔧 Manual Indexing Tool**: Standalone script for heavy indexing operations that don't block conversational workflows
 - **⚡ Large Codebase Optimization**: Parallel processing, batch operations, and streaming for handling 10,000+ file repositories
 - **🧠 Intelligent Recommendations**: Automatic detection of existing indexes with smart time estimates and workflow suggestions
 - **📊 Progress Tracking**: Real-time progress monitoring with ETA estimation and memory usage tracking
 - **🗂️ Smart Collection Management**: Automatic categorization into code, config, documentation, and metadata collections
+- **🌐 Multi-Language Support**: Support for 10+ programming languages with syntax-aware parsing
+- **🛡️ Error Tolerance**: Graceful handling of syntax errors with smart fallback mechanisms
 
 ## Prerequisites
 
@@ -29,6 +78,7 @@ Before you begin, ensure you have the following installed:
 - **Poetry**: Used for dependency management. If you don't have it, you can install it via `pipx install poetry` or `pip install poetry` (preferably in a virtual environment).
 - **Docker (Recommended for Qdrant)**: Qdrant is best run as a Docker container.
 - **Ollama**: For running local language models and embedding models. Download from [ollama.com](https://ollama.com/).
+- **Tree-sitter Language Parsers**: Automatically installed with the project dependencies for intelligent code chunking support.
 
 ## Configuration
 
@@ -160,7 +210,7 @@ Check the health status of the MCP server.
 
 ### 2. `index_directory`
 
-Index files in a directory or Git repository with intelligent existing data detection.
+Index files in a directory or Git repository with intelligent code chunking and existing data detection.
 
 -   **Parameters**:
     ```json
@@ -169,19 +219,22 @@ Index files in a directory or Git repository with intelligent existing data dete
       "patterns": ["string"],       // File patterns to include (optional)
       "recursive": "boolean",       // Search recursively (default: true)
       "clear_existing": "boolean",  // Clear existing index (default: false)
-      "incremental": "boolean"      // Use incremental indexing (default: false)
+      "incremental": "boolean",     // Use incremental indexing (default: false)
+      "project_name": "string"      // Custom project name for collections (optional)
     }
     ```
 -   **Returns**: Indexing results, time estimates, or recommendations for existing data
 -   **Smart Behavior**: 
+    - **Intelligent Chunking**: Automatically uses syntax-aware chunking for supported languages
     - Automatically detects existing indexed data
     - Provides time estimates and recommendations
     - Suggests manual tool for large operations (>5 minutes)
     - Supports incremental mode for changed files only
+    - **Error Tolerance**: Gracefully handles syntax errors with fallback mechanisms
 
 ### 3. `search`
 
-Search indexed content using natural language queries.
+Search indexed content using natural language queries with function-level precision.
 
 -   **Parameters**:
     ```json
@@ -194,7 +247,12 @@ Search indexed content using natural language queries.
       "context_chunks": "integer"  // Number of context chunks (default: 1)
     }
     ```
--   **Returns**: Search results with relevant code snippets and metadata
+-   **Returns**: Search results with relevant code snippets and rich metadata
+-   **Enhanced Results**: 
+    - **Function-Level Precision**: Returns specific functions, classes, or methods instead of entire files
+    - **Rich Metadata**: Includes function signatures, docstrings, and breadcrumb navigation
+    - **Context Enhancement**: Provides surrounding code context and related imports
+    - **Syntax Highlighting**: Results include language detection and proper formatting
 
 ## Manual Indexing Tool
 
@@ -275,20 +333,32 @@ import asyncio
 from main import app
 
 async def example():
-    # Index current directory (will show recommendations if data exists)
+    # Index current directory with intelligent chunking (default behavior)
     result = await app.call_tool("index_directory", {"directory": "."})
     print(result)
     
-    # Perform incremental update
+    # Perform incremental update (only processes changed files)
     result = await app.call_tool("index_directory", {
         "directory": ".", 
         "incremental": True
     })
     print(result)
     
-    # Search for specific functionality
-    result = await app.call_tool("search", {"query": "authentication logic"})
-    print(result)
+    # Search for specific functions - now returns precise matches!
+    result = await app.call_tool("search", {"query": "validateUser function"})
+    print("Function-level results:", result)
+    
+    # Search for class methods
+    result = await app.call_tool("search", {"query": "UserService class methods"})
+    print("Class and method results:", result)
+    
+    # Search with enhanced context
+    result = await app.call_tool("search", {
+        "query": "authentication logic",
+        "include_context": True,
+        "context_chunks": 2
+    })
+    print("Results with surrounding code context:", result)
 
 asyncio.run(example())
 ```
@@ -341,6 +411,22 @@ __pycache__/
 .venv/
 *.pyc
 *.log
+```
+
+### Intelligent Chunking Error Handling
+
+The system includes sophisticated error handling for syntax errors and malformed code:
+
+- **Syntax Error Tolerance**: Files with syntax errors are processed using smart error recovery
+- **Graceful Fallback**: When intelligent chunking fails, the system automatically falls back to whole-file processing
+- **Error Reporting**: Detailed error statistics are provided in manual indexing tool output
+- **Partial Processing**: Correct code sections are preserved even when parts of the file have errors
+
+Example error handling in action:
+```bash
+# Manual indexing with verbose error reporting
+python manual_indexing.py -d /path/to/project --verbose
+# Output includes syntax error statistics and affected files
 ```
 
 ## Running Tests
@@ -402,7 +488,8 @@ src/
 ├── mcp_tools.py              # MCP tool implementations
 ├── run_mcp.py               # MCP server startup script
 ├── services/                # Core business logic
-│   ├── indexing_service.py        # Codebase processing and indexing
+│   ├── indexing_service.py        # Codebase processing and indexing orchestration
+│   ├── code_parser_service.py     # Intelligent code chunking with Tree-sitter
 │   ├── qdrant_service.py          # Vector database operations
 │   ├── embedding_service.py       # Ollama integration
 │   ├── project_analysis_service.py # Project structure analysis
@@ -410,6 +497,7 @@ src/
 │   └── change_detector_service.py # Incremental indexing logic
 ├── models/                  # Data models
 │   ├── file_metadata.py          # File metadata tracking
+│   ├── code_chunk.py             # Code chunk data structures for intelligent chunking
 │   └── __init__.py
 ├── utils/                   # Utilities
 │   ├── performance_monitor.py     # Progress and memory monitoring
@@ -431,6 +519,7 @@ poetry.lock                 # Dependency lock file
 
 #### Services Layer
 - **IndexingService**: Orchestrates the entire indexing process with parallel processing
+- **CodeParserService**: Implements intelligent code chunking using Tree-sitter parsers for syntax-aware code analysis
 - **QdrantService**: Manages vector database operations with batch optimization
 - **EmbeddingService**: Handles Ollama integration with batch embedding generation
 - **ProjectAnalysisService**: Analyzes project structure and filters relevant files
@@ -439,6 +528,7 @@ poetry.lock                 # Dependency lock file
 
 #### Models
 - **FileMetadata**: Tracks file modification times, content hashes, and indexing state
+- **CodeChunk**: Represents intelligent code chunks with rich metadata (function signatures, docstrings, syntax tree information)
 
 #### Utilities
 - **PerformanceMonitor**: Progress tracking, ETA estimation, and memory monitoring
