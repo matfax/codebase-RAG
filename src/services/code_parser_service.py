@@ -41,8 +41,7 @@ class CodeParserService:
             'typescript': 'tree_sitter_typescript.tsx',  # Supports both TS and TSX
             'go': 'tree_sitter_go',
             'rust': 'tree_sitter_rust',
-            'java': 'tree_sitter_java',
-            'json': 'tree_sitter_json'
+            'java': 'tree_sitter_java'
         }
         
         # Language-specific node types for different code constructs
@@ -100,10 +99,6 @@ class CodeParserService:
                 ChunkType.CONSTANT: ['field_declaration'],  # Static final fields
                 ChunkType.VARIABLE: ['field_declaration'],
                 ChunkType.IMPORT: ['import_declaration']
-            },
-            'json': {
-                ChunkType.CONFIG_BLOCK: ['object', 'array'],
-                ChunkType.DATA_STRUCTURE: ['object']
             }
         }
         
@@ -162,8 +157,7 @@ class CodeParserService:
             '.tsx': 'typescript',
             '.go': 'go',
             '.rs': 'rust',
-            '.java': 'java',
-            '.json': 'json'
+            '.java': 'java'
         }
         
         return ext_map.get(extension)
