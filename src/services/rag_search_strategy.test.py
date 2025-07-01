@@ -494,6 +494,456 @@ class TestRAGSearchStrategy(unittest.TestCase):
         self.assertIn("error", result)
         self.assertIsNone(result["primary_pattern"])
         self.assertEqual(result["detection_summary"]["analysis_method"], "failed")
+    
+    def test_analyze_entry_point_characteristics_main_function(self):
+        """Test entry point characteristics analysis for main function."""
+        main_result = self.mock_search_result.copy()
+        main_result.update({
+            "file_path": "src/main.py",
+            "content": "def main():\n    if __name__ == '__main__':\n        main()",
+            "name": "main",
+            "signature": "main()",
+            "chunk_type": "function"
+        })
+        
+        search_result = SearchResult(
+            original_result=main_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.9
+        )
+        
+        score = self.search_strategy._analyze_entry_point_characteristics(search_result, "main_functions")
+        
+        self.assertGreater(score, 0.7)  # Should have high confidence for main function
+    
+    def test_analyze_entry_point_characteristics_cli(self):
+        """Test entry point characteristics analysis for CLI entry point."""
+        cli_result = self.mock_search_result.copy()
+        cli_result.update({
+            "file_path": "src/cli.py",
+            "content": "import argparse\ndef cli():\n    parser = argparse.ArgumentParser()",
+            "name": "cli",
+            "signature": "cli()",
+            "chunk_type": "function"
+        })
+        
+        search_result = SearchResult(
+            original_result=cli_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.8
+        )
+        
+        score = self.search_strategy._analyze_entry_point_characteristics(search_result, "cli_entry_points")
+        
+        self.assertGreater(score, 0.6)  # Should detect CLI characteristics
+    
+    def test_analyze_entry_point_characteristics_web_server(self):
+        """Test entry point characteristics analysis for web server startup."""
+        web_result = self.mock_search_result.copy()
+        web_result.update({
+            "file_path": "src/app.py",
+            "content": "def create_app():\n    app = Flask(__name__)\n    return app\n\napp.run()",
+            "name": "create_app",
+            "signature": "create_app()",
+            "chunk_type": "function"
+        })
+        
+        search_result = SearchResult(
+            original_result=web_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.85
+        )
+        
+        score = self.search_strategy._analyze_entry_point_characteristics(search_result, "web_server_startup")
+        
+        self.assertGreater(score, 0.5)  # Should detect web server characteristics
+    
+    def test_extract_entry_point_metadata_executable(self):
+        """Test entry point metadata extraction for executable script."""
+        executable_result = self.mock_search_result.copy()
+        executable_result.update({
+            "content": "#!/usr/bin/env python\nif __name__ == '__main__':\n    main()",
+            "signature": "main()",
+            "file_path": "scripts/main.py"
+        })
+        
+        search_result = SearchResult(
+            original_result=executable_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.8
+        )
+        
+        metadata = self.search_strategy._extract_entry_point_metadata(search_result)
+        
+        self.assertTrue(metadata["is_executable"])
+        self.assertEqual(metadata["execution_context"], "script")
+    
+    def test_extract_entry_point_metadata_cli(self):
+        """Test entry point metadata extraction for CLI interface."""
+        cli_result = self.mock_search_result.copy()
+        cli_result.update({
+            "content": "import argparse\ndef main():\n    parser = argparse.ArgumentParser()",
+            "signature": "main()",
+            "file_path": "src/cli.py"
+        })
+        
+        search_result = SearchResult(
+            original_result=cli_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.7
+        )
+        
+        metadata = self.search_strategy._extract_entry_point_metadata(search_result)
+        
+        self.assertTrue(metadata["has_cli_interface"])
+        self.assertEqual(metadata["execution_context"], "cli")
+        self.assertEqual(metadata["framework_detected"], "Argparse")
+    
+    def test_extract_entry_point_metadata_web(self):
+        """Test entry point metadata extraction for web interface."""
+        web_result = self.mock_search_result.copy()
+        web_result.update({
+            "content": "from flask import Flask\napp = Flask(__name__)\napp.run()",
+            "signature": "run()",
+            "file_path": "src/app.py"
+        })
+        
+        search_result = SearchResult(
+            original_result=web_result,
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.9
+        )
+        
+        metadata = self.search_strategy._extract_entry_point_metadata(search_result)
+        
+        self.assertTrue(metadata["has_web_interface"])
+        self.assertEqual(metadata["execution_context"], "web")
+        self.assertEqual(metadata["framework_detected"], "Flask")
+    
+    def test_deduplicate_entry_points(self):
+        """Test entry point deduplication."""
+        entry_points = [
+            {
+                "file_path": "src/main.py",
+                "function_name": "main",
+                "confidence": 0.8
+            },
+            {
+                "file_path": "src/main.py",
+                "function_name": "main",
+                "confidence": 0.9  # Higher confidence, should be kept
+            },
+            {
+                "file_path": "src/app.py",
+                "function_name": "run",
+                "confidence": 0.7
+            }
+        ]
+        
+        deduplicated = self.search_strategy._deduplicate_entry_points(entry_points)
+        
+        self.assertEqual(len(deduplicated), 2)  # Should remove one duplicate
+        
+        # Check that higher confidence entry was kept
+        main_entries = [ep for ep in deduplicated if ep["function_name"] == "main"]
+        self.assertEqual(len(main_entries), 1)
+        self.assertEqual(main_entries[0]["confidence"], 0.9)
+    
+    @patch.object(RAGSearchStrategy, 'execute_focused_search')
+    def test_discover_entry_points_success(self, mock_search):
+        """Test successful entry point discovery."""
+        # Mock entry point search result
+        entry_point_result = SearchResult(
+            original_result={
+                "score": 0.9,
+                "file_path": "src/main.py",
+                "content": "def main():\n    if __name__ == '__main__':\n        main()",
+                "name": "main",
+                "signature": "main()",
+                "docstring": "Main application entry point",
+                "line_start": 1,
+                "line_end": 3,
+                "chunk_type": "function",
+                "language": "Python"
+            },
+            query_type=SearchQueryType.ENTRY_POINTS,
+            confidence_score=0.85,
+            breadcrumb_context="main.py > main"
+        )
+        
+        mock_search.return_value = [entry_point_result]
+        
+        result = self.search_strategy.discover_entry_points(max_results=5)
+        
+        self.assertIn("primary_entry_points", result)
+        self.assertIn("entry_points_by_category", result)
+        self.assertIn("all_entry_points", result)
+        self.assertIn("discovery_summary", result)
+        
+        # Check that searches were executed for different entry point categories
+        self.assertGreater(mock_search.call_count, 5)
+        
+        # Check discovery summary
+        summary = result["discovery_summary"]
+        self.assertIn("total_categories_searched", summary)
+        self.assertIn("analysis_method", summary)
+        self.assertEqual(summary["analysis_method"], "Function-level RAG search with signature analysis")
+    
+    @patch.object(RAGSearchStrategy, 'execute_focused_search')
+    def test_discover_entry_points_no_results(self, mock_search):
+        """Test entry point discovery with no results."""
+        # Mock empty search results
+        mock_search.return_value = []
+        
+        result = self.search_strategy.discover_entry_points()
+        
+        self.assertEqual(len(result["primary_entry_points"]), 0)
+        self.assertEqual(len(result["all_entry_points"]), 0)
+        self.assertEqual(result["discovery_summary"]["total_entry_points_found"], 0)
+    
+    @patch.object(RAGSearchStrategy, 'execute_focused_search')
+    def test_discover_entry_points_error_handling(self, mock_search):
+        """Test entry point discovery error handling."""
+        # Mock search that raises an exception
+        mock_search.side_effect = Exception("Search failed")
+        
+        result = self.search_strategy.discover_entry_points()
+        
+        self.assertIn("error", result)
+        self.assertEqual(len(result["primary_entry_points"]), 0)
+        self.assertEqual(result["discovery_summary"]["analysis_method"], "failed")
+    
+    def test_calculate_component_importance(self):
+        """Test component importance calculation."""
+        high_importance_result = self.mock_search_result.copy()
+        high_importance_result.update({
+            "score": 0.9,
+            "chunk_type": "class",
+            "docstring": "This is a very detailed docstring that explains the component functionality",
+            "name": "UserService",
+            "file_path": "src/services/user_service.py"
+        })
+        
+        search_result = SearchResult(
+            original_result=high_importance_result,
+            query_type=SearchQueryType.CORE_COMPONENTS,
+            confidence_score=0.85
+        )
+        
+        importance = self.search_strategy._calculate_component_importance(search_result)
+        
+        self.assertGreater(importance, 0.7)  # Should have high importance
+    
+    def test_deduplicate_components(self):
+        """Test component deduplication."""
+        components = [
+            {
+                "file_path": "src/user_service.py",
+                "name": "UserService",
+                "importance_score": 0.8
+            },
+            {
+                "file_path": "src/user_service.py",
+                "name": "UserService",
+                "importance_score": 0.9  # Higher importance, should be kept
+            },
+            {
+                "file_path": "src/order_service.py",
+                "name": "OrderService",
+                "importance_score": 0.7
+            }
+        ]
+        
+        deduplicated = self.search_strategy._deduplicate_components(components)
+        
+        self.assertEqual(len(deduplicated), 2)  # Should remove one duplicate
+        
+        # Check that higher importance component was kept
+        user_services = [c for c in deduplicated if c["name"] == "UserService"]
+        self.assertEqual(len(user_services), 1)
+        self.assertEqual(user_services[0]["importance_score"], 0.9)
+    
+    def test_create_component_content_for_similarity(self):
+        """Test component content creation for similarity analysis."""
+        component = {
+            "name": "UserService",
+            "signature": "class UserService",
+            "docstring": "Service for managing user operations",
+            "content": "class UserService:\n    def get_user(self, user_id):\n        return user_repository.find(user_id)"
+        }
+        
+        content = self.search_strategy._create_component_content_for_similarity(component)
+        
+        self.assertIn("UserService", content)
+        self.assertIn("class UserService", content)
+        self.assertIn("Service for managing user operations", content)
+        self.assertIn("class UserService:", content)  # From content excerpt
+    
+    def test_fallback_similarity_calculation(self):
+        """Test fallback similarity calculation without NumPy."""
+        # Simple test vectors
+        vec1 = [1, 0, 0]
+        vec2 = [0, 1, 0]
+        vec3 = [1, 0, 0]
+        
+        # Test orthogonal vectors (should be low similarity)
+        similarity_orthogonal = self.search_strategy._fallback_similarity_calculation(vec1, vec2)
+        self.assertLess(similarity_orthogonal, 0.6)
+        
+        # Test identical vectors (should be high similarity)
+        similarity_identical = self.search_strategy._fallback_similarity_calculation(vec1, vec3)
+        self.assertGreater(similarity_identical, 0.9)
+    
+    def test_determine_relationship_type_service_repository(self):
+        """Test relationship type determination for service-repository pattern."""
+        comp1 = {
+            "name": "UserService",
+            "file_path": "src/services/user_service.py",
+            "chunk_type": "class"
+        }
+        comp2 = {
+            "name": "UserRepository",
+            "file_path": "src/repositories/user_repository.py",
+            "chunk_type": "class"
+        }
+        
+        relationship_type = self.search_strategy._determine_relationship_type(comp1, comp2, 0.8)
+        
+        self.assertEqual(relationship_type, "service_repository")
+    
+    def test_determine_relationship_type_same_file(self):
+        """Test relationship type determination for same file components."""
+        comp1 = {
+            "name": "UserService",
+            "file_path": "src/user_module.py",
+            "chunk_type": "class"
+        }
+        comp2 = {
+            "name": "helper_function",
+            "file_path": "src/user_module.py",
+            "chunk_type": "function"
+        }
+        
+        relationship_type = self.search_strategy._determine_relationship_type(comp1, comp2, 0.7)
+        
+        self.assertEqual(relationship_type, "same_file_related")
+    
+    def test_calculate_relationship_strength(self):
+        """Test relationship strength calculation."""
+        comp1 = {"name": "ServiceA"}
+        comp2 = {"name": "ServiceB"}
+        
+        # Test very strong relationship
+        strength_very_strong = self.search_strategy._calculate_relationship_strength(comp1, comp2, 0.95)
+        self.assertEqual(strength_very_strong, "very_strong")
+        
+        # Test strong relationship
+        strength_strong = self.search_strategy._calculate_relationship_strength(comp1, comp2, 0.85)
+        self.assertEqual(strength_strong, "strong")
+        
+        # Test moderate relationship
+        strength_moderate = self.search_strategy._calculate_relationship_strength(comp1, comp2, 0.75)
+        self.assertEqual(strength_moderate, "moderate")
+        
+        # Test weak relationship
+        strength_weak = self.search_strategy._calculate_relationship_strength(comp1, comp2, 0.65)
+        self.assertEqual(strength_weak, "weak")
+    
+    def test_extract_architectural_insights(self):
+        """Test architectural insights extraction."""
+        # Mock clusters
+        clusters = [
+            {
+                "components": [{"name": "ServiceA"}, {"name": "ServiceB"}, {"name": "ServiceC"}],
+                "cluster_size": 3
+            },
+            {
+                "components": [{"name": "ModelA"}, {"name": "ModelB"}],
+                "cluster_size": 2
+            }
+        ]
+        
+        # Mock relationships
+        relationships = [
+            {
+                "relationship_type": "service_repository",
+                "relationship_strength": "strong"
+            },
+            {
+                "relationship_type": "controller_service",
+                "relationship_strength": "very_strong"
+            }
+        ]
+        
+        insights = self.search_strategy._extract_architectural_insights(clusters, relationships)
+        
+        self.assertIsInstance(insights, list)
+        self.assertGreater(len(insights), 0)
+        
+        # Check for specific insights
+        insight_text = " ".join(insights).lower()
+        self.assertIn("cluster", insight_text)
+        self.assertIn("service-repository", insight_text)
+        self.assertIn("controller-service", insight_text)
+    
+    @patch.object(RAGSearchStrategy, '_discover_core_components')
+    @patch.object(RAGSearchStrategy, '_analyze_pairwise_relationships')
+    def test_analyze_component_relationships_success(self, mock_pairwise, mock_discover):
+        """Test successful component relationship analysis."""
+        # Mock core components
+        mock_components = [
+            {
+                "name": "UserService",
+                "file_path": "src/user_service.py",
+                "chunk_type": "class",
+                "importance_score": 0.9
+            },
+            {
+                "name": "UserRepository",
+                "file_path": "src/user_repository.py",
+                "chunk_type": "class",
+                "importance_score": 0.8
+            }
+        ]
+        mock_discover.return_value = mock_components
+        
+        # Mock relationships
+        mock_relationships = [
+            {
+                "component1": {"name": "UserService", "file_path": "src/user_service.py"},
+                "component2": {"name": "UserRepository", "file_path": "src/user_repository.py"},
+                "similarity_score": 0.8,
+                "relationship_type": "service_repository",
+                "relationship_strength": "strong"
+            }
+        ]
+        mock_pairwise.return_value = mock_relationships
+        
+        result = self.search_strategy.analyze_component_relationships(similarity_threshold=0.7)
+        
+        self.assertIn("core_components", result)
+        self.assertIn("relationships", result)
+        self.assertIn("component_clusters", result)
+        self.assertIn("dependency_analysis", result)
+        self.assertIn("architectural_insights", result)
+        self.assertIn("analysis_summary", result)
+        
+        # Check analysis summary
+        summary = result["analysis_summary"]
+        self.assertEqual(summary["components_analyzed"], 2)
+        self.assertEqual(summary["relationships_found"], 1)
+        self.assertEqual(summary["analysis_method"], "Vector similarity with clustering analysis")
+    
+    @patch.object(RAGSearchStrategy, '_discover_core_components')
+    def test_analyze_component_relationships_no_components(self, mock_discover):
+        """Test component relationship analysis with no components found."""
+        mock_discover.return_value = []
+        
+        result = self.search_strategy.analyze_component_relationships()
+        
+        self.assertIn("error", result)
+        self.assertEqual(len(result["relationships"]), 0)
+        self.assertEqual(result["analysis_summary"]["analysis_method"], "failed")
 
 
 class TestSearchQuery(unittest.TestCase):

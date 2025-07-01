@@ -30,8 +30,8 @@ Based on PRD: `prd-enhanced-explore-project.md`
 - [ ] 1.0 Implement RAG Search Integration Strategy
   - [x] 1.1 Create RAGSearchStrategy service with multi-query search capabilities
   - [x] 1.2 Implement architecture pattern detection using RAG semantic search
-  - [ ] 1.3 Implement entry point discovery using function-level RAG search
-  - [ ] 1.4 Implement component relationship analysis using vector similarity
+  - [x] 1.3 Implement entry point discovery using function-level RAG search
+  - [x] 1.4 Implement component relationship analysis using vector similarity
   - [ ] 1.5 Add search result ranking and confidence scoring algorithms
   - [ ] 1.6 Write comprehensive unit tests for RAG search strategy
 
