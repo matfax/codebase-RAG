@@ -57,7 +57,7 @@ class CodeParserService:
                 ChunkType.DOCSTRING: ['expression_statement']  # String literals at module/class/function level
             },
             'javascript': {
-                ChunkType.FUNCTION: ['function_declaration', 'arrow_function'],
+                ChunkType.FUNCTION: ['function_declaration', 'arrow_function', 'method_definition'],
                 ChunkType.ASYNC_FUNCTION: ['async_function_declaration'],
                 ChunkType.CLASS: ['class_declaration'],
                 ChunkType.CONSTANT: ['lexical_declaration'],  # const declarations
@@ -66,7 +66,7 @@ class CodeParserService:
                 ChunkType.EXPORT: ['export_statement']
             },
             'typescript': {
-                ChunkType.FUNCTION: ['function_declaration', 'arrow_function'],
+                ChunkType.FUNCTION: ['function_declaration', 'arrow_function', 'method_definition', 'method_signature'],
                 ChunkType.ASYNC_FUNCTION: ['async_function_declaration'],
                 ChunkType.CLASS: ['class_declaration'],
                 ChunkType.INTERFACE: ['interface_declaration'],
@@ -295,9 +295,11 @@ class CodeParserService:
         
         for chunk_type, node_types in node_mappings.items():
             if node_type in node_types:
-                # Special handling for Python assignments to distinguish constants vs variables
+                # Special handling for assignments to distinguish constants vs variables
                 if language == 'python' and node_type == 'assignment':
                     return self._classify_python_assignment(node)
+                elif language in ['javascript', 'typescript'] and node_type == 'lexical_declaration':
+                    return self._classify_js_declaration(node)
                 return chunk_type
         
         return None
@@ -321,6 +323,26 @@ class CodeParserService:
                     return ChunkType.CONSTANT
                 break
         
+        return ChunkType.VARIABLE
+    
+    def _classify_js_declaration(self, node: Node) -> ChunkType:
+        """
+        Classify JavaScript/TypeScript lexical declaration as constant or variable.
+        
+        Args:
+            node: Lexical declaration AST node
+            
+        Returns:
+            ChunkType.CONSTANT for const declarations, ChunkType.VARIABLE for let
+        """
+        # Check if this is a const declaration
+        for child in node.children:
+            if child.type == 'const' or child.text.decode('utf-8') == 'const':
+                return ChunkType.CONSTANT
+            elif child.type == 'let' or child.text.decode('utf-8') == 'let':
+                return ChunkType.VARIABLE
+        
+        # Default to variable if we can't determine
         return ChunkType.VARIABLE
     
     def _create_chunk_from_node(self, node: Node, chunk_type: ChunkType, file_path: str,
@@ -640,17 +662,175 @@ class CodeParserService:
     # Placeholder methods for other languages (to be implemented)
     def _extract_js_name(self, node: Node) -> Optional[str]:
         """Extract name from JavaScript/TypeScript AST node."""
-        # TODO: Implement JavaScript name extraction
+        node_type = node.type
+        
+        if node_type in ['function_declaration', 'async_function_declaration']:
+            # Look for identifier child node
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type == 'arrow_function':
+            # Arrow functions might not have explicit names, look for assignment context
+            # This would need parent context analysis for proper naming
+            return 'arrow_function'  # Placeholder
+        
+        elif node_type == 'class_declaration':
+            # Look for identifier child node after 'class' keyword
+            for child in node.children:
+                if child.type == 'identifier':
+                    return child.text.decode('utf-8')
+        
+        elif node_type in ['lexical_declaration', 'variable_declaration']:
+            # Look for variable declarator
+            for child in node.children:
+                if child.type == 'variable_declarator':
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            return declarator_child.text.decode('utf-8')
+        
+        elif node_type in ['import_statement']:
+            # Extract import specifiers
+            names = []
+            for child in node.children:
+                if child.type == 'import_clause':
+                    for clause_child in child.children:
+                        if clause_child.type == 'identifier':
+                            names.append(clause_child.text.decode('utf-8'))
+                        elif clause_child.type == 'named_imports':
+                            # Extract named imports
+                            for import_child in clause_child.children:
+                                if import_child.type == 'import_specifier':
+                                    for spec_child in import_child.children:
+                                        if spec_child.type == 'identifier':
+                                            names.append(spec_child.text.decode('utf-8'))
+            return ', '.join(names) if names else None
+        
+        elif node_type == 'export_statement':
+            # Handle export statements
+            for child in node.children:
+                if child.type in ['function_declaration', 'class_declaration']:
+                    return self._extract_js_name(child)
+                elif child.type == 'lexical_declaration':
+                    return self._extract_js_name(child)
+        
         return None
     
     def _extract_js_signature(self, node: Node) -> Optional[str]:
         """Extract signature from JavaScript/TypeScript AST node."""
-        # TODO: Implement JavaScript signature extraction
+        node_type = node.type
+        
+        if node_type in ['function_declaration', 'async_function_declaration']:
+            # Get the function signature
+            signature_parts = []
+            
+            # Add async keyword if present
+            if node_type == 'async_function_declaration':
+                signature_parts.append('async')
+            
+            signature_parts.append('function')
+            
+            # Extract function name and parameters
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'formal_parameters':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'type_annotation':
+                    # TypeScript return type annotation
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'arrow_function':
+            # Arrow function signature
+            signature_parts = []
+            
+            for child in node.children:
+                if child.type == 'formal_parameters':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'type_annotation':
+                    # TypeScript return type
+                    signature_parts.append(':')
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            signature_parts.append('=>')
+            return ' '.join(signature_parts)
+        
+        elif node_type == 'class_declaration':
+            # Get class signature with extends clause
+            signature_parts = ['class']
+            
+            for child in node.children:
+                if child.type == 'identifier':
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'class_heritage':
+                    # extends/implements clauses
+                    signature_parts.append(child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
+        elif node_type in ['lexical_declaration', 'variable_declaration']:
+            # Variable/const declaration signature
+            signature_parts = []
+            
+            # Add declaration keyword (const, let, var)
+            for child in node.children:
+                if child.type in ['const', 'let', 'var']:
+                    signature_parts.append(child.text.decode('utf-8'))
+                elif child.type == 'variable_declarator':
+                    # Get variable name and type
+                    for declarator_child in child.children:
+                        if declarator_child.type == 'identifier':
+                            signature_parts.append(declarator_child.text.decode('utf-8'))
+                        elif declarator_child.type == 'type_annotation':
+                            signature_parts.append(':')
+                            signature_parts.append(declarator_child.text.decode('utf-8'))
+                    break
+            
+            return ' '.join(signature_parts)
+        
         return None
     
     def _extract_js_docstring(self, node: Node, content_lines: List[str]) -> Optional[str]:
         """Extract JSDoc comment from JavaScript/TypeScript function or class."""
-        # TODO: Implement JavaScript docstring extraction
+        # JSDoc comments appear before the function/class declaration
+        start_line = node.start_point[0]  # 0-based line number
+        
+        # Look for JSDoc comment in the lines before the node
+        for i in range(start_line - 1, max(0, start_line - 10), -1):  # Check up to 10 lines before
+            line = content_lines[i].strip()
+            
+            # Check if this line ends a JSDoc comment
+            if line.endswith('*/'):
+                # Found end of JSDoc, collect the whole comment
+                jsdoc_lines = []
+                
+                # Collect lines backwards until we find the start
+                for j in range(i, max(0, i - 20), -1):  # Check up to 20 lines for the start
+                    comment_line = content_lines[j].strip()
+                    jsdoc_lines.insert(0, comment_line)
+                    
+                    if comment_line.startswith('/**'):
+                        # Found the start of JSDoc comment
+                        # Clean up the JSDoc content
+                        cleaned_lines = []
+                        for doc_line in jsdoc_lines:
+                            # Remove /** and */ and leading * characters
+                            cleaned = doc_line.replace('/**', '').replace('*/', '').strip()
+                            if cleaned.startswith('*'):
+                                cleaned = cleaned[1:].strip()
+                            if cleaned:  # Only add non-empty lines
+                                cleaned_lines.append(cleaned)
+                        
+                        return '\n'.join(cleaned_lines) if cleaned_lines else None
+                
+                break
+        
         return None
     
     def _extract_go_name(self, node: Node) -> Optional[str]:
