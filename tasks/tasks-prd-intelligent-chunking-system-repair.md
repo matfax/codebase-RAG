@@ -36,8 +36,10 @@
   - [x] 2.3 Verify and fix AST node mappings for Java (methods, classes, interfaces, imports)
   - [x] 2.4 Verify and fix AST node mappings for Go (functions, structs, interfaces, imports)
   - [x] 2.5 Verify and fix AST node mappings for Rust (functions, structs, enums, modules)
-  - [ ] 2.6 Test intelligent chunking end-to-end with sample files for each language
-  - [ ] 2.7 Validate that chunk metadata includes proper semantic information (signatures, docstrings, etc.)
+  - [x] 2.6 Test intelligent chunking end-to-end with sample files for each language
+  - [x] 2.7 Validate that chunk metadata includes proper semantic information (signatures, docstrings, etc.)
+
+- [x] 2.0 Restore Intelligent Chunking for Existing Languages
 
 - [ ] 3.0 Add C++ Language Support
   - [ ] 3.1 Add tree-sitter-cpp dependency to requirements.txt and pyproject.toml
