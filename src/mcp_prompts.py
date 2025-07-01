@@ -215,9 +215,29 @@ class MCPPromptsSystem:
                 include_data_flow: Whether to trace data transformation and flow patterns
             """
             try:
-                # Build functionality tracing prompt
-                tracing_prompt = self._build_functionality_tracing_prompt(
-                    functionality_description, trace_type, include_config, include_data_flow
+                # Use enhanced functionality tracing service
+                from services.functionality_tracing_service import FunctionalityTracingService
+                tracing_service = FunctionalityTracingService()
+                
+                # Perform comprehensive functionality tracing
+                trace_result = tracing_service.trace_functionality(
+                    functionality_description=functionality_description,
+                    project_path=".",
+                    trace_type=trace_type,
+                    include_config=include_config,
+                    include_data_flow=include_data_flow,
+                    max_depth=10
+                )
+                
+                # Format the trace results into a comprehensive summary
+                formatted_summary = tracing_service.format_trace_summary(
+                    trace_result, detail_level="detailed"
+                )
+                
+                # Create enhanced functionality tracing prompt
+                tracing_prompt = self._build_enhanced_trace_prompt(
+                    functionality_description, trace_result, trace_type, 
+                    include_config, include_data_flow, formatted_summary
                 )
                 
                 return [base.Message(
@@ -227,12 +247,11 @@ class MCPPromptsSystem:
                 
             except Exception as e:
                 self.logger.error(f"Error in trace_functionality prompt: {e}")
-                return [base.Message(
-                    role="user",
-                    content=[base.TextContent(
-                        text=f"I need to trace how '{functionality_description}' is implemented in this codebase. Can you help me understand the complete flow from entry point to final execution?"
-                    )]
-                )]
+                # Fallback to basic functionality tracing
+                return self._create_fallback_trace_prompt(
+                    functionality_description, trace_type, include_config, 
+                    include_data_flow, str(e)
+                )
     
     def _register_find_entry_points(self):
         """Register the find_entry_points prompt."""
@@ -707,6 +726,97 @@ I want to deeply understand this {component_type if component_type != 'auto' els
 - Follow the established patterns and conventions
 
 Please search the codebase systematically to find and analyze this component."""
+
+        return [base.Message(
+            role="user",
+            content=[base.TextContent(text=fallback_prompt)]
+        )]
+
+    def _build_enhanced_trace_prompt(self, functionality_description: str, trace_result, trace_type: str, include_config: bool, include_data_flow: bool, formatted_summary: str) -> str:
+        """Build enhanced trace prompt with comprehensive analysis."""
+        base_prompt = f"""I need to trace the complete implementation of '{functionality_description}' through this codebase. I've conducted a comprehensive trace analysis and here are the results:
+
+{formatted_summary}
+
+🎯 **My Tracing Goals:**
+I want to understand the complete {trace_type} implementation of this functionality and how all the pieces work together."""
+
+        if trace_result.entry_points:
+            entry_count = len(trace_result.entry_points)
+            base_prompt += f"""
+
+🔍 **Key Information Discovered:**
+- **Entry Points Found**: {entry_count} different ways to access this functionality"""
+            
+            if trace_result.api_endpoints:
+                api_count = len(trace_result.api_endpoints)
+                base_prompt += f"\n- **API Endpoints**: {api_count} REST/API endpoints identified"
+            
+            if trace_result.execution_paths:
+                path_count = len(trace_result.execution_paths)
+                base_prompt += f"\n- **Execution Paths**: {path_count} different execution flows analyzed"
+
+        base_prompt += """
+
+🤖 **Please help me understand:**
+
+1. **Complete Flow Analysis**: Based on the trace results, walk me through the complete execution flow from start to finish
+2. **Critical Path**: What's the main execution path and where are the key decision points?
+3. **Data Transformations**: How does data flow and transform as it moves through the system?
+4. **Integration Points**: How does this functionality integrate with other parts of the system?
+5. **Error Handling**: Where are the error handling points and what can go wrong?"""
+
+        if include_config and trace_result.configuration_dependencies:
+            config_count = len(trace_result.configuration_dependencies)
+            base_prompt += f"\n6. **Configuration Dependencies**: Explain the {config_count} configuration dependencies and their impact"
+
+        if include_data_flow and trace_result.data_flow_analysis:
+            flow_count = len(trace_result.data_flow_analysis)
+            base_prompt += f"\n7. **Data Flow Details**: Detail the {flow_count} data transformation steps and flow patterns"
+
+        base_prompt += """
+
+🚀 **Use the trace analysis above to provide specific, actionable insights that will help me:**
+- Understand how this functionality is implemented end-to-end
+- Identify potential modification points and their impact
+- Debug issues when they occur
+- Extend or modify this functionality safely
+
+Please search the codebase to provide additional context and examples beyond what the automated trace discovered."""
+
+        return base_prompt
+
+    def _create_fallback_trace_prompt(self, functionality_description: str, trace_type: str, include_config: bool, include_data_flow: bool, error_msg: str) -> List[base.Message]:
+        """Create fallback trace prompt when enhanced analysis fails."""
+        fallback_prompt = f"""I need to trace the complete implementation of '{functionality_description}' in this codebase but encountered some analysis limitations: {error_msg}
+
+🎯 **Functionality Tracing Request:**
+I want to understand the complete {trace_type} implementation of this functionality from entry point to final execution."""
+
+        fallback_prompt += """
+
+📋 **Please help me by:**
+
+1. **Entry Point Discovery**: Find all the ways this functionality can be triggered (API endpoints, user interfaces, etc.)
+2. **Call Chain Analysis**: Trace the sequence of function/method calls from start to finish
+3. **Core Logic Identification**: Locate where the main business logic is implemented
+4. **Data Operations**: Identify how it interacts with databases, files, or external services"""
+
+        if include_config:
+            fallback_prompt += "\n5. **Configuration Analysis**: Find configuration settings and environment variables that affect this functionality"
+
+        if include_data_flow:
+            fallback_prompt += "\n6. **Data Flow Mapping**: Trace how data is transformed as it flows through the system"
+
+        fallback_prompt += """
+
+🚀 **Goal**: Provide me with a comprehensive understanding of this functionality so I can:
+- Understand how it works end-to-end
+- Identify potential issues or bottlenecks
+- Modify or extend it safely
+- Debug problems when they occur
+
+Please search the codebase systematically to map out the complete implementation journey."""
 
         return [base.Message(
             role="user",
