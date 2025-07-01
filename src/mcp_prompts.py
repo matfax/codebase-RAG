@@ -122,8 +122,8 @@ class MCPPromptsSystem:
                 )
                 
                 return [base.Message(
-                    role="user", 
-                    content=[base.TextContent(text=exploration_prompt)]
+                    content=exploration_prompt,
+                    role="user"
                 )]
                 
             except Exception as e:
@@ -181,7 +181,7 @@ class MCPPromptsSystem:
                 
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(text=understanding_prompt)]
+                    content=base.TextContent(type="text", text=understanding_prompt), role="user"
                 )]
                 
             except Exception as e:
@@ -242,7 +242,7 @@ class MCPPromptsSystem:
                 
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(text=tracing_prompt)]
+                    content=base.TextContent(type="text", text=tracing_prompt), role="user"
                 )]
                 
             except Exception as e:
@@ -281,16 +281,14 @@ class MCPPromptsSystem:
                 
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(text=entry_points_prompt)]
+                    content=base.TextContent(type="text", text=entry_points_prompt), role="user"
                 )]
                 
             except Exception as e:
                 self.logger.error(f"Error in find_entry_points prompt: {e}")
                 return [base.Message(
-                    role="user",
-                    content=[base.TextContent(
-                        text=f"I need to find all the entry points for this application. Can you help me identify main functions, API routes, CLI commands, and other ways to start or interact with this codebase?"
-                    )]
+                    content="I need to find all the entry points for this application. Can you help me identify main functions, API routes, CLI commands, and other ways to start or interact with this codebase?",
+                    role="user"
                 )]
     
     def _register_suggest_next_steps(self):
@@ -323,14 +321,14 @@ class MCPPromptsSystem:
                 
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(text=next_steps_prompt)]
+                    content=base.TextContent(type="text", text=next_steps_prompt), role="user"
                 )]
                 
             except Exception as e:
                 self.logger.error(f"Error in suggest_next_steps prompt: {e}")
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(
+                    content=base.TextContent(, role="user"
                         text=f"Based on my current context: '{current_context}', can you suggest the best next steps for a {user_role} working on {task_type} tasks?"
                     )]
                 )]
@@ -365,14 +363,14 @@ class MCPPromptsSystem:
                 
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(text=search_optimization_prompt)]
+                    content=base.TextContent(type="text", text=search_optimization_prompt), role="user"
                 )]
                 
             except Exception as e:
                 self.logger.error(f"Error in optimize_search prompt: {e}")
                 return [base.Message(
                     role="user",
-                    content=[base.TextContent(
+                    content=base.TextContent(, role="user"
                         text=f"I've been searching for '{search_goal}' with these queries: {previous_searches}. Can you help me optimize my search strategy and suggest better approaches?"
                     )]
                 )]
@@ -643,7 +641,7 @@ Please help me get a {detail_level} understanding of this project's structure an
 
         return [base.Message(
             role="user",
-            content=[base.TextContent(text=fallback_prompt)]
+            content=base.TextContent(type="text", text=fallback_prompt), role="user"
         )]
 
     def _build_enhanced_component_prompt(self, component_name: str, analysis_result, include_dependencies: bool, include_usage_examples: bool, formatted_summary: str) -> str:
@@ -729,7 +727,7 @@ Please search the codebase systematically to find and analyze this component."""
 
         return [base.Message(
             role="user",
-            content=[base.TextContent(text=fallback_prompt)]
+            content=base.TextContent(type="text", text=fallback_prompt), role="user"
         )]
 
     def _build_enhanced_trace_prompt(self, functionality_description: str, trace_result, trace_type: str, include_config: bool, include_data_flow: bool, formatted_summary: str) -> str:
@@ -820,7 +818,7 @@ Please search the codebase systematically to map out the complete implementation
 
         return [base.Message(
             role="user",
-            content=[base.TextContent(text=fallback_prompt)]
+            content=base.TextContent(type="text", text=fallback_prompt), role="user"
         )]
 
 

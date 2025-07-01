@@ -40,8 +40,8 @@ class BasePrompt:
     def create_message(self, content: str, role: str = "user") -> base.Message:
         """Create a standard MCP message."""
         return base.Message(
-            role=role,
-            content=[base.TextContent(text=content)]
+            content=content,
+            role=role
         )
     
     def create_messages(self, contents: List[str], role: str = "user") -> List[base.Message]:

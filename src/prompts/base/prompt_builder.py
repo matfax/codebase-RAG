@@ -18,8 +18,8 @@ def build_prompt_message(content: str, role: str = "user") -> base.Message:
         base.Message: A formatted MCP message
     """
     return base.Message(
-        role=role,
-        content=[base.TextContent(text=content)]
+        content=content,
+        role=role
     )
 
 

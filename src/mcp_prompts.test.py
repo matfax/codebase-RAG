@@ -314,7 +314,7 @@ class TestWorkflowOrchestrator:
         def mock_prompt_function(**kwargs):
             return [base.Message(
                 role="user",
-                content=[base.TextContent(text=f"Test prompt with params: {kwargs}")]
+                content=base.TextContent(type="text", text=f"Test prompt with params: {kwargs}")]
             )]
         
         # Execute prompt

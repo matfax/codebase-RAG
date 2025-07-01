@@ -46,8 +46,8 @@ class BasePromptImplementation(ABC):
             base.Message: A formatted MCP message
         """
         return base.Message(
-            role=role,
-            content=[base.TextContent(text=content)]
+            content=content,
+            role=role
         )
     
     def create_error_message(self, error: Exception, context: str) -> List[base.Message]:
