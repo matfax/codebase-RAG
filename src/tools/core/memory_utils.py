@@ -24,17 +24,22 @@ FORCE_CLEANUP_THRESHOLD_MB = int(os.getenv("FORCE_CLEANUP_THRESHOLD_MB", "1500")
 
 
 def get_memory_stats() -> dict:
-    """Get current memory statistics.
+    """Get comprehensive memory statistics for both process and system.
     
     Returns:
-        dict: Memory statistics including RSS, VMS, and available memory
+        dict: Memory statistics including process and system memory info
     """
     if not PSUTIL_AVAILABLE:
         return {
+            "process_memory_mb": 0.0,
             "rss_mb": 0.0,
             "vms_mb": 0.0,
-            "available_mb": 0.0,
-            "percent": 0.0,
+            "system_memory": {
+                "total_mb": 0.0,
+                "available_mb": 0.0,
+                "used_mb": 0.0,
+                "percent_used": 0.0
+            },
             "psutil_available": False
         }
     
@@ -44,19 +49,29 @@ def get_memory_stats() -> dict:
         virtual_memory = psutil.virtual_memory()
         
         return {
+            "process_memory_mb": memory_info.rss / (1024 * 1024),
             "rss_mb": memory_info.rss / (1024 * 1024),
             "vms_mb": memory_info.vms / (1024 * 1024),
-            "available_mb": virtual_memory.available / (1024 * 1024),
-            "percent": virtual_memory.percent,
+            "system_memory": {
+                "total_mb": virtual_memory.total / (1024 * 1024),
+                "available_mb": virtual_memory.available / (1024 * 1024),
+                "used_mb": virtual_memory.used / (1024 * 1024),
+                "percent_used": virtual_memory.percent
+            },
             "psutil_available": True
         }
     except Exception as e:
         logger.warning(f"Failed to get memory stats: {e}")
         return {
+            "process_memory_mb": 0.0,
             "rss_mb": 0.0,
             "vms_mb": 0.0,
-            "available_mb": 0.0,
-            "percent": 0.0,
+            "system_memory": {
+                "total_mb": 0.0,
+                "available_mb": 0.0,
+                "used_mb": 0.0,
+                "percent_used": 0.0
+            },
             "psutil_available": False,
             "error": str(e)
         }

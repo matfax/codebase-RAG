@@ -971,10 +971,7 @@ def register_mcp_tools(mcp_app: FastMCP):
     except Exception as e:
         console_logger.error(f"Failed to register MCP Prompts system: {e}")
         # Continue without prompts if there's an error
-    @mcp_app.tool()
-    async def health_check():
-        """Check the health of the MCP server."""
-        return {"status": "ok"}
+    # Health check moved to tools.core.health module
 
     @mcp_app.tool()
     def index_directory(directory: str = ".", patterns: List[str] = None, recursive: bool = True, clear_existing: bool = False, incremental: bool = False, project_name: Optional[str] = None) -> Dict[str, Any]:

@@ -3,15 +3,20 @@
 This module contains tools for indexing, searching, and analyzing codebases.
 """
 
-from .index_tools import index_directory, check_index_status, get_indexing_progress
-from .search_tools import search
-from .analysis_tools import analyze_repository_tool, get_file_filtering_stats_tool
+from .index_tools import index_directory, index_directory_sync
+from .search_tools import (
+    search, search_sync,
+    analyze_repository_tool,
+    get_file_filtering_stats_tool,
+    check_index_status_tool
+)
 
 __all__ = [
     "index_directory",
-    "check_index_status",
-    "get_indexing_progress",
+    "index_directory_sync",
     "search",
+    "search_sync",
     "analyze_repository_tool",
-    "get_file_filtering_stats_tool"
+    "get_file_filtering_stats_tool", 
+    "check_index_status_tool"
 ]
