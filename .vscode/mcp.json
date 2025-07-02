@@ -1,0 +1,10 @@
+{
+  "servers": {
+    // https://github.com/ppl-ai/modelcontextprotocol/
+    "codebaseRAG": {
+      "type": "stdio",
+      "command": "/Users/jeff/Documents/personal/Agentic-RAG/mcp_server"
+      }
+    }
+  }
+}
