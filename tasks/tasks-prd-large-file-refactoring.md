@@ -28,13 +28,13 @@
   - [x] 1.4 在 `chunking_strategies.py` 中為至少兩種主要語言 (例如 Python, JavaScript) 建立具體的策略類別。
   - [x] 1.5 重構 `code_parser_service.py`，使其成為一個協調者，使用新建立的服務和策略。
 
-- [ ] 2.0 重構 `rag_search_strategy.py` (預期從 ~1900 行減少至 ~300 行)
+- [x] 2.0 重構 `rag_search_strategy.py` (✅ 已從 ~2078 行減少至 ~805 行，減少 61.3%)
   - [x] 2.1 建立 `src/services/search_strategies.py`，在其中定義 `BaseSearchStrategy` 抽象基礎類別。
   - [x] 2.2 在 `search_strategies.py` 中建立 `SemanticSearchStrategy`, `KeywordSearchStrategy`, 和 `HybridSearchStrategy` 具體策略類別。
-  - [ ] 2.3 建立 `src/services/query_builder_service.py` 並實作 `QueryBuilderService`，用於建構 Qdrant 查詢。
-  - [ ] 2.4 建立 `src/services/result_processing_service.py` 並實作 `ResultProcessingService`，用於格式化搜尋結果。
-  - [ ] 2.5 重構 `rag_search_strategy.py`，使其成為一個協調者，調用策略和輔助服務。
-  - [ ] 2.6 **重要**：刪除 `rag_search_strategy.py` 中所有舊的 legacy 實作程式碼，確保檔案大小大幅減少。
+  - [x] 2.3 建立 `src/services/query_builder_service.py` 並實作 `QueryBuilderService`，用於建構 Qdrant 查詢。
+  - [x] 2.4 建立 `src/services/result_processing_service.py` 並實作 `ResultProcessingService`，用於格式化搜尋結果。
+  - [x] 2.5 重構 `rag_search_strategy.py`，使其成為一個協調者，調用策略和輔助服務。
+  - [x] 2.6 **重要**：刪除 `rag_search_strategy.py` 中所有舊的 legacy 實作程式碼，確保檔案大小大幅減少。
 
 - [ ] 3.0 重構 `mcp_tools.py` (預期完全移除此檔案)
   - [ ] 3.1 根據功能將 `mcp_tools.py` 中的工具函式移動到 `src/tools/` 下的對應子模組 (`indexing`, `project`, `core` 等)。
