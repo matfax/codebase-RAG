@@ -211,6 +211,79 @@ def clear_project_collections() -> Dict[str, Any]:
         }
 
 
+def list_indexed_projects() -> Dict[str, Any]:
+    """List all projects that have indexed data.
+    
+    Returns:
+        Dictionary with information about all indexed projects
+    """
+    try:
+        from ...tools.database.qdrant_utils import get_qdrant_client
+        
+        client = get_qdrant_client()
+        all_collections = [c.name for c in client.get_collections().collections]
+        
+        project_names = get_available_project_names(all_collections)
+        
+        project_info = []
+        for project_name in project_names:
+            # Get collections for this project
+            project_collections = [
+                c for c in all_collections 
+                if (c.startswith(f"project_{project_name}_") or c.startswith(f"dir_{project_name}_"))
+                and not c.endswith('_file_metadata')
+            ]
+            
+            # Count total points across all collections for this project
+            total_points = 0
+            collection_details = []
+            
+            for collection_name in project_collections:
+                try:
+                    collection_info = client.get_collection(collection_name)
+                    points_count = collection_info.points_count
+                    total_points += points_count
+                    
+                    # Determine collection type
+                    if collection_name.endswith('_code'):
+                        collection_type = 'code'
+                    elif collection_name.endswith('_config'):
+                        collection_type = 'config'
+                    elif collection_name.endswith('_documentation'):
+                        collection_type = 'documentation'
+                    else:
+                        collection_type = 'unknown'
+                    
+                    collection_details.append({
+                        "name": collection_name,
+                        "type": collection_type,
+                        "points_count": points_count
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Could not get info for collection {collection_name}: {e}")
+            
+            if project_collections:  # Only include projects with actual collections
+                project_info.append({
+                    "name": project_name,
+                    "collections": project_collections,
+                    "total_points": total_points,
+                    "collection_details": collection_details,
+                    "collection_types": list(set(detail["type"] for detail in collection_details))
+                })
+        
+        return {
+            "total_projects": len(project_info),
+            "projects": project_info,
+            "timestamp": logger.info.__module__  # This is a simple way to get current time without importing datetime
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to list indexed projects: {str(e)}"
+        logger.error(error_msg)
+        return {"error": error_msg}
+
+
 def get_available_project_names(collections: List[str]) -> List[str]:
     """Extract available project names from collection names.
     
@@ -236,6 +309,247 @@ def get_available_project_names(collections: List[str]) -> List[str]:
                 project_names.add(dir_name)
     
     return sorted(list(project_names))
+
+
+def validate_project_exists(project_name: str) -> Dict[str, Any]:
+    """Validate that a project exists and has indexed data.
+    
+    Args:
+        project_name: Name of the project to validate
+        
+    Returns:
+        Dictionary with validation results
+    """
+    try:
+        from ...tools.database.qdrant_utils import get_qdrant_client
+        
+        client = get_qdrant_client()
+        all_collections = [c.name for c in client.get_collections().collections]
+        
+        # Normalize project name
+        normalized_name = project_name.replace(" ", "_").replace("-", "_").lower()
+        
+        # Find collections for this project
+        project_collections = [
+            c for c in all_collections 
+            if (c.startswith(f"project_{normalized_name}_") or c.startswith(f"dir_{normalized_name}_"))
+            and not c.endswith('_file_metadata')
+        ]
+        
+        if not project_collections:
+            available_projects = get_available_project_names(all_collections)
+            return {
+                "exists": False,
+                "project_name": project_name,
+                "normalized_name": normalized_name,
+                "available_projects": available_projects,
+                "message": f"Project '{project_name}' not found or has no indexed data"
+            }
+        
+        # Count total points
+        total_points = 0
+        for collection_name in project_collections:
+            try:
+                collection_info = client.get_collection(collection_name)
+                total_points += collection_info.points_count
+            except Exception as e:
+                logger.warning(f"Could not get points count for {collection_name}: {e}")
+        
+        return {
+            "exists": True,
+            "project_name": project_name,
+            "normalized_name": normalized_name,
+            "collections": project_collections,
+            "total_points": total_points,
+            "message": f"Project '{project_name}' found with {len(project_collections)} collections and {total_points} indexed items"
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to validate project '{project_name}': {str(e)}"
+        logger.error(error_msg)
+        return {
+            "exists": False,
+            "error": error_msg,
+            "project_name": project_name
+        }
+
+
+def get_project_collections(project_name: str) -> Dict[str, Any]:
+    """Get all collections for a specific project.
+    
+    Args:
+        project_name: Name of the project
+        
+    Returns:
+        Dictionary with project collections information
+    """
+    try:
+        from ...tools.database.qdrant_utils import get_qdrant_client
+        
+        client = get_qdrant_client()
+        all_collections = [c.name for c in client.get_collections().collections]
+        
+        # Normalize project name
+        normalized_name = project_name.replace(" ", "_").replace("-", "_").lower()
+        
+        # Find all collections for this project (including metadata)
+        project_collections = [
+            c for c in all_collections 
+            if c.startswith(f"project_{normalized_name}_") or c.startswith(f"dir_{normalized_name}_")
+        ]
+        
+        # Categorize collections
+        collections_by_type = {
+            "code": [],
+            "config": [],
+            "documentation": [],
+            "file_metadata": [],
+            "other": []
+        }
+        
+        for collection_name in project_collections:
+            if collection_name.endswith('_code'):
+                collections_by_type["code"].append(collection_name)
+            elif collection_name.endswith('_config'):
+                collections_by_type["config"].append(collection_name)
+            elif collection_name.endswith('_documentation'):
+                collections_by_type["documentation"].append(collection_name)
+            elif collection_name.endswith('_file_metadata'):
+                collections_by_type["file_metadata"].append(collection_name)
+            else:
+                collections_by_type["other"].append(collection_name)
+        
+        # Get detailed info for each collection
+        collection_details = []
+        for collection_name in project_collections:
+            try:
+                collection_info = client.get_collection(collection_name)
+                collection_details.append({
+                    "name": collection_name,
+                    "points_count": collection_info.points_count,
+                    "vector_size": collection_info.config.params.vectors.size,
+                    "distance": collection_info.config.params.vectors.distance.value
+                })
+            except Exception as e:
+                logger.warning(f"Could not get detailed info for {collection_name}: {e}")
+                collection_details.append({
+                    "name": collection_name,
+                    "error": str(e)
+                })
+        
+        return {
+            "project_name": project_name,
+            "normalized_name": normalized_name,
+            "collections": project_collections,
+            "collections_by_type": collections_by_type,
+            "collection_details": collection_details,
+            "total_collections": len(project_collections)
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to get collections for project '{project_name}': {str(e)}"
+        logger.error(error_msg)
+        return {
+            "error": error_msg,
+            "project_name": project_name
+        }
+
+
+def normalize_project_name(project_name: str) -> str:
+    """Normalize project name for consistent collection naming.
+    
+    Args:
+        project_name: Original project name
+        
+    Returns:
+        Normalized project name
+    """
+    return project_name.replace(" ", "_").replace("-", "_").lower()
+
+
+def get_project_metadata(project_name: str) -> Dict[str, Any]:
+    """Extract project metadata including name, path, and collection info.
+    
+    Args:
+        project_name: Name of the project
+        
+    Returns:
+        Dictionary with project metadata
+    """
+    try:
+        # Get project collections info
+        collections_info = get_project_collections(project_name)
+        
+        if "error" in collections_info:
+            return collections_info
+        
+        # Try to determine project path from collection metadata
+        project_path = None
+        project_root = None
+        
+        # Look for metadata in file_metadata collections
+        file_metadata_collections = collections_info["collections_by_type"]["file_metadata"]
+        
+        if file_metadata_collections:
+            try:
+                from ...tools.database.qdrant_utils import get_qdrant_client
+                client = get_qdrant_client()
+                
+                # Query a few points from metadata collection to extract path info
+                sample_results = client.search(
+                    collection_name=file_metadata_collections[0],
+                    query_vector=[0.0] * 768,  # Dummy vector for sampling
+                    limit=5,
+                    score_threshold=0.0
+                )
+                
+                if sample_results:
+                    for result in sample_results:
+                        if isinstance(result.payload, dict):
+                            file_path = result.payload.get("file_path", "")
+                            if file_path:
+                                # Try to infer project root from file paths
+                                path_obj = Path(file_path)
+                                for parent in path_obj.parents:
+                                    if any((parent / marker).exists() for marker in PROJECT_MARKERS):
+                                        project_root = str(parent)
+                                        project_path = str(parent)
+                                        break
+                                if project_root:
+                                    break
+                                    
+            except Exception as e:
+                logger.debug(f"Could not extract path info from metadata: {e}")
+        
+        # Calculate total points across all content collections
+        total_points = sum(
+            detail.get("points_count", 0) 
+            for detail in collections_info["collection_details"]
+            if not detail["name"].endswith("_file_metadata") and "error" not in detail
+        )
+        
+        return {
+            "project_name": project_name,
+            "normalized_name": collections_info["normalized_name"],
+            "project_path": project_path,
+            "project_root": project_root,
+            "collections": collections_info["collections"],
+            "collections_by_type": collections_info["collections_by_type"],
+            "total_collections": collections_info["total_collections"],
+            "total_points": total_points,
+            "content_types": [
+                content_type for content_type, collections in collections_info["collections_by_type"].items()
+                if collections and content_type != "file_metadata"
+            ]
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to get metadata for project '{project_name}': {str(e)}"
+        logger.error(error_msg)
+        return {
+            "error": error_msg,
+            "project_name": project_name
+        }
 
 
 def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) -> Dict[str, Any]:

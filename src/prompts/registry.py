@@ -22,6 +22,9 @@ from .recommendation import (
     SuggestNextStepsPrompt,
     OptimizeSearchPrompt
 )
+from .advanced_search import (
+    AdvanceSearchPrompt
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,9 @@ class MCPPromptsSystem:
         # Smart recommendation prompts
         self._register_prompt(SuggestNextStepsPrompt(self))
         self._register_prompt(OptimizeSearchPrompt(self))
+        
+        # Advanced search prompts
+        self._register_prompt(AdvanceSearchPrompt(self))
         
         self.logger.info("All MCP Prompts registered successfully")
     

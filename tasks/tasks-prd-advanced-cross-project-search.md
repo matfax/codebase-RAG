@@ -33,20 +33,20 @@
   - [x] 2.4 Update search result metadata to include project information
   - [x] 2.5 Add project path information to search results
 
-- [ ] 3.0 Create Project Discovery and Validation Utilities
-  - [ ] 3.1 Add `list_indexed_projects()` function to `src/tools/project/project_utils.py`
-  - [ ] 3.2 Implement `validate_project_exists()` function for project existence checking
-  - [ ] 3.3 Create `get_project_collections()` function to map projects to collections
-  - [ ] 3.4 Add `normalize_project_name()` utility for consistent naming
-  - [ ] 3.5 Implement project metadata extraction (name, path, collection info)
+- [x] 3.0 Create Project Discovery and Validation Utilities
+  - [x] 3.1 Add `list_indexed_projects()` function to `src/tools/project/project_utils.py`
+  - [x] 3.2 Implement `validate_project_exists()` function for project existence checking
+  - [x] 3.3 Create `get_project_collections()` function to map projects to collections
+  - [x] 3.4 Add `normalize_project_name()` utility for consistent naming
+  - [x] 3.5 Implement project metadata extraction (name, path, collection info)
 
-- [ ] 4.0 Implement Advanced Search Prompt
-  - [ ] 4.1 Create `src/prompts/advanced_search/` directory structure
-  - [ ] 4.2 Implement base advanced search prompt class
-  - [ ] 4.3 Add cross-project confirmation and project listing logic
-  - [ ] 4.4 Implement project selection interface and validation
-  - [ ] 4.5 Add search execution and result formatting
-  - [ ] 4.6 Register advance_search prompt in prompt registry
+- [x] 4.0 Implement Advanced Search Prompt
+  - [x] 4.1 Create `src/prompts/advanced_search/` directory structure
+  - [x] 4.2 Implement base advanced search prompt class
+  - [x] 4.3 Add cross-project confirmation and project listing logic
+  - [x] 4.4 Implement project selection interface and validation
+  - [x] 4.5 Add search execution and result formatting
+  - [x] 4.6 Register advance_search prompt in prompt registry
 
 - [ ] 5.0 Add Comprehensive Testing and Documentation
   - [ ] 5.1 Create unit tests for enhanced search tool functionality
