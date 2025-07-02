@@ -6,6 +6,8 @@
 - `manual_indexing.py` - 主要重構目標，將被拆分。
 - `src/tools/` - 新工具模組的存放位置。
 - `src/services/language_support_service.py` - 管理 Tree-sitter parsers 和語言相關配置的服務。
+- `src/services/ast_extraction_service.py` - 封裝 AST 節點查詢、遍歷和屬性提取邏輯的服務。
+- `src/services/chunking_strategies.py` - 定義抽象基礎類別和語言特定的程式碼分塊策略。
 - `src/services/` - 新服務模組的存放位置。
 - `tests/` - 需要為所有新建立的模組新增單元測試。
 
@@ -19,9 +21,9 @@
 
 - [ ] 1.0 重構 `code_parser_service.py`
   - [x] 1.1 建立 `src/services/language_support_service.py` 並實作 `LanguageSupportService` 類別，用於管理 Tree-sitter parsers。
-  - [ ] 1.2 建立 `src/services/ast_extraction_service.py` 並實作 `AstExtractionService` 類別，用於封裝 AST 節點查詢邏輯。
-  - [ ] 1.3 建立 `src/services/chunking_strategies.py`，在其中定義 `BaseChunkingStrategy` 抽象基礎類別。
-  - [ ] 1.4 在 `chunking_strategies.py` 中為至少兩種主要語言 (例如 Python, JavaScript) 建立具體的策略類別。
+  - [x] 1.2 建立 `src/services/ast_extraction_service.py` 並實作 `AstExtractionService` 類別，用於封裝 AST 節點查詢邏輯。
+  - [x] 1.3 建立 `src/services/chunking_strategies.py`，在其中定義 `BaseChunkingStrategy` 抽象基礎類別。
+  - [x] 1.4 在 `chunking_strategies.py` 中為至少兩種主要語言 (例如 Python, JavaScript) 建立具體的策略類別。
   - [ ] 1.5 重構 `code_parser_service.py`，使其成為一個協調者，使用新建立的服務和策略。
 
 - [ ] 2.0 重構 `rag_search_strategy.py`
