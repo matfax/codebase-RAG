@@ -8,6 +8,7 @@
 - `src/services/language_support_service.py` - 管理 Tree-sitter parsers 和語言相關配置的服務。
 - `src/services/ast_extraction_service.py` - 封裝 AST 節點查詢、遍歷和屬性提取邏輯的服務。
 - `src/services/chunking_strategies.py` - 定義抽象基礎類別和語言特定的程式碼分塊策略。
+- `src/services/search_strategies.py` - 定義抽象基礎類別和具體的搜尋策略實作。
 - `src/services/` - 新服務模組的存放位置。
 - `tests/` - 需要為所有新建立的模組新增單元測試。
 
@@ -27,8 +28,8 @@
   - [x] 1.5 重構 `code_parser_service.py`，使其成為一個協調者，使用新建立的服務和策略。
 
 - [ ] 2.0 重構 `rag_search_strategy.py`
-  - [ ] 2.1 建立 `src/services/search_strategies.py`，在其中定義 `BaseSearchStrategy` 抽象基礎類別。
-  - [ ] 2.2 在 `search_strategies.py` 中建立 `SemanticSearchStrategy`, `KeywordSearchStrategy`, 和 `HybridSearchStrategy` 具體策略類別。
+  - [x] 2.1 建立 `src/services/search_strategies.py`，在其中定義 `BaseSearchStrategy` 抽象基礎類別。
+  - [x] 2.2 在 `search_strategies.py` 中建立 `SemanticSearchStrategy`, `KeywordSearchStrategy`, 和 `HybridSearchStrategy` 具體策略類別。
   - [ ] 2.3 建立 `src/services/query_builder_service.py` 並實作 `QueryBuilderService`，用於建構 Qdrant 查詢。
   - [ ] 2.4 建立 `src/services/result_processing_service.py` 並實作 `ResultProcessingService`，用於格式化搜尋結果。
   - [ ] 2.5 重構 `rag_search_strategy.py`，使其成為一個協調者，調用策略和輔助服務。
