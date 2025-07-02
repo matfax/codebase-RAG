@@ -161,6 +161,24 @@ def clear_processing_variables(*variables) -> None:
             del var
     gc.collect()
 
+def _get_available_project_names(collections: List[str]) -> List[str]:
+    """Extract available project names from collection names."""
+    project_names = set()
+    for collection in collections:
+        if collection.startswith("project_"):
+            # Extract project name from "project_{name}_{type}"
+            parts = collection.split("_")
+            if len(parts) >= 3:
+                project_name = parts[1]  # The project name part
+                project_names.add(project_name)
+        elif collection.startswith("dir_"):
+            # Extract directory name from "dir_{name}_{type}"  
+            parts = collection.split("_")
+            if len(parts) >= 3:
+                dir_name = parts[1]  # The directory name part
+                project_names.add(dir_name)
+    return sorted(list(project_names))
+
 def _retry_individual_points(client, collection_name: str, points: List[PointStruct]) -> Tuple[int, int]:
     """Retry individual points when batch insertion fails.
     
@@ -1278,15 +1296,40 @@ def register_mcp_tools(mcp_app: FastMCP):
         search_mode: str = "hybrid",
         include_context: bool = True,
         context_chunks: int = 1,
+        target_projects: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Search indexed content (defaults to current project only)
+        Search indexed content using natural language queries.
+
+        This tool provides function-level precision search with intelligent chunking,
+        supporting multiple search modes and context expansion for better code understanding.
+
+        Args:
+            query: Natural language search query
+            n_results: Number of results to return (1-100, default: 5)
+            cross_project: Whether to search across all projects (default: False - current project only)
+            search_mode: Search strategy - "semantic", "keyword", or "hybrid" (default: "hybrid")
+            include_context: Whether to include surrounding code context (default: True)
+            context_chunks: Number of context chunks to include before/after results (0-5, default: 1)
+            target_projects: List of specific project names to search in (optional)
+
+        Returns:
+            Dictionary containing search results with metadata, scores, and context
         """
         try:
             if not query or not isinstance(query, str):
                 return {"error": "Invalid query"}
             if n_results < 1 or n_results > 100:
                 return {"error": "Invalid result count"}
+            
+            # Validate target_projects parameter
+            if target_projects is not None:
+                if not isinstance(target_projects, list):
+                    return {"error": "target_projects must be a list of project names"}
+                if not all(isinstance(p, str) for p in target_projects):
+                    return {"error": "All project names in target_projects must be strings"}
+                if len(target_projects) == 0:
+                    return {"error": "target_projects cannot be empty if specified"}
 
             embeddings_manager = get_embeddings_manager_instance()
             qdrant_client = get_qdrant_client()
@@ -1300,7 +1343,30 @@ def register_mcp_tools(mcp_app: FastMCP):
             query_embedding = query_embedding_tensor.tolist()
 
             all_collections = [c.name for c in qdrant_client.get_collections().collections]
-            if cross_project:
+            
+            # Handle target_projects logic
+            if target_projects:
+                # Normalize project names for collection matching
+                normalized_projects = [p.replace(" ", "_").replace("-", "_").lower() for p in target_projects]
+                search_collections = []
+                
+                # Find collections for specified projects
+                for project_name in normalized_projects:
+                    project_collections = [
+                        c for c in all_collections 
+                        if c.startswith(f"project_{project_name}_") or c.startswith(f"dir_{project_name}_")
+                    ]
+                    search_collections.extend(project_collections)
+                
+                # Check if any collections were found
+                if not search_collections:
+                    return {
+                        "error": f"No indexed collections found for projects: {target_projects}",
+                        "available_projects": _get_available_project_names(all_collections),
+                        "query": query
+                    }
+                    
+            elif cross_project:
                 search_collections = all_collections
             else:
                 current_project = get_current_project()
@@ -1350,14 +1416,23 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             current_project = get_current_project()
 
+            # Determine search scope description
+            if target_projects:
+                search_scope = f"specific projects: {', '.join(target_projects)}"
+            elif cross_project:
+                search_scope = "all projects"
+            else:
+                search_scope = "current project"
+
             result = {
                 "results": all_results,
                 "query": query,
                 "total": len(all_results),
                 "project_context": current_project["name"] if current_project else "no project",
-                "search_scope": "all projects" if cross_project else "current project",
+                "search_scope": search_scope,
                 "search_mode": search_mode,
-                "collections_searched": search_collections
+                "collections_searched": search_collections,
+                "target_projects": target_projects if target_projects else None
             }
             return result
 
