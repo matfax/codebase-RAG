@@ -540,3 +540,86 @@ The system creates the following Qdrant collections:
 - `project_{name}_config`: Configuration files (JSON, YAML, etc.)
 - `project_{name}_documentation`: Documentation files (Markdown, etc.)
 - `project_{name}_file_metadata`: File change tracking for incremental indexing
+
+## Real-World Usage Examples
+
+This section demonstrates real-world usage of the Agentic-RAG system with actual exploration and analysis examples.
+
+### 📋 Project Architecture Exploration Example
+
+The [ARCHITECTURE_DEEP_DIVE.md](./ARCHITECTURE_DEEP_DIVE.md) file was generated using this RAG system as a live demonstration. It showcases:
+
+- **Comprehensive codebase analysis** using function-level search precision
+- **Component relationship mapping** through intelligent chunking
+- **Architecture documentation** generated from actual code exploration
+- **Performance insights** derived from real system metrics
+
+This document serves as both:
+1. **Usage Example**: Shows how the system explores and understands complex codebases
+2. **Architecture Reference**: Complete technical documentation of system components
+
+### 🔍 How the Example Was Generated
+
+The architecture documentation was created by:
+
+1. **Initial Exploration**: Using `codebaseRAG:search` tools to understand entry points
+2. **Component Discovery**: Function-level searches to map service relationships  
+3. **Data Flow Analysis**: Tracing execution paths through intelligent chunking
+4. **Performance Analysis**: Real metrics from the current 11,363 indexed chunks
+5. **Best Practices**: Derived from actual system behavior and optimization
+
+### 📊 Key Insights from Real Usage
+
+**Search Precision Results**:
+- 🎯 **Function-level accuracy**: Returns specific functions like `src/services/code_parser_service.py:30`
+- 🌳 **AST parsing insights**: Tree-sitter integration details from live code
+- ⚡ **Performance data**: < 100ms parsing times from actual benchmarks
+- 📈 **Scalability metrics**: 11,363 chunks indexed in ~1.1 minutes
+
+**Real System Stats** (Current Project):
+```
+📊 Indexed Collections:
+├── Code: 8,524 intelligent chunks (functions, classes, methods)
+├── Config: 280 configuration chunks (JSON/YAML objects)  
+├── Documentation: 2,559 documentation chunks (Markdown sections)
+└── Total: 11,363 semantic chunks ready for search
+```
+
+### 🚀 Try These Live Examples
+
+Since this project is already indexed, you can immediately test these searches:
+
+```python
+# Search for specific components mentioned in the architecture doc
+await app.call_tool("search", {
+    "query": "Tree-sitter AST parsing implementation",
+    "n_results": 3
+})
+
+# Find intelligent chunking functions
+await app.call_tool("search", {
+    "query": "CodeParserService class methods",
+    "include_context": True
+})
+
+# Explore MCP tool registration
+await app.call_tool("search", {
+    "query": "register_tools FastMCP application"
+})
+```
+
+![](resources/codebase_RAG_example1.gif)
+
+This real-world example demonstrates the system's capability to understand, analyze, and document complex codebases with unprecedented precision and intelligence.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+## Support
+
+If you encounter any issues or have questions, please open an issue on GitHub.
