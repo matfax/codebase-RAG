@@ -19,12 +19,12 @@
 
 ## Tasks
 
-- [ ] 1.0 重構 `code_parser_service.py`
+- [x] 1.0 重構 `code_parser_service.py`
   - [x] 1.1 建立 `src/services/language_support_service.py` 並實作 `LanguageSupportService` 類別，用於管理 Tree-sitter parsers。
   - [x] 1.2 建立 `src/services/ast_extraction_service.py` 並實作 `AstExtractionService` 類別，用於封裝 AST 節點查詢邏輯。
   - [x] 1.3 建立 `src/services/chunking_strategies.py`，在其中定義 `BaseChunkingStrategy` 抽象基礎類別。
   - [x] 1.4 在 `chunking_strategies.py` 中為至少兩種主要語言 (例如 Python, JavaScript) 建立具體的策略類別。
-  - [ ] 1.5 重構 `code_parser_service.py`，使其成為一個協調者，使用新建立的服務和策略。
+  - [x] 1.5 重構 `code_parser_service.py`，使其成為一個協調者，使用新建立的服務和策略。
 
 - [ ] 2.0 重構 `rag_search_strategy.py`
   - [ ] 2.1 建立 `src/services/search_strategies.py`，在其中定義 `BaseSearchStrategy` 抽象基礎類別。

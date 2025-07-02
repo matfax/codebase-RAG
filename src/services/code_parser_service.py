@@ -1,135 +1,73 @@
 """
 CodeParser service for intelligent code chunking using Tree-sitter.
 
-This service provides semantic code parsing capabilities to break down source files
-into meaningful chunks based on code structure rather than simple text splitting.
+This refactored service acts as a coordinator that orchestrates the newly created
+specialized services and chunking strategies to provide semantic code parsing capabilities.
 """
 
 import logging
 import time
-import json
-import yaml
-import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Set, Union
+from typing import List, Optional
 import hashlib
 from datetime import datetime
 
 try:
-    import tree_sitter
-    from tree_sitter import Language, Parser, Node
+    from tree_sitter import Parser
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from models.code_chunk import CodeChunk, ChunkType, ParseResult, CodeSyntaxError
+from models.code_chunk import CodeChunk, ParseResult, CodeSyntaxError
 from utils.file_system_utils import get_file_size, get_file_mtime
-from utils.tree_sitter_manager import TreeSitterManager
 from utils.chunking_metrics_tracker import chunking_metrics_tracker
+
+# Import the new refactored services
+from services.language_support_service import LanguageSupportService
+from services.ast_extraction_service import AstExtractionService
+from services.chunking_strategies import (
+    chunking_strategy_registry, 
+    FallbackChunkingStrategy,
+    StructuredFileChunkingStrategy
+)
 
 
 class CodeParserService:
     """
-    Service for parsing source code into intelligent semantic chunks.
+    Refactored coordinator service for parsing source code into intelligent semantic chunks.
     
-    This service uses Tree-sitter to parse code into an Abstract Syntax Tree (AST)
-    and then extracts meaningful code constructs like functions, classes, and constants.
+    This service orchestrates specialized services and chunking strategies to provide
+    semantic code parsing capabilities with enhanced modularity and maintainability.
     """
     
     def __init__(self):
-        """Initialize the CodeParser service with language support."""
+        """Initialize the CodeParser coordinator with specialized services."""
         self.logger = logging.getLogger(__name__)
         
-        # Use TreeSitterManager for robust parser management
-        self._tree_sitter_manager = TreeSitterManager()
+        # Initialize specialized services
+        self.language_support = LanguageSupportService()
+        self.ast_extractor = AstExtractionService()
         
         # Get initialization summary for logging
-        summary = self._tree_sitter_manager.get_initialization_summary()
-        self.logger.info(f"Initialized Tree-sitter parsers: {summary['successful_languages']}/{summary['total_languages']} languages successful")
+        summary = self.language_support.get_initialization_summary()
+        self.logger.info(f"CodeParser coordinator initialized: {summary['successful_languages']}/{summary['total_languages']} languages supported")
         
         if summary['failed_languages']:
-            self.logger.warning(f"Failed to initialize: {', '.join(summary['failed_languages'])}")
+            self.logger.warning(f"Failed language support: {', '.join(summary['failed_languages'])}")
         
-        # Legacy attributes for backward compatibility
-        self._parsers: Dict[str, Parser] = {}
-        self._languages: Dict[str, Language] = {}
-        for lang in summary['supported_languages']:
-            self._parsers[lang] = self._tree_sitter_manager.get_parser(lang)
-            self._languages[lang] = self._tree_sitter_manager.get_language(lang)
-        
-        # Language-specific node types for different code constructs
-        self._node_mappings = {
-            'python': {
-                ChunkType.FUNCTION: ['function_definition'],
-                ChunkType.CLASS: ['class_definition'],
-                ChunkType.CONSTANT: ['assignment'],  # We'll filter these by context
-                ChunkType.VARIABLE: ['assignment'],
-                ChunkType.IMPORT: ['import_statement', 'import_from_statement']
-                # Note: ASYNC_FUNCTION will be detected by checking for 'async' child in function_definition
-                # Note: DOCSTRING detection will be handled specially to avoid over-extraction
-            },
-            'javascript': {
-                ChunkType.FUNCTION: ['function_declaration', 'arrow_function', 'method_definition'],
-                ChunkType.ASYNC_FUNCTION: ['async_function_declaration'],
-                ChunkType.CLASS: ['class_declaration'],
-                ChunkType.CONSTANT: ['lexical_declaration'],  # const declarations
-                ChunkType.VARIABLE: ['variable_declaration'],
-                ChunkType.IMPORT: ['import_statement'],
-                ChunkType.EXPORT: ['export_statement']
-            },
-            'typescript': {
-                ChunkType.FUNCTION: ['function_declaration', 'arrow_function', 'method_definition', 'method_signature'],
-                ChunkType.ASYNC_FUNCTION: ['async_function_declaration'],
-                ChunkType.CLASS: ['class_declaration'],
-                ChunkType.INTERFACE: ['interface_declaration'],
-                ChunkType.TYPE_ALIAS: ['type_alias_declaration'],
-                ChunkType.CONSTANT: ['lexical_declaration'],
-                ChunkType.VARIABLE: ['variable_declaration'],
-                ChunkType.IMPORT: ['import_statement'],
-                ChunkType.EXPORT: ['export_statement']
-            },
-            'go': {
-                ChunkType.FUNCTION: ['function_declaration', 'method_declaration'],
-                ChunkType.STRUCT: ['type_declaration'],  # Go structs and interfaces (distinguished by special handling)
-                ChunkType.CONSTANT: ['const_declaration'],
-                ChunkType.VARIABLE: ['var_declaration'],
-                ChunkType.IMPORT: ['import_declaration']
-            },
-            'rust': {
-                ChunkType.FUNCTION: ['function_item'],
-                ChunkType.STRUCT: ['struct_item'],
-                ChunkType.ENUM: ['enum_item'],
-                ChunkType.IMPL: ['impl_item'],
-                ChunkType.CONSTANT: ['const_item'],
-                ChunkType.VARIABLE: ['let_declaration'],
-                ChunkType.IMPORT: ['use_declaration']
-            },
-            'java': {
-                ChunkType.FUNCTION: ['method_declaration'],
-                ChunkType.CONSTRUCTOR: ['constructor_declaration'],
-                ChunkType.CLASS: ['class_declaration'],
-                ChunkType.INTERFACE: ['interface_declaration'],
-                ChunkType.ENUM: ['enum_declaration'],
-                ChunkType.CONSTANT: ['field_declaration'],  # Static final fields
-                ChunkType.VARIABLE: ['field_declaration'],
-                ChunkType.IMPORT: ['import_declaration']
-            },
-            'cpp': {
-                ChunkType.FUNCTION: ['function_definition', 'function_declarator'],
-                ChunkType.CLASS: ['class_specifier'],
-                ChunkType.STRUCT: ['struct_specifier'],
-                ChunkType.NAMESPACE: ['namespace_definition'],
-                ChunkType.CONSTANT: ['declaration'],  # const declarations (will filter by context)
-                ChunkType.VARIABLE: ['declaration'],  # variable declarations
-                ChunkType.IMPORT: ['preproc_include'],  # #include statements
-                ChunkType.CONSTRUCTOR: ['function_definition'],  # constructors (special handling needed)
-                ChunkType.DESTRUCTOR: ['function_definition'],  # destructors (special handling needed)
-                ChunkType.TEMPLATE: ['template_declaration']  # template definitions
-            }
+        # Performance metrics
+        self._parse_stats = {
+            'total_files_processed': 0,
+            'total_chunks_extracted': 0,
+            'total_processing_time_ms': 0,
+            'strategy_usage': {},
+            'error_recovery_count': 0
         }
+    
+    # =================== Public API Methods ===================
     
     def get_supported_languages(self) -> List[str]:
         """Get list of supported programming languages."""
-        return list(self._parsers.keys())
+        return self.language_support.get_supported_languages()
     
     def detect_language(self, file_path: str) -> Optional[str]:
         """
@@ -141,30 +79,14 @@ class CodeParserService:
         Returns:
             Language name if supported, None otherwise
         """
-        # Use TreeSitterManager for language detection
-        detected = self._tree_sitter_manager.detect_language_from_extension(file_path)
-        
-        # Special handling for TSX files - TreeSitterManager returns 'tsx' but we also support 'typescript'
-        if detected is None:
-            path = Path(file_path)
-            extension = path.suffix.lower()
-            # Handle .tsx files that could be parsed as either tsx or typescript
-            if extension == '.tsx' and self._tree_sitter_manager.is_language_supported('tsx'):
-                return 'tsx'
-            # Handle JSON/YAML files for structured chunking
-            elif extension in ['.json', '.jsonl']:
-                return 'json'
-            elif extension in ['.yaml', '.yml']:
-                return 'yaml'
-            # Handle Markdown files for hierarchical chunking
-            elif extension in ['.md', '.markdown']:
-                return 'markdown'
-        
-        return detected
+        return self.language_support.detect_language(file_path)
     
     def parse_file(self, file_path: str, content: Optional[str] = None) -> ParseResult:
         """
-        Parse a source file into intelligent code chunks.
+        Parse a source file into intelligent code chunks using the coordinator approach.
+        
+        This method orchestrates the language support service, chunking strategies,
+        and AST extraction service to provide sophisticated code parsing capabilities.
         
         Args:
             file_path: Path to the source file
@@ -175,70 +97,58 @@ class CodeParserService:
         """
         start_time = time.time()
         
-        # Detect language
-        language = self.detect_language(file_path)
-        if not language:
-            return self._create_fallback_result(file_path, content, start_time)
-        
-        # Handle JSON/YAML/Markdown files with structured parsing
-        if language in ['json', 'yaml', 'markdown']:
-            return self._parse_structured_file(file_path, content, language, start_time)
-        
-        # Handle Tree-sitter parseable languages
-        if language not in self._parsers:
-            return self._create_fallback_result(file_path, content, start_time)
-        
-        # Read file content if not provided
-        if content is None:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            except (OSError, UnicodeDecodeError) as e:
-                self.logger.error(f"Failed to read file {file_path}: {e}")
-                return self._create_fallback_result(file_path, "", start_time, error=True)
-        
-        # Parse the content with enhanced error recovery
         try:
-            parser = self._parsers[language]
-            tree = parser.parse(bytes(content, 'utf8'))
+            # Step 1: Language detection
+            language = self.detect_language(file_path)
+            if not language:
+                return self._create_fallback_result(file_path, content, start_time, 
+                                                  error_message="Language not supported")
             
-            # Validate parser state and tree structure
-            if not self._validate_parse_tree(tree, file_path):
-                self.logger.warning(f"Invalid parse tree for {file_path}, attempting recovery")
-                # Try alternative parsing approaches
-                tree = self._attempt_parse_recovery(parser, content, file_path, language)
+            # Step 2: Content reading
+            if content is None:
+                content = self._read_file_content(file_path)
+                if content is None:
+                    return self._create_fallback_result(file_path, "", start_time, error=True)
             
-            # Extract chunks from the AST with enhanced error handling
-            chunks = self._extract_chunks(tree.root_node, file_path, content, language)
+            # Step 3: Get appropriate chunking strategy
+            strategy = self._get_chunking_strategy(language)
             
-            # Calculate processing time
+            # Step 4: Execute chunking based on strategy type
+            if language in ['json', 'yaml', 'markdown']:
+                # Use structured file chunking
+                chunks = strategy.extract_chunks(None, file_path, content)
+                parse_success = True
+                error_count = 0
+                syntax_errors = []
+                error_recovery_used = False
+            else:
+                # Use Tree-sitter based chunking
+                parser = self.language_support.get_parser(language)
+                if not parser:
+                    return self._create_fallback_result(file_path, content, start_time,
+                                                      error_message=f"No parser available for {language}")
+                
+                # Parse with Tree-sitter
+                tree = parser.parse(bytes(content, 'utf8'))
+                
+                # Extract chunks using strategy
+                chunks = strategy.extract_chunks(tree.root_node, file_path, content)
+                
+                # Collect error information
+                error_count = self.ast_extractor.count_errors(tree.root_node)
+                parse_success = error_count == 0
+                syntax_errors = self.ast_extractor.traverse_for_errors(tree.root_node, content.split('\n'), language)
+                error_recovery_used = error_count > 0 and len(chunks) > 0
+                
+                if error_recovery_used:
+                    self._parse_stats['error_recovery_count'] += 1
+            
+            # Step 5: Post-process and validate chunks
+            validated_chunks = self._validate_and_enhance_chunks(chunks, language, strategy)
+            
+            # Step 6: Calculate metrics and create result
             processing_time = (time.time() - start_time) * 1000
             
-            # Check for parsing errors and collect detailed error information
-            error_count = self._count_errors(tree.root_node)
-            parse_success = error_count == 0
-            syntax_errors = self._collect_detailed_errors(tree.root_node, content.split('\n'), language)
-            
-            # Enhanced error classification and recovery assessment
-            error_recovery_used = error_count > 0 and len(chunks) > 0
-            valid_sections_count = len(chunks) if error_recovery_used else 0
-            
-            # Log detailed recovery statistics
-            if error_recovery_used:
-                recovery_rate = len(chunks) / max(1, error_count + len(chunks))
-                self.logger.info(f"Error recovery for {file_path}: {len(chunks)} chunks recovered "
-                               f"from {error_count} errors (recovery rate: {recovery_rate:.2%})")
-            
-            # Comprehensive chunk quality validation
-            validated_chunks, quality_issues = self._validate_chunk_quality(chunks, content.split('\n'), language)
-            
-            # Log quality issues if any
-            if quality_issues:
-                self.logger.warning(f"Chunk quality issues found in {file_path}:")
-                for issue in quality_issues:
-                    self.logger.warning(f"  - {issue}")
-            
-            # Create parse result
             parse_result = ParseResult(
                 chunks=validated_chunks,
                 file_path=file_path,
@@ -249,28 +159,174 @@ class CodeParserService:
                 processing_time_ms=processing_time,
                 syntax_errors=syntax_errors,
                 error_recovery_used=error_recovery_used,
-                valid_sections_count=valid_sections_count
+                valid_sections_count=len(validated_chunks)
             )
             
-            # Enhanced logging with detailed error analysis
-            self._enhance_error_logging_in_parse(file_path, language, parse_result)
+            # Step 7: Update statistics and metrics
+            self._update_parsing_statistics(parse_result, language, strategy)
             
-            # Record metrics for performance tracking
-            quality_issues_count = len(quality_issues) if 'quality_issues' in locals() else 0
-            self._record_parsing_metrics(parse_result, file_path, quality_issues_count)
+            # Step 8: Log results
+            self._log_parsing_results(parse_result, file_path)
             
             return parse_result
             
         except Exception as e:
             self.logger.error(f"Critical parsing failure for {file_path}: {e}")
-            # Enhanced fallback with error context
-            fallback_result = self._create_fallback_result(file_path, content, start_time, error=True, 
-                                                          exception_context=str(e))
+            return self._create_fallback_result(file_path, content or "", start_time, 
+                                              error=True, exception_context=str(e))
+    
+    # =================== Coordinator Helper Methods ===================
+    
+    def _read_file_content(self, file_path: str) -> Optional[str]:
+        """Read file content with error handling."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            self.logger.error(f"Failed to read file {file_path}: {e}")
+            return None
+    
+    def _get_chunking_strategy(self, language: str):
+        """Get the appropriate chunking strategy for a language."""
+        strategy = chunking_strategy_registry.get_strategy(language)
+        if strategy:
+            return strategy
+        
+        # Fallback to language-specific fallback strategy
+        if language in ['json', 'yaml', 'markdown']:
+            return StructuredFileChunkingStrategy(language)
+        else:
+            return FallbackChunkingStrategy(language)
+    
+    def _validate_and_enhance_chunks(self, chunks: List[CodeChunk], language: str, strategy) -> List[CodeChunk]:
+        """Validate and enhance chunks with additional metadata."""
+        validated_chunks = []
+        
+        for chunk in chunks:
+            # Validate chunk using strategy
+            if strategy.validate_chunk(chunk):
+                # Add coordinator-level metadata
+                self._enhance_chunk_metadata(chunk, language)
+                validated_chunks.append(chunk)
+            else:
+                self.logger.debug(f"Chunk validation failed for {chunk.name} in {chunk.file_path}")
+        
+        return validated_chunks
+    
+    def _enhance_chunk_metadata(self, chunk: CodeChunk, language: str):
+        """Add coordinator-level metadata to chunks."""
+        # Add file-level metadata
+        chunk.file_size = get_file_size(chunk.file_path)
+        chunk.file_mtime = get_file_mtime(chunk.file_path)
+        
+        # Add processing timestamp
+        chunk.processed_at = datetime.utcnow().isoformat()
+        
+        # Add language features
+        if hasattr(chunk, 'metadata'):
+            chunk.metadata = getattr(chunk, 'metadata', {})
+        else:
+            chunk.metadata = {}
+        
+        chunk.metadata['language_features'] = self.language_support.get_language_config(language)
+    
+    def _update_parsing_statistics(self, parse_result: ParseResult, language: str, strategy):
+        """Update internal parsing statistics."""
+        self._parse_stats['total_files_processed'] += 1
+        self._parse_stats['total_chunks_extracted'] += len(parse_result.chunks)
+        self._parse_stats['total_processing_time_ms'] += parse_result.processing_time_ms
+        
+        # Track strategy usage
+        strategy_name = strategy.__class__.__name__
+        if strategy_name not in self._parse_stats['strategy_usage']:
+            self._parse_stats['strategy_usage'][strategy_name] = 0
+        self._parse_stats['strategy_usage'][strategy_name] += 1
+        
+        # Record metrics with chunking tracker
+        if chunking_metrics_tracker:
+            chunking_metrics_tracker.record_file_processed(
+                language=language,
+                chunk_count=len(parse_result.chunks),
+                processing_time_ms=parse_result.processing_time_ms,
+                parse_success=parse_result.parse_success,
+                error_count=parse_result.error_count
+            )
+    
+    def _log_parsing_results(self, parse_result: ParseResult, file_path: str):
+        """Log parsing results with appropriate detail level."""
+        if parse_result.parse_success:
+            self.logger.debug(f"Successfully parsed {file_path}: {len(parse_result.chunks)} chunks, "
+                            f"{parse_result.processing_time_ms:.1f}ms")
+        else:
+            self.logger.warning(f"Parsed {file_path} with {parse_result.error_count} errors: "
+                              f"{len(parse_result.chunks)} chunks recovered, "
+                              f"{parse_result.processing_time_ms:.1f}ms")
             
-            # Record metrics for fallback case
-            self._record_parsing_metrics(fallback_result, file_path, 0)
-            
-            return fallback_result
+            # Log detailed error information
+            for error in parse_result.syntax_errors[:5]:  # Limit to first 5 errors
+                self.logger.debug(f"  Error at line {error.line}: {error.error_text}")
+    
+    def get_parsing_statistics(self) -> dict:
+        """Get current parsing statistics."""
+        return self._parse_stats.copy()
+    
+    def reset_parsing_statistics(self):
+        """Reset internal parsing statistics."""
+        self._parse_stats = {
+            'total_files_processed': 0,
+            'total_chunks_extracted': 0,
+            'total_processing_time_ms': 0,
+            'strategy_usage': {},
+            'error_recovery_count': 0
+        }
+    
+    def _create_fallback_result(self, file_path: str, content: Optional[str], 
+                              start_time: float, error: bool = False, 
+                              error_message: str = None, exception_context: Optional[str] = None) -> ParseResult:
+        """Create a simplified fallback ParseResult for the coordinator approach."""
+        if content is None:
+            content = ""
+        
+        processing_time = (time.time() - start_time) * 1000
+        language = self.detect_language(file_path) or "unknown"
+        
+        # Create a simple whole-file chunk using fallback strategy
+        fallback_strategy = FallbackChunkingStrategy(language)
+        chunks = []
+        
+        if content:
+            # Create a dummy root node for structured compatibility
+            chunks = fallback_strategy.extract_chunks(None, file_path, content)
+        
+        # Create simple error information
+        syntax_errors = []
+        if error and (error_message or exception_context):
+            error_details = error_message or f"Exception: {exception_context}"
+            syntax_errors.append(CodeSyntaxError(
+                line=1,
+                column=0,
+                end_line=len(content.split('\n')) if content else 1,
+                end_column=0,
+                error_text=error_details,
+                context_before=None,
+                context_after=None,
+                language=language
+            ))
+        
+        return ParseResult(
+            chunks=chunks,
+            file_path=file_path,
+            language=language,
+            parse_success=not error,
+            error_count=1 if error else 0,
+            fallback_used=True,
+            processing_time_ms=processing_time,
+            syntax_errors=syntax_errors,
+            error_recovery_used=False,
+            valid_sections_count=len(chunks)
+        )
+    
+    # =================== Legacy Support Methods ===================
     
     def _extract_chunks(self, root_node: Node, file_path: str, content: str, language: str) -> List[CodeChunk]:
         """
