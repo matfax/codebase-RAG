@@ -47,7 +47,7 @@ The system must reorganize `src/mcp_prompts.py` into a `src/prompts/` directory 
 1.4. Create `src/prompts/registry.py` containing the main `MCPPromptsSystem` class
 1.5. Create `src/prompts/__init__.py` that exports the main registration function
 
-### R2: Tools Modularization  
+### R2: Tools Modularization
 The system must reorganize `src/mcp_tools.py` into a `src/tools/` directory structure:
 
 2.1. Create `src/tools/core/` containing health checks and memory management utilities
@@ -145,7 +145,7 @@ The system must update all related test files:
 
 ---
 
-**Document Version**: 1.0  
-**Created**: 2025-01-01  
-**Author**: Development Team  
+**Document Version**: 1.0
+**Created**: 2025-01-01
+**Author**: Development Team
 **Status**: Draft for Review

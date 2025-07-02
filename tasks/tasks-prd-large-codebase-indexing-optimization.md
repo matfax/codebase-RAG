@@ -7,7 +7,7 @@
 - `src/services/project_analysis_service.py` - Project analysis service needing repository assessment tools
 - `.env` - Environment configuration for new performance settings
 - `src/utils/performance_monitor.py` - Performance monitoring utility with ProgressTracker and MemoryMonitor classes (created)
-- `src/utils/stage_logger.py` - Stage-specific logging utility with detailed timing and metrics (created) 
+- `src/utils/stage_logger.py` - Stage-specific logging utility with detailed timing and metrics (created)
 - `src/utils/__init__.py` - Updated utils package initialization (updated)
 - `tests/test_performance_optimization.py` - Performance optimization tests (to be created)
 - `tests/test_batch_processing.py` - Batch processing tests (to be created)

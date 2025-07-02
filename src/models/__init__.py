@@ -2,7 +2,7 @@
 Data models for the Agentic RAG MCP server.
 """
 
+from .code_chunk import ChunkType, CodeChunk, CodeSyntaxError, ParseResult
 from .file_metadata import FileMetadata
-from .code_chunk import CodeChunk, ChunkType, ParseResult, CodeSyntaxError
 
 __all__ = ["FileMetadata", "CodeChunk", "ChunkType", "ParseResult", "CodeSyntaxError"]

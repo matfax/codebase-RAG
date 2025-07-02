@@ -76,7 +76,7 @@ All tools have been integrated into the MCP tools registry (`src/tools/registry.
 from .indexing.chunking_tools import register_chunking_tools
 register_chunking_tools(mcp_app)
 
-# Register parser tools  
+# Register parser tools
 from .indexing.parser_tools import register_parser_tools
 register_parser_tools(mcp_app)
 
@@ -172,7 +172,7 @@ These should eventually be extracted to complete the modularization, but they re
 
 **Import Test Results:**
 - ✅ Chunking tools import successful
-- ✅ Parser tools import successful  
+- ✅ Parser tools import successful
 - ✅ Progress tools import successful
 - ✅ Project tools import successful
 - ✅ File tools import successful
@@ -186,7 +186,7 @@ These should eventually be extracted to complete the modularization, but they re
 
 **Extracted Tools:**
 1. `get_chunking_metrics` - Chunking performance monitoring
-2. `reset_chunking_metrics` - Reset chunking session metrics  
+2. `reset_chunking_metrics` - Reset chunking session metrics
 3. `diagnose_parser_health` - Tree-sitter parser diagnostics
 4. `get_indexing_progress` - Real-time indexing progress
 5. `check_index_status` - Check existing index status

@@ -8,10 +8,10 @@ def broken_function(arg1, arg2
 # Error 2: Missing colon in class definition
 class IncompleteClass
     """Class missing colon after name."""
-    
+
     def __init__(self, name):
         self.name = name
-    
+
     def get_name(self)
         # Error 3: Missing colon in method definition
         return self.name
@@ -79,10 +79,10 @@ def valid_function():
 
 class ValidClass:
     """This class should also parse correctly."""
-    
+
     def __init__(self):
         self.value = 42
-    
+
     def get_value(self):
         return self.value
 

@@ -1,6 +1,6 @@
 /**
  * Sample JavaScript code for testing intelligent chunking.
- * 
+ *
  * This file contains various JavaScript constructs including:
  * - ES6 classes and methods
  * - Arrow functions and regular functions
@@ -31,7 +31,7 @@ class User {
         this.email = email;
         this.createdAt = new Date();
     }
-    
+
     /**
      * Get user's display name
      * @returns {string} The display name
@@ -39,7 +39,7 @@ class User {
     getDisplayName() {
         return `${this.name} (${this.email})`;
     }
-    
+
     /**
      * Update user information
      * @param {Object} updates - Object containing fields to update
@@ -48,7 +48,7 @@ class User {
         Object.assign(this, updates);
         this.updatedAt = new Date();
     }
-    
+
     /**
      * Convert user to JSON representation
      * @returns {Object} JSON object
@@ -62,7 +62,7 @@ class User {
             updatedAt: this.updatedAt?.toISOString()
         };
     }
-    
+
     /**
      * Static method to create user from API data
      * @param {Object} apiData - Data from API
@@ -92,10 +92,10 @@ class UserApiClient extends EventEmitter {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         this._setupInterceptors();
     }
-    
+
     /**
      * Setup request/response interceptors
      * @private
@@ -109,7 +109,7 @@ class UserApiClient extends EventEmitter {
             },
             error => Promise.reject(error)
         );
-        
+
         this.axios.interceptors.response.use(
             response => {
                 this.emit('response', { data: response.data, status: response.status });
@@ -121,7 +121,7 @@ class UserApiClient extends EventEmitter {
             }
         );
     }
-    
+
     /**
      * Fetch a user by ID
      * @param {number} userId - The user ID
@@ -129,11 +129,11 @@ class UserApiClient extends EventEmitter {
      */
     async getUser(userId) {
         const cacheKey = `user_${userId}`;
-        
+
         if (cache.has(cacheKey)) {
             return cache.get(cacheKey);
         }
-        
+
         try {
             const response = await this.axios.get(`/users/${userId}`);
             const user = User.fromApiData(response.data);
@@ -143,7 +143,7 @@ class UserApiClient extends EventEmitter {
             throw new Error(`Failed to fetch user ${userId}: ${error.message}`);
         }
     }
-    
+
     /**
      * Create a new user
      * @param {Object} userData - User data
@@ -159,7 +159,7 @@ class UserApiClient extends EventEmitter {
             throw new Error(`Failed to create user: ${error.message}`);
         }
     }
-    
+
     /**
      * Update an existing user
      * @param {number} userId - User ID
@@ -170,18 +170,18 @@ class UserApiClient extends EventEmitter {
         try {
             const response = await this.axios.put(`/users/${userId}`, updates);
             const user = User.fromApiData(response.data);
-            
+
             // Update cache
             const cacheKey = `user_${userId}`;
             cache.set(cacheKey, user);
-            
+
             this.emit('userUpdated', user);
             return user;
         } catch (error) {
             throw new Error(`Failed to update user ${userId}: ${error.message}`);
         }
     }
-    
+
     /**
      * Delete a user
      * @param {number} userId - User ID
@@ -190,18 +190,18 @@ class UserApiClient extends EventEmitter {
     async deleteUser(userId) {
         try {
             await this.axios.delete(`/users/${userId}`);
-            
+
             // Remove from cache
             const cacheKey = `user_${userId}`;
             cache.delete(cacheKey);
-            
+
             this.emit('userDeleted', { userId });
             return true;
         } catch (error) {
             throw new Error(`Failed to delete user ${userId}: ${error.message}`);
         }
     }
-    
+
     /**
      * List users with pagination
      * @param {Object} options - Query options
@@ -209,14 +209,14 @@ class UserApiClient extends EventEmitter {
      */
     async listUsers(options = {}) {
         const { page = 1, limit = 10, search = '' } = options;
-        
+
         try {
             const response = await this.axios.get('/users', {
                 params: { page, limit, search }
             });
-            
+
             const users = response.data.users.map(userData => User.fromApiData(userData));
-            
+
             return {
                 users,
                 pagination: response.data.pagination,
@@ -247,7 +247,7 @@ const fetchUserWithRetry = async (apiClient, userId, maxAttempts = MAX_RETRY_ATT
             if (attempt === maxAttempts) {
                 throw error;
             }
-            
+
             const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
             await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -263,7 +263,7 @@ const fetchUserWithRetry = async (apiClient, userId, maxAttempts = MAX_RETRY_ATT
 async function batchFetchUsers(apiClient, userIds) {
     const promises = userIds.map(id => fetchUserWithRetry(apiClient, id));
     const results = await Promise.allSettled(promises);
-    
+
     return results.map((result, index) => ({
         userId: userIds[index],
         success: result.status === 'fulfilled',
@@ -279,7 +279,7 @@ async function batchFetchUsers(apiClient, userIds) {
  */
 function debounce(operation, delay) {
     let timeoutId;
-    
+
     return function(...args) {
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => operation.apply(this, args), delay);
@@ -294,15 +294,15 @@ function setupEventHandlers(apiClient) {
     apiClient.on('userCreated', (user) => {
         console.log(`User created: ${user.getDisplayName()}`);
     });
-    
+
     apiClient.on('userUpdated', (user) => {
         console.log(`User updated: ${user.getDisplayName()}`);
     });
-    
+
     apiClient.on('userDeleted', ({ userId }) => {
         console.log(`User ${userId} deleted`);
     });
-    
+
     apiClient.on('error', (error) => {
         console.error('API Error:', error.message);
     });
@@ -311,22 +311,22 @@ function setupEventHandlers(apiClient) {
 // Object with methods
 const userUtils = {
     formatUser: (user) => `${user.name} <${user.email}>`,
-    
+
     sortUsers: (users, field = 'name') => {
         return [...users].sort((a, b) => {
             const aVal = a[field];
             const bVal = b[field];
-            
+
             if (typeof aVal === 'string') {
                 return aVal.localeCompare(bVal);
             }
-            
+
             return aVal - bVal;
         });
     },
-    
+
     filterUsers: (users, predicate) => users.filter(predicate),
-    
+
     groupUsersByDomain: (users) => {
         return users.reduce((groups, user) => {
             const domain = user.email.split('@')[1];
@@ -348,7 +348,7 @@ if (typeof window !== 'undefined') {
     // Browser environment example
     const apiClient = new UserApiClient();
     setupEventHandlers(apiClient);
-    
+
     // Example async operation
     (async () => {
         try {

@@ -1,6 +1,6 @@
 /**
  * Sample Rust code for testing intelligent chunking.
- * 
+ *
  * This file demonstrates Rust-specific features including:
  * - Structs, enums, and implementations
  * - Traits and generics
@@ -166,7 +166,7 @@ impl<R: UserRepository> UserService<R> {
 
         // Fetch from repository
         let user = self.repository.get_user(id).await?;
-        
+
         // Update cache
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(id, user.clone());
@@ -223,7 +223,7 @@ impl<R: UserRepository> UserService<R> {
 
     pub async fn search_users(&self, query: &str) -> AppResult<Vec<User>> {
         let all_users = self.repository.list_users(1000, 0).await?;
-        
+
         let matching_users = all_users
             .into_iter()
             .filter(|user| {
@@ -237,7 +237,7 @@ impl<R: UserRepository> UserService<R> {
 
     pub async fn get_user_statistics(&self) -> AppResult<UserStatistics> {
         let all_users = self.repository.list_users(10000, 0).await?;
-        
+
         let stats = all_users.iter().fold(UserStatistics::default(), |mut acc, user| {
             acc.total_users += 1;
             match user.role {
@@ -305,8 +305,8 @@ pub struct UserStatistics {
 }
 
 // Generic cache implementation
-pub struct MemoryCache<K, V> 
-where 
+pub struct MemoryCache<K, V>
+where
     K: std::hash::Hash + Eq + Clone,
     V: Clone,
 {
@@ -420,14 +420,14 @@ where
 
     loop {
         attempts += 1;
-        
+
         match operation().await {
             Ok(result) => return Ok(result),
             Err(error) => {
                 if attempts >= max_attempts {
                     return Err(error);
                 }
-                
+
                 tokio::time::sleep(delay).await;
                 delay *= 2; // Exponential backoff
             }
@@ -463,10 +463,10 @@ mod tests {
     #[test]
     fn test_default_validator() {
         let validator = DefaultUserValidator;
-        
+
         assert!(validator.validate_email("test@example.com"));
         assert!(!validator.validate_email("invalid-email"));
-        
+
         assert!(validator.validate_name("John Doe"));
         assert!(!validator.validate_name(""));
     }
@@ -474,10 +474,10 @@ mod tests {
     #[tokio::test]
     async fn test_memory_cache() {
         let cache = MemoryCache::new(Duration::from_secs(1));
-        
+
         cache.set("key1".to_string(), "value1".to_string());
         assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
-        
+
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(cache.get(&"key1".to_string()), None);
     }
@@ -488,13 +488,13 @@ mod tests {
 async fn main() -> AppResult<()> {
     // Example usage of the user service
     println!("User Service Demo");
-    
+
     // This would typically be a real database implementation
     // let repository = DatabaseUserRepository::new("connection_string").await?;
     // let validator = Box::new(DefaultUserValidator);
     // let service = UserService::new(repository, validator);
-    
+
     println!("Service initialized successfully");
-    
+
     Ok(())
 }

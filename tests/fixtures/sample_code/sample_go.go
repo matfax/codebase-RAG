@@ -350,8 +350,8 @@ type APIResponse struct {
 // Utility functions
 func isValidEmail(email string) bool {
 	// Simplified email validation
-	return len(email) > 0 && 
-		   strings.Contains(email, "@") && 
+	return len(email) > 0 &&
+		   strings.Contains(email, "@") &&
 		   strings.Contains(email, ".")
 }
 

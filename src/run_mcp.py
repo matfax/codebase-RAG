@@ -5,8 +5,8 @@ This script runs the MCP server in stdio mode for integration with Claude Code a
 """
 
 import asyncio
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # Add src directory to path
@@ -17,9 +17,10 @@ from main import app
 # Configure logging to stderr so it doesn't interfere with JSON-RPC communication
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stderr
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stderr,
 )
+
 
 async def main():
     """Run the MCP server in stdio mode."""
@@ -27,7 +28,7 @@ async def main():
     logger.info("Starting Codebase RAG MCP Server...")
     logger.info("Server name: codebase-rag-mcp")
     logger.info("Listening for JSON-RPC requests on stdin...")
-    
+
     try:
         await app.run_stdio_async()
     except KeyboardInterrupt:
@@ -35,6 +36,7 @@ async def main():
     except Exception as e:
         logger.error(f"Server error: {e}")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -10,28 +10,31 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from main import app
 
+
 async def test_mcp_server():
     """Test MCP server tools and functionality."""
     print("Testing MCP Server...")
-    
+
     try:
         # Test listing tools
         tools = await app.list_tools()
         print(f"Available tools: {tools}")
-        
+
         # Test health check tool
-        if hasattr(app, 'call_tool'):
+        if hasattr(app, "call_tool"):
             health_result = await app.call_tool("health_check", {})
             print(f"Health check result: {health_result}")
-        
+
         print("MCP Server test completed successfully!")
         return True
-        
+
     except Exception as e:
         print(f"Error testing MCP server: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 if __name__ == "__main__":
     success = asyncio.run(test_mcp_server())

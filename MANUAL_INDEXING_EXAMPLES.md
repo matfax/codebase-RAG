@@ -82,7 +82,7 @@ MANUAL INDEXING TOOL - PRE-INDEXING SUMMARY
 
 Files changed since last index:
 ├── src/auth/user_service.py (modified)
-├── src/api/routes.py (modified) 
+├── src/api/routes.py (modified)
 ├── src/utils/helpers.ts (new)
 ├── tests/test_auth.py (modified)
 └── ... 4 more files
@@ -116,7 +116,7 @@ python manual_indexing.py -d /ml/research -m clear_existing --verbose
 
 Final Statistics:
 ├── Functions extracted: 145
-├── Classes extracted: 32  
+├── Classes extracted: 32
 ├── Methods extracted: 178
 ├── Constants/Variables: 23
 ├── Syntax error recovery: 100%
@@ -283,7 +283,7 @@ INDEXING COMPLETE - ERROR SUMMARY
 
 🔧 Syntax Error Details:
 ├── src/broken_file.py:45 - Missing closing parenthesis (recovered)
-├── src/utils/helper.py:23 - Invalid indentation (recovered) 
+├── src/utils/helper.py:23 - Invalid indentation (recovered)
 ├── src/legacy_code.js:multiple - Multiple parse errors (fallback used)
 └── Recovery rate: 97.4% of chunks successfully extracted
 
@@ -354,25 +354,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+
       - name: Install dependencies
         run: |
           python -m pip install poetry
           poetry install
-          
+
       - name: Start Qdrant
         run: |
           docker run -d -p 6333:6333 qdrant/qdrant
-          
+
       - name: Incremental indexing
         run: |
           poetry run python manual_indexing.py -d . -m incremental --no-confirm --verbose
-          
+
       - name: Upload error reports
         uses: actions/upload-artifact@v3
         if: always()
@@ -413,12 +413,12 @@ update-index:
 ```groovy
 pipeline {
     agent any
-    
+
     environment {
         INDEXING_CONCURRENCY = '4'
         MEMORY_WARNING_THRESHOLD_MB = '1000'
     }
-    
+
     stages {
         stage('Setup') {
             steps {
@@ -426,7 +426,7 @@ pipeline {
                 sh 'pip install poetry && poetry install'
             }
         }
-        
+
         stage('Incremental Index') {
             steps {
                 sh '''
@@ -444,7 +444,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Full Index Weekly') {
             when {
                 cron('0 2 * * 0') // Sunday 2 AM
@@ -460,7 +460,7 @@ pipeline {
             }
         }
     }
-    
+
     post {
         cleanup {
             sh 'docker stop qdrant && docker rm qdrant'
@@ -502,7 +502,7 @@ INDEXING COMPLETE - ENTERPRISE MONOREPO SUMMARY
 
 🎯 Intelligent Chunking Results:
 ├── Functions extracted: 8,456
-├── Classes extracted: 1,204  
+├── Classes extracted: 1,204
 ├── Methods extracted: 6,743
 ├── Interfaces/Types: 892
 ├── Constants/Configs: 567
@@ -510,7 +510,7 @@ INDEXING COMPLETE - ENTERPRISE MONOREPO SUMMARY
 
 🔧 Language Breakdown:
 ├── Python: 3,245 files → 7,234 chunks
-├── TypeScript: 1,456 files → 5,891 chunks  
+├── TypeScript: 1,456 files → 5,891 chunks
 ├── Go: 334 files → 2,456 chunks
 ├── Java: 212 files → 1,281 chunks
 └── Others: 0 files → 0 chunks

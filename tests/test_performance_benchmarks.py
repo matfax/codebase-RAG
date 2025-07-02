@@ -17,7 +17,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import psutil
 import pytest
@@ -49,12 +49,10 @@ class PerformanceBenchmarkSuite:
     """Base class for performance benchmarking."""
 
     def __init__(self):
-        self.metrics: List[PerformanceMetric] = []
+        self.metrics: list[PerformanceMetric] = []
         self.memory_monitor = MemoryMonitor()
 
-    def measure_operation(
-        self, operation_name: str, operation_func, *args, **kwargs
-    ) -> PerformanceMetric:
+    def measure_operation(self, operation_name: str, operation_func, *args, **kwargs) -> PerformanceMetric:
         """Measure performance of a single operation."""
         # Force garbage collection before measurement
         gc.collect()
@@ -125,7 +123,7 @@ class PerformanceBenchmarkSuite:
         self.metrics.append(metric)
         return metric
 
-    def generate_report(self) -> Dict[str, Any]:
+    def generate_report(self) -> dict[str, Any]:
         """Generate performance report from collected metrics."""
         if not self.metrics:
             return {"error": "No metrics collected"}
@@ -134,13 +132,9 @@ class PerformanceBenchmarkSuite:
             "summary": {
                 "total_operations": len(self.metrics),
                 "avg_duration_ms": statistics.mean(m.duration_ms for m in self.metrics),
-                "median_duration_ms": statistics.median(
-                    m.duration_ms for m in self.metrics
-                ),
+                "median_duration_ms": statistics.median(m.duration_ms for m in self.metrics),
                 "max_duration_ms": max(m.duration_ms for m in self.metrics),
-                "avg_memory_usage_mb": statistics.mean(
-                    m.memory_peak_mb for m in self.metrics
-                ),
+                "avg_memory_usage_mb": statistics.mean(m.memory_peak_mb for m in self.metrics),
                 "max_memory_usage_mb": max(m.memory_peak_mb for m in self.metrics),
                 "total_chunks_generated": sum(m.chunk_count for m in self.metrics),
                 "total_errors": sum(m.error_count for m in self.metrics),
@@ -161,9 +155,7 @@ class PerformanceBenchmarkSuite:
             report["by_operation"][op_name] = {
                 "count": len(op_metrics),
                 "avg_duration_ms": statistics.mean(m.duration_ms for m in op_metrics),
-                "median_duration_ms": statistics.median(
-                    m.duration_ms for m in op_metrics
-                ),
+                "median_duration_ms": statistics.median(m.duration_ms for m in op_metrics),
                 "avg_memory_mb": statistics.mean(m.memory_peak_mb for m in op_metrics),
                 "chunks_per_second": self._calculate_throughput(op_metrics),
                 "error_rate": sum(m.error_count for m in op_metrics) / len(op_metrics),
@@ -174,33 +166,27 @@ class PerformanceBenchmarkSuite:
 
         return report
 
-    def _calculate_throughput(self, metrics: List[PerformanceMetric]) -> float:
+    def _calculate_throughput(self, metrics: list[PerformanceMetric]) -> float:
         """Calculate processing throughput in chunks per second."""
         total_chunks = sum(m.chunk_count for m in metrics)
         total_time_s = sum(m.duration_ms for m in metrics) / 1000
         return total_chunks / total_time_s if total_time_s > 0 else 0
 
-    def _identify_performance_issues(self, report: Dict[str, Any]) -> None:
+    def _identify_performance_issues(self, report: dict[str, Any]) -> None:
         """Identify potential performance issues."""
         issues = []
 
         # Check for slow operations (>1000ms)
         if report["summary"]["max_duration_ms"] > 1000:
-            issues.append(
-                f"Slow operation detected: {report['summary']['max_duration_ms']:.1f}ms"
-            )
+            issues.append(f"Slow operation detected: {report['summary']['max_duration_ms']:.1f}ms")
 
         # Check for high memory usage (>500MB)
         if report["summary"]["max_memory_usage_mb"] > 500:
-            issues.append(
-                f"High memory usage: {report['summary']['max_memory_usage_mb']:.1f}MB"
-            )
+            issues.append(f"High memory usage: {report['summary']['max_memory_usage_mb']:.1f}MB")
 
         # Check for high error rates
         if report["summary"]["total_errors"] > len(self.metrics) * 0.1:
-            issues.append(
-                f"High error rate: {report['summary']['total_errors']} errors in {len(self.metrics)} operations"
-            )
+            issues.append(f"High error rate: {report['summary']['total_errors']} errors in {len(self.metrics)} operations")
 
         report["performance_issues"] = issues
 
@@ -240,12 +226,8 @@ class SimpleClass:
             )
 
             # Small files should parse quickly
-            assert (
-                metric.duration_ms < 100
-            ), f"Small file parsing too slow: {metric.duration_ms}ms"
-            assert (
-                metric.memory_peak_mb < 50
-            ), f"Small file using too much memory: {metric.memory_peak_mb}MB"
+            assert metric.duration_ms < 100, f"Small file parsing too slow: {metric.duration_ms}ms"
+            assert metric.memory_peak_mb < 50, f"Small file using too much memory: {metric.memory_peak_mb}MB"
 
     def test_medium_file_performance(self, benchmark_suite, parser_service):
         """Test performance with medium files (1-10KB)."""
@@ -282,12 +264,8 @@ def test_function_{i}(a, b):
             )
 
             # Medium files should still parse reasonably quickly
-            assert (
-                metric.duration_ms < 500
-            ), f"Medium file parsing too slow: {metric.duration_ms}ms"
-            assert (
-                metric.chunk_count > 50
-            ), f"Should generate multiple chunks: {metric.chunk_count}"
+            assert metric.duration_ms < 500, f"Medium file parsing too slow: {metric.duration_ms}ms"
+            assert metric.chunk_count > 50, f"Should generate multiple chunks: {metric.chunk_count}"
 
     def test_large_file_performance(self, benchmark_suite, parser_service):
         """Test performance with large files (>10KB)."""
@@ -351,19 +329,11 @@ async def async_function_{i}():
         )
 
         # Large files should still parse within reasonable time
-        assert (
-            metric.duration_ms < 5000
-        ), f"Large file parsing too slow: {metric.duration_ms}ms"
-        assert (
-            metric.chunk_count > 500
-        ), f"Should generate many chunks: {metric.chunk_count}"
-        assert (
-            metric.memory_peak_mb < 200
-        ), f"Memory usage too high: {metric.memory_peak_mb}MB"
+        assert metric.duration_ms < 5000, f"Large file parsing too slow: {metric.duration_ms}ms"
+        assert metric.chunk_count > 500, f"Should generate many chunks: {metric.chunk_count}"
+        assert metric.memory_peak_mb < 200, f"Memory usage too high: {metric.memory_peak_mb}MB"
 
-        print(
-            f"Large file performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks, {metric.memory_peak_mb:.1f}MB"
-        )
+        print(f"Large file performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks, {metric.memory_peak_mb:.1f}MB")
 
     def test_multi_language_performance(self, benchmark_suite, parser_service):
         """Test performance across different programming languages."""
@@ -438,14 +408,10 @@ function tsFunction<T>(param: T): T {
             )
 
             # All languages should parse within reasonable time
-            assert (
-                metric.duration_ms < 1000
-            ), f"{lang} parsing too slow: {metric.duration_ms}ms"
+            assert metric.duration_ms < 1000, f"{lang} parsing too slow: {metric.duration_ms}ms"
             assert metric.chunk_count > 10, f"{lang} should generate multiple chunks"
 
-            print(
-                f"{lang} performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks"
-            )
+            print(f"{lang} performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks")
 
     def test_error_handling_performance(self, benchmark_suite, parser_service):
         """Test performance when handling files with syntax errors."""
@@ -484,17 +450,13 @@ def another_valid():
         )
 
         # Error handling should not significantly slow down parsing
-        assert (
-            metric.duration_ms < 2000
-        ), f"Error handling too slow: {metric.duration_ms}ms"
+        assert metric.duration_ms < 2000, f"Error handling too slow: {metric.duration_ms}ms"
         assert metric.error_count > 0, "Should detect syntax errors"
 
         # Should still recover some valid code
         assert metric.chunk_count > 0, "Should recover some valid chunks"
 
-        print(
-            f"Error handling performance: {metric.duration_ms:.1f}ms, {metric.error_count} errors, {metric.chunk_count} chunks"
-        )
+        print(f"Error handling performance: {metric.duration_ms:.1f}ms, {metric.error_count} errors, {metric.chunk_count} chunks")
 
 
 class TestIndexingPerformance:
@@ -520,7 +482,8 @@ class TestIndexingPerformance:
         # Create multiple files
         for i in range(10):
             py_file = project_path / f"module_{i}.py"
-            py_file.write_text(f'''
+            py_file.write_text(
+                f'''
 """Module {i} for testing."""
 
 class Module{i}Class:
@@ -540,14 +503,13 @@ def module_{i}_function():
     return f"Module {i} result"
 
 CONSTANT_{i} = {i} * 10
-''')
+'''
+            )
 
         yield str(project_path)
         shutil.rmtree(temp_dir)
 
-    def test_multi_file_indexing_performance(
-        self, benchmark_suite, indexing_service, temp_project
-    ):
+    def test_multi_file_indexing_performance(self, benchmark_suite, indexing_service, temp_project):
         """Test performance of indexing multiple files."""
 
         metric = benchmark_suite.measure_operation(
@@ -557,16 +519,10 @@ CONSTANT_{i} = {i} * 10
         )
 
         # Multi-file indexing should complete within reasonable time
-        assert (
-            metric.duration_ms < 10000
-        ), f"Multi-file indexing too slow: {metric.duration_ms}ms"
-        assert (
-            metric.chunk_count > 20
-        ), f"Should generate multiple chunks: {metric.chunk_count}"
+        assert metric.duration_ms < 10000, f"Multi-file indexing too slow: {metric.duration_ms}ms"
+        assert metric.chunk_count > 20, f"Should generate multiple chunks: {metric.chunk_count}"
 
-        print(
-            f"Multi-file indexing performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks"
-        )
+        print(f"Multi-file indexing performance: {metric.duration_ms:.1f}ms, {metric.chunk_count} chunks")
 
     def test_memory_usage_scaling(self, benchmark_suite, indexing_service):
         """Test memory usage scaling with file count."""
@@ -602,9 +558,7 @@ class Class_{i}:
 
                 memory_results.append((file_count, metric.memory_peak_mb))
 
-                print(
-                    f"{file_count} files: {metric.duration_ms:.1f}ms, {metric.memory_peak_mb:.1f}MB"
-                )
+                print(f"{file_count} files: {metric.duration_ms:.1f}ms, {metric.memory_peak_mb:.1f}MB")
 
             finally:
                 shutil.rmtree(temp_dir)
@@ -618,9 +572,7 @@ class Class_{i}:
             file_ratio = memory_results[-1][0] / memory_results[0][0]
 
             # Memory growth should be less than quadratic
-            assert (
-                memory_ratio < file_ratio**1.5
-            ), f"Memory scaling too aggressive: {memory_ratio} vs file ratio {file_ratio}"
+            assert memory_ratio < file_ratio**1.5, f"Memory scaling too aggressive: {memory_ratio} vs file ratio {file_ratio}"
 
 
 class TestConcurrencyPerformance:
@@ -676,15 +628,11 @@ class Class_{i}:
 
         # Concurrent should be faster (or at least not much slower due to overhead)
         speedup = sequential_time / concurrent_time
-        print(
-            f"Sequential: {sequential_time:.2f}s, Concurrent: {concurrent_time:.2f}s, Speedup: {speedup:.2f}x"
-        )
+        print(f"Sequential: {sequential_time:.2f}s, Concurrent: {concurrent_time:.2f}s, Speedup: {speedup:.2f}x")
 
         # Should have some performance benefit or at least be thread-safe
         assert speedup > 0.5, f"Concurrent performance too poor: {speedup:.2f}x speedup"
-        assert len(concurrent_results) == len(
-            sequential_results
-        ), "Concurrent results incomplete"
+        assert len(concurrent_results) == len(sequential_results), "Concurrent results incomplete"
 
 
 class TestMemoryMonitoring:
@@ -777,16 +725,10 @@ def standard_function():
     MAX_MEMORY_MB = 100
 
     # Check for regressions
-    assert (
-        metric.duration_ms < MAX_DURATION_MS
-    ), f"Performance regression: {metric.duration_ms}ms > {MAX_DURATION_MS}ms"
-    assert (
-        metric.memory_peak_mb < MAX_MEMORY_MB
-    ), f"Memory regression: {metric.memory_peak_mb}MB > {MAX_MEMORY_MB}MB"
+    assert metric.duration_ms < MAX_DURATION_MS, f"Performance regression: {metric.duration_ms}ms > {MAX_DURATION_MS}ms"
+    assert metric.memory_peak_mb < MAX_MEMORY_MB, f"Memory regression: {metric.memory_peak_mb}MB > {MAX_MEMORY_MB}MB"
 
-    print(
-        f"Regression test passed: {metric.duration_ms:.1f}ms, {metric.memory_peak_mb:.1f}MB"
-    )
+    print(f"Regression test passed: {metric.duration_ms:.1f}ms, {metric.memory_peak_mb:.1f}MB")
 
 
 if __name__ == "__main__":

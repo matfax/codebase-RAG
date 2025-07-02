@@ -11,7 +11,7 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 
 ### Entry Points
 - **`src/main.py:7`**: FastMCP server initialization and tool registration
-- **`manual_indexing.py`**: Standalone heavy indexing operations  
+- **`manual_indexing.py`**: Standalone heavy indexing operations
 - **`demo_mcp_usage.py`**: Usage demonstrations
 
 ### Complete Data Flow
@@ -79,14 +79,14 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 ### 🚀 Most Efficient Exploration Path
 
 1. **Start Here**: `src/main.py:7` - FastMCP app initialization
-2. **Core Tools**: `src/tools/registry.py:12` - Understand all available MCP tools  
+2. **Core Tools**: `src/tools/registry.py:12` - Understand all available MCP tools
 3. **Intelligent Chunking**: `src/services/code_parser_service.py:30` - Tree-sitter AST parsing
 4. **Data Flow**: `src/services/indexing_service.py` - Parallel processing orchestration
 5. **Vector Operations**: `src/services/qdrant_service.py` - Database interactions
 
 ### 🔄 Request/Data Flow
 ```
-MCP Client → FastMCP Tools → Services Layer → Tree-sitter Parser → 
+MCP Client → FastMCP Tools → Services Layer → Tree-sitter Parser →
 Embedding Service → Qdrant Storage → Search Results
 ```
 
@@ -111,7 +111,7 @@ python manual_indexing.py -d /path/to/repo -m incremental --verbose
 ### Why This Architecture?
 
 1. **Function-Level Precision**: Instead of searching entire files, you get specific functions/classes
-2. **Language-Agnostic**: Tree-sitter supports multiple programming languages consistently  
+2. **Language-Agnostic**: Tree-sitter supports multiple programming languages consistently
 3. **Scalable**: Parallel processing, batch operations, and incremental indexing
 4. **Error-Tolerant**: Graceful fallback for syntax errors
 5. **Memory-Efficient**: Streaming operations with garbage collection
@@ -135,7 +135,7 @@ python manual_indexing.py -d /path/to/repo -m incremental --verbose
 
 **Example Collection Stats** (Current Project):
 - Code: 8,524 intelligent chunks
-- Config: 280 configuration chunks  
+- Config: 280 configuration chunks
 - Documentation: 2,559 documentation chunks
 - **Total**: 11,363 indexed chunks
 

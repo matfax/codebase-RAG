@@ -3,18 +3,15 @@
 This module provides language detection functionality for source code files.
 """
 
-from pathlib import Path
-from typing import Optional
-
 from .language_registry import LanguageRegistry
 
 
-def detect_language(file_path: str) -> Optional[str]:
+def detect_language(file_path: str) -> str | None:
     """Detect the programming language of a source file.
-    
+
     Args:
         file_path: Path to the source file
-        
+
     Returns:
         The detected language name or None if not detected
     """
@@ -24,10 +21,10 @@ def detect_language(file_path: str) -> Optional[str]:
 
 def is_supported_language(file_path: str) -> bool:
     """Check if the file's language is supported for parsing.
-    
+
     Args:
         file_path: Path to the source file
-        
+
     Returns:
         True if the language is supported, False otherwise
     """
@@ -36,7 +33,7 @@ def is_supported_language(file_path: str) -> bool:
 
 def get_supported_extensions() -> list[str]:
     """Get all supported file extensions.
-    
+
     Returns:
         List of supported file extensions
     """

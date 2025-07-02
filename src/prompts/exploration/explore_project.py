@@ -3,9 +3,6 @@
 This module implements the explore_project prompt for comprehensive project analysis.
 """
 
-from typing import List, Optional
-from pathlib import Path
-
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
 
@@ -14,66 +11,71 @@ from ..base import BasePromptImplementation
 
 class ExploreProjectPrompt(BasePromptImplementation):
     """Implementation of the explore_project prompt."""
-    
+
     def register(self, mcp_app: FastMCP) -> None:
         """Register the explore_project prompt with the MCP app."""
-        
+
         @mcp_app.prompt()
         def explore_project(
             directory: str = ".",
-            focus_area: Optional[str] = None,
-            detail_level: str = "overview"
-        ) -> List[base.Message]:
+            focus_area: str | None = None,
+            detail_level: str = "overview",
+        ) -> list[base.Message]:
             """
             Get a comprehensive guided exploration of project architecture and structure.
-            
+
             This prompt analyzes the entire project to provide architectural insights,
             key module identification, dependency mapping, and strategic navigation guidance.
             Perfect for onboarding new developers or understanding unfamiliar codebases.
-            
+
             Args:
-                directory: Project directory to explore (default: current directory)  
+                directory: Project directory to explore (default: current directory)
                 focus_area: Specific area to focus on (e.g., "authentication", "data_layer", "api")
                 detail_level: Level of detail - "overview", "detailed", or "comprehensive"
             """
             try:
                 # Use enhanced project exploration service
-                from services.project_exploration_service import ProjectExplorationService
+                from services.project_exploration_service import (
+                    ProjectExplorationService,
+                )
+
                 exploration_service = ProjectExplorationService()
-                
+
                 # Perform comprehensive project exploration
                 exploration_result = exploration_service.explore_project(
                     project_path=directory,
                     focus_area=focus_area,
                     detail_level=detail_level,
                     include_dependencies=detail_level in ["detailed", "comprehensive"],
-                    analyze_complexity=detail_level in ["detailed", "comprehensive"]
+                    analyze_complexity=detail_level in ["detailed", "comprehensive"],
                 )
-                
+
                 # Format the exploration results into a comprehensive prompt
-                formatted_summary = exploration_service.format_exploration_summary(
-                    exploration_result, detail_level
-                )
-                
+                formatted_summary = exploration_service.format_exploration_summary(exploration_result, detail_level)
+
                 # Create guided exploration prompt with rich analysis
                 exploration_prompt = self._build_enhanced_exploration_prompt(
-                    directory, exploration_result, focus_area, detail_level, formatted_summary
+                    directory,
+                    exploration_result,
+                    focus_area,
+                    detail_level,
+                    formatted_summary,
                 )
-                
+
                 return [self.create_message(exploration_prompt)]
-                
+
             except Exception as e:
                 self.logger.error(f"Error in explore_project prompt: {e}")
                 # Fallback to basic exploration
                 return self._create_fallback_exploration_prompt(directory, focus_area, detail_level, str(e))
-    
+
     def _build_enhanced_exploration_prompt(
-        self, 
-        directory: str, 
-        exploration_result, 
-        focus_area: Optional[str], 
-        detail_level: str, 
-        formatted_summary: str
+        self,
+        directory: str,
+        exploration_result,
+        focus_area: str | None,
+        detail_level: str,
+        formatted_summary: str,
     ) -> str:
         """Build enhanced exploration prompt with comprehensive analysis."""
         base_prompt = f"""I need to explore and understand the codebase at '{directory}'. I've conducted a comprehensive analysis and here are the results:
@@ -109,12 +111,12 @@ Please search the codebase systematically using the identified entry points and 
         return base_prompt
 
     def _create_fallback_exploration_prompt(
-        self, 
-        directory: str, 
-        focus_area: Optional[str], 
-        detail_level: str, 
-        error_msg: str
-    ) -> List[base.Message]:
+        self,
+        directory: str,
+        focus_area: str | None,
+        detail_level: str,
+        error_msg: str,
+    ) -> list[base.Message]:
         """Create fallback exploration prompt when enhanced analysis fails."""
         fallback_prompt = f"""I want to explore and understand the codebase at '{directory}' but encountered some analysis limitations: {error_msg}
 

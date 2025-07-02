@@ -155,7 +155,7 @@ The Codebase RAG system currently suffers from a critical issue where Tree-sitte
 
 ---
 
-**Document Version**: 1.0  
-**Created**: 2025-07-01  
-**Author**: Claude Code Assistant  
+**Document Version**: 1.0
+**Created**: 2025-07-01
+**Author**: Claude Code Assistant
 **Status**: Draft - Pending Technical Review

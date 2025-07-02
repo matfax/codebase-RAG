@@ -10,10 +10,10 @@ __all__ = ["MCPPromptsSystem"]
 
 def register_prompts(app):
     """Register all prompts with the MCP app.
-    
+
     Args:
         app: The FastMCP app instance
-        
+
     Returns:
         MCPPromptsSystem: The initialized prompts system
     """

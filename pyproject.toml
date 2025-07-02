@@ -29,7 +29,82 @@ tree-sitter-cpp = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
+pre-commit = "^4.2.0"
+ruff = "^0.12.1"
+black = "^25.1.0"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 140
+target-version = ['py310']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | tests/fixtures/sample_code/sample_syntax_errors\.py
+)/
+'''
+
+[tool.ruff]
+# Same line length as Black for compatibility
+line-length = 140
+target-version = "py310"
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+select = ["E", "F", "W", "I", "N", "UP", "YTT", "BLE", "B", "A", "C4", "T20"]
+ignore = [
+    "E203",  # Whitespace before ':' (Black handles this)
+    "BLE001",  # Do not catch blind exception: Exception - allow for error handling
+    "B904",  # Within an `except` clause, raise exceptions with `raise ... from err` - allow for simplicity
+    "B023",  # Function definition does not bind loop variable - allow for closure patterns
+    "F401",  # Imported but unused - allow for availability checking
+    "B007",  # Loop control variable not used - allow for iteration patterns
+    "N801",  # Class name convention - allow for specific patterns
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/fixtures/sample_code/sample_syntax_errors.py" = ["ALL"]  # Ignore all in test fixtures
+"tests/**/*.py" = ["T201", "BLE001", "N806"]  # Allow print, bare except, and variable naming in tests
+"demo_*.py" = ["T201", "BLE001"]  # Allow print and bare except in demos
+"test_*.py" = ["T201", "BLE001", "N806"]  # Allow print, bare except, and variable naming in test files
+"manual_indexing.py" = ["T201", "BLE001"]  # Allow print and bare except in manual tool
+"src/**/*.test.py" = ["T201", "BLE001", "N806", "N999"]  # Allow print, bare except, variable naming, and module naming in test files
+"src/utils/workflow_orchestrator.py" = ["BLE001"]  # Allow bare except for error handling
+"src/mcp_prompts.py" = ["BLE001", "E501"]  # Allow bare except and long lines in template prompts
+"src/utils/tree_sitter_manager.py" = ["BLE001", "B904", "F601"]  # Allow bare except and other tree-sitter specific issues
+"src/prompts/**/*.py" = ["E501"]  # Allow long lines in prompt templates
+"src/services/indexing_service.py" = ["E501"]  # Allow long lines in logging statements
+"src/services/rag_search_strategy.py" = ["E501"]  # Allow long lines in data structure formatting
+"src/utils/prompt_*.py" = ["BLE001"]  # Allow bare except in utility modules
+
+[tool.ruff.format]
+# Use double quotes for strings.
+quote-style = "double"
+# Indent with spaces, rather than tabs.
+indent-style = "space"
+# Respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Automatically detect the appropriate line ending.
+line-ending = "auto"
+# Enable docstring code formatting
+docstring-code-format = true

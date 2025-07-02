@@ -74,28 +74,28 @@ This is a **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enab
    - Integration with all core services for consistent behavior
 
 6. **Data Flow**
-   
+
    **Full Indexing Flow with Intelligent Chunking:**
    ```
-   Source Code → File Discovery → AST Parsing → Intelligent Chunking → 
+   Source Code → File Discovery → AST Parsing → Intelligent Chunking →
    Function/Class Extraction → Batch Embedding → Streaming DB Storage → Metadata Storage
    ```
-   
+
    **Incremental Indexing Flow:**
    ```
-   File Discovery → Change Detection → Selective Processing → 
+   File Discovery → Change Detection → Selective Processing →
    AST Re-parsing → Smart Chunking → Embedding → DB Updates → Metadata Updates
    ```
-   
+
    **Query Flow with Precision Results:**
    ```
    Natural Language → Embedding → Vector Search → Function-Level Matches →
    Context Enhancement → Ranked Results with Breadcrumbs
    ```
-   
+
    **Manual Tool Flow:**
    ```
-   CLI Input → Validation → Pre-analysis → Progress Tracking → 
+   CLI Input → Validation → Pre-analysis → Progress Tracking →
    AST Processing → Core Processing → Syntax Error Reporting
    ```
 

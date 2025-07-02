@@ -51,7 +51,7 @@ async def search_functions():
         'n_results': 5,
         'include_context': True
     })
-    
+
     for chunk in result['results']:
         print(f"Found: {chunk['metadata']['name']} in {chunk['metadata']['file_path']}")
         print(f"Type: {chunk['metadata']['chunk_type']}")
@@ -77,10 +77,10 @@ asyncio.run(search_functions())
 # Example chunks extracted from Python code
 class UserService:  # -> Class chunk
     """User management service."""
-    
+
     def __init__(self, db):  # -> Method chunk
         self.db = db
-    
+
     async def authenticate_user(self, username, password):  # -> Method chunk
         """Authenticate user credentials."""
         return await self.db.verify_credentials(username, password)
@@ -109,7 +109,7 @@ class APIClient {  // -> Class chunk
     constructor(config) {  // -> Method chunk
         this.config = config;
     }
-    
+
     async fetchUser(id) {  // -> Method chunk
         return await fetch(`${this.config.api.baseUrl}/users/${id}`);
     }
@@ -245,11 +245,11 @@ Each chunk includes rich metadata:
 def calculate_user_score(user_data: dict, weights: dict) -> float:
     """
     Calculate user score based on activity data.
-    
+
     Args:
         user_data: Dictionary containing user activity metrics
         weights: Dictionary containing scoring weights
-        
+
     Returns:
         Calculated score as float
     """
@@ -262,14 +262,14 @@ def calculate_user_score(user_data: dict, weights: dict) -> float:
 # Well-structured classes with clear methods
 class UserAnalytics:
     """Analytics service for user behavior analysis."""
-    
+
     def __init__(self, database_client):
         self.db = database_client
-    
+
     def track_event(self, user_id: str, event_type: str, metadata: dict):
         """Track user event with metadata."""
         # Implementation
-    
+
     def generate_report(self, user_id: str, date_range: tuple) -> dict:
         """Generate analytics report for user."""
         # Implementation
@@ -289,7 +289,7 @@ def complex_processor():
 # Avoid mixing multiple concerns in one function
 def do_everything(data):
     # Validates data
-    # Processes data  
+    # Processes data
     # Saves to database
     # Sends notifications
     # Generates reports
@@ -303,17 +303,17 @@ def do_everything(data):
 def process_payment(amount: float, payment_method: str) -> dict:
     """
     Process payment transaction.
-    
+
     This function handles payment processing including validation,
     gateway communication, and transaction recording.
-    
+
     Args:
         amount: Payment amount in USD
         payment_method: Payment method identifier
-        
+
     Returns:
         Transaction result with status and transaction_id
-        
+
     Raises:
         PaymentError: When payment processing fails
         ValidationError: When input validation fails
@@ -325,11 +325,11 @@ def process_payment(amount: float, payment_method: str) -> dict:
 class PaymentProcessor:
     """
     Payment processing service.
-    
+
     Handles various payment methods including credit cards,
     digital wallets, and bank transfers. Provides transaction
     tracking and error handling.
-    
+
     Attributes:
         gateway: Payment gateway client
         config: Processor configuration
@@ -600,7 +600,7 @@ result = await app.call_tool('index_directory', {
 })
 
 result = await app.call_tool('index_directory', {
-    'directory': '/path/to/backend', 
+    'directory': '/path/to/backend',
     'project_name': 'my_backend_api'
 })
 
@@ -639,7 +639,7 @@ result = await app.call_tool('analyze_repository_tool', {
 
 # Returns language breakdown:
 # - Python: 150 files, 1200 functions
-# - TypeScript: 80 files, 800 functions  
+# - TypeScript: 80 files, 800 functions
 # - Go: 30 files, 200 functions
 ```
 

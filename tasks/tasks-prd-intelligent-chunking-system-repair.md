@@ -3,7 +3,7 @@
 - `src/services/code_parser_service.py` - Core service for Tree-sitter parsing and intelligent chunking
 - `src/services/code_parser_service.test.py` - Unit tests for code parser service
 - `src/services/indexing_service.py` - Main indexing service that uses code parser
-- `src/services/indexing_service.test.py` - Unit tests for indexing service  
+- `src/services/indexing_service.test.py` - Unit tests for indexing service
 - `src/models/code_chunk.py` - Data models for different chunk types
 - `src/models/code_chunk.test.py` - Unit tests for chunk models
 - `requirements.txt` - Python dependencies including Tree-sitter packages

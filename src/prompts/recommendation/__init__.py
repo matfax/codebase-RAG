@@ -3,10 +3,7 @@
 This module contains prompts for suggesting improvements and next actions.
 """
 
-from .suggest_next_steps import SuggestNextStepsPrompt
 from .optimize_search import OptimizeSearchPrompt
+from .suggest_next_steps import SuggestNextStepsPrompt
 
-__all__ = [
-    "SuggestNextStepsPrompt",
-    "OptimizeSearchPrompt"
-]
+__all__ = ["SuggestNextStepsPrompt", "OptimizeSearchPrompt"]

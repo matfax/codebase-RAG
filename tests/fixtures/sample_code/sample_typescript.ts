@@ -1,6 +1,6 @@
 /**
  * Sample TypeScript code for testing intelligent chunking.
- * 
+ *
  * This file demonstrates TypeScript-specific features including:
  * - Interfaces and type definitions
  * - Generics and type constraints
@@ -138,14 +138,14 @@ class UserService<T extends Identifiable = User> implements Repository<T> {
     async findById(id: number): Promise<T | null> {
         try {
             this.logger.info(`Fetching user with ID: ${id}`);
-            
+
             // Check cache first
             if (this.cache.has(id)) {
                 return this.cache.get(id)!;
             }
 
             const response = await this.apiClient.get<ApiResponse<T>>(`/users/${id}`);
-            
+
             if (response.success && response.data) {
                 this.cache.set(id, response.data);
                 return response.data;
@@ -274,7 +274,7 @@ class UserService<T extends Identifiable = User> implements Repository<T> {
     async getStatistics(): Promise<UserStatistics> {
         try {
             const response = await this.apiClient.get<ApiResponse<UserStatistics>>('/users/statistics');
-            
+
             if (response.success && response.data) {
                 return response.data;
             }
@@ -293,7 +293,7 @@ class UserService<T extends Identifiable = User> implements Repository<T> {
      */
     private validateUserData(userData: Partial<T>): void {
         const user = userData as any;
-        
+
         if (!user.name || user.name.trim().length === 0) {
             throw new ValidationError('User name is required');
         }

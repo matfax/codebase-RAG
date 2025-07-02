@@ -711,11 +711,11 @@ features:
   user_registration:
     enabled: true
     require_email_verification: true
-  
+
   two_factor_auth:
     enabled: true
     methods: ["totp", "sms"]
-  
+
   oauth2:
     enabled: true
     providers: ["google", "github"]
@@ -763,7 +763,7 @@ services:
     depends_on:
       - postgres
       - redis
-  
+
   postgres:
     image: postgres:13
     environment:
@@ -772,7 +772,7 @@ services:
       POSTGRES_PASSWORD: password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  
+
   redis:
     image: redis:6-alpine
     volumes:

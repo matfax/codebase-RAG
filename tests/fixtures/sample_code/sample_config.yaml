@@ -18,17 +18,17 @@ server:
   workers: 4
   max_connections: 1000
   keep_alive_timeout: 65
-  
+
   # SSL/TLS Configuration
   ssl:
     enabled: true
     certificate: "/etc/ssl/certs/server.crt"
     private_key: "/etc/ssl/private/server.key"
-    protocols: 
+    protocols:
       - "TLSv1.2"
       - "TLSv1.3"
     ciphers: "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS"
-  
+
   # CORS Configuration
   cors:
     enabled: true
@@ -53,7 +53,7 @@ server:
       - "X-Page-Count"
     max_age: 3600
     allow_credentials: true
-  
+
   # Rate Limiting
   rate_limiting:
     enabled: true
@@ -80,7 +80,7 @@ database:
     ssl_mode: "require"
     charset: "utf8"
     timezone: "UTC"
-    
+
     # Connection Pool Settings
     connection_pool:
       min_connections: 5
@@ -89,14 +89,14 @@ database:
       idle_timeout: 600
       max_lifetime: 3600
       health_check_period: 30
-    
+
     # Query Settings
     query_settings:
       slow_query_threshold: 1000  # milliseconds
       log_slow_queries: true
       statement_timeout: 30000
       lock_timeout: 5000
-  
+
   # Read Replica
   read_replica:
     type: postgresql
@@ -106,19 +106,19 @@ database:
     username: "userservice_readonly"
     password: "${DB_READ_PASSWORD}"
     ssl_mode: "require"
-    
+
     connection_pool:
       min_connections: 3
       max_connections: 15
       connection_timeout: 30
       idle_timeout: 300
-    
+
     # Load Balancing
     load_balancing:
       strategy: "round_robin"
       health_check_interval: 30
       max_retries: 3
-  
+
   # Migration Settings
   migrations:
     enabled: true
@@ -136,7 +136,7 @@ cache:
     database: 0
     password: "${REDIS_PASSWORD}"
     ssl: true
-    
+
     # Connection Pool
     connection_pool:
       max_connections: 20
@@ -144,19 +144,19 @@ cache:
       socket_timeout: 5
       retry_on_timeout: true
       retry_attempts: 3
-    
+
     # Key Management
     key_prefix: "userservice:"
     default_ttl: 3600
     namespace_separator: ":"
-    
+
     # Data Compression
     compression:
       enabled: true
       algorithm: "gzip"
       min_size: 1024
       level: 6
-    
+
     # Clustering
     cluster:
       enabled: false
@@ -164,7 +164,7 @@ cache:
         - "cache-1.example.com:6379"
         - "cache-2.example.com:6379"
         - "cache-3.example.com:6379"
-  
+
   # In-Memory Cache
   memory:
     enabled: true
@@ -183,25 +183,25 @@ authentication:
     refresh_expiration: 86400   # 24 hours
     issuer: "userservice.example.com"
     audience: "userservice-clients"
-    
+
     # Claims
     custom_claims:
       - "user_id"
       - "role"
       - "permissions"
       - "organization_id"
-    
+
     # Blacklist
     blacklist:
       enabled: true
       storage: "redis"
       cleanup_interval: 3600
-  
+
   # OAuth2 Providers
   oauth2:
     enabled: true
     state_ttl: 600  # 10 minutes
-    
+
     providers:
       google:
         client_id: "${GOOGLE_CLIENT_ID}"
@@ -211,7 +211,7 @@ authentication:
           - "email"
           - "profile"
         user_info_endpoint: "https://www.googleapis.com/oauth2/v2/userinfo"
-      
+
       github:
         client_id: "${GITHUB_CLIENT_ID}"
         client_secret: "${GITHUB_CLIENT_SECRET}"
@@ -219,7 +219,7 @@ authentication:
         scopes:
           - "user:email"
         user_info_endpoint: "https://api.github.com/user"
-      
+
       microsoft:
         client_id: "${MICROSOFT_CLIENT_ID}"
         client_secret: "${MICROSOFT_CLIENT_SECRET}"
@@ -227,7 +227,7 @@ authentication:
         scopes:
           - "https://graph.microsoft.com/user.read"
         user_info_endpoint: "https://graph.microsoft.com/v1.0/me"
-  
+
   # Session Management
   session:
     enabled: true
@@ -238,7 +238,7 @@ authentication:
     same_site: "strict"
     max_age: 3600
     rolling: true
-    
+
     # Session Security
     security:
       regenerate_on_login: true
@@ -251,7 +251,7 @@ authorization:
   rbac:
     enabled: true
     default_role: "user"
-    
+
     # Role Definitions
     roles:
       admin:
@@ -260,7 +260,7 @@ authorization:
         description: "Full system access"
         inherits: []
         max_session_duration: 14400  # 4 hours
-      
+
       moderator:
         permissions:
           - "users:read"
@@ -271,7 +271,7 @@ authorization:
         description: "User management and moderation"
         inherits: ["user"]
         max_session_duration: 7200   # 2 hours
-      
+
       user:
         permissions:
           - "profile:read"
@@ -282,36 +282,36 @@ authorization:
         description: "Standard user permissions"
         inherits: ["guest"]
         max_session_duration: 3600   # 1 hour
-      
+
       guest:
         permissions:
           - "public:read"
         description: "Read-only public access"
         inherits: []
         max_session_duration: 1800   # 30 minutes
-    
+
     # Resource Definitions
     resources:
       users:
         actions: ["create", "read", "update", "delete", "suspend", "activate"]
         attributes: ["id", "name", "email", "role", "status"]
-      
+
       profile:
         actions: ["read", "update"]
         attributes: ["personal_info", "preferences", "avatar"]
-      
+
       preferences:
         actions: ["read", "update"]
         attributes: ["theme", "language", "notifications"]
-      
+
       audit:
         actions: ["read"]
         attributes: ["logs", "events", "reports"]
-      
+
       public:
         actions: ["read"]
         attributes: ["announcements", "terms", "privacy"]
-  
+
   # Attribute-Based Access Control
   abac:
     enabled: false
@@ -323,14 +323,14 @@ authorization:
 logging:
   level: "info"
   format: "json"
-  
+
   # Output Destinations
   output:
     console:
       enabled: true
       colored: false
       format: "text"
-    
+
     file:
       enabled: true
       path: "/var/log/userservice/app.log"
@@ -338,14 +338,14 @@ logging:
       max_files: 10
       compress: true
       rotation: "daily"
-    
+
     syslog:
       enabled: false
       facility: "local0"
       tag: "userservice"
       network: "udp"
       address: "localhost:514"
-    
+
     elastic:
       enabled: false
       host: "elasticsearch.example.com"
@@ -353,7 +353,7 @@ logging:
       index: "userservice-logs"
       username: "${ES_USERNAME}"
       password: "${ES_PASSWORD}"
-  
+
   # Structured Logging
   structured_logging:
     enabled: true
@@ -362,12 +362,12 @@ logging:
     timestamp_format: "RFC3339"
     include_hostname: true
     include_pid: true
-  
+
   # Log Sampling
   sampling:
     enabled: false
     rate: 0.1  # Sample 10% of logs
-    
+
   # Sensitive Data
   redaction:
     enabled: true
@@ -387,36 +387,36 @@ monitoring:
     endpoint: "/metrics"
     namespace: "userservice"
     collection_interval: 30
-    
+
     # Custom Metrics
     custom_metrics:
       user_registrations:
         type: "counter"
         description: "Total number of user registrations"
         labels: ["method", "source"]
-      
+
       active_sessions:
         type: "gauge"
         description: "Number of currently active sessions"
         labels: ["role"]
-      
+
       api_request_duration:
         type: "histogram"
         description: "API request duration in seconds"
         labels: ["method", "endpoint", "status"]
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
-      
+
       database_connections:
         type: "gauge"
         description: "Number of active database connections"
         labels: ["pool", "state"]
-  
+
   # Health Checks
   health_checks:
     enabled: true
     endpoint: "/health"
     include_details: true
-    
+
     checks:
       database:
         enabled: true
@@ -424,14 +424,14 @@ monitoring:
         interval: 30
         critical: true
         query: "SELECT 1"
-      
+
       cache:
         enabled: true
         timeout: 3
         interval: 30
         critical: false
         command: "PING"
-      
+
       external_services:
         enabled: true
         timeout: 10
@@ -442,26 +442,26 @@ monitoring:
             url: "https://auth.example.com/health"
           - name: "notification-service"
             url: "https://notifications.example.com/health"
-  
+
   # Distributed Tracing
   tracing:
     enabled: true
     sampling_rate: 0.1
-    
+
     jaeger:
       endpoint: "http://jaeger:14268/api/traces"
       service_name: "userservice"
       tags:
         environment: "production"
         version: "2.1.0"
-    
+
     # Span Configuration
     spans:
       database_queries: true
       cache_operations: true
       external_requests: true
       authentication: true
-  
+
   # Application Performance Monitoring
   apm:
     enabled: false
@@ -477,7 +477,7 @@ notification:
     enabled: true
     default_from: "noreply@example.com"
     default_reply_to: "support@example.com"
-    
+
     # SMTP Configuration
     smtp:
       host: "smtp.example.com"
@@ -488,7 +488,7 @@ notification:
       auth_method: "plain"
       connection_timeout: 30
       send_timeout: 60
-    
+
     # Email Templates
     templates:
       welcome:
@@ -498,7 +498,7 @@ notification:
           - "user_name"
           - "application_name"
           - "login_url"
-      
+
       password_reset:
         subject: "Password Reset Request"
         template_path: "/templates/email/password_reset.html"
@@ -506,7 +506,7 @@ notification:
           - "user_name"
           - "reset_url"
           - "expiry_time"
-      
+
       email_verification:
         subject: "Please verify your email"
         template_path: "/templates/email/email_verification.html"
@@ -514,7 +514,7 @@ notification:
           - "user_name"
           - "verification_url"
           - "expiry_time"
-      
+
       account_locked:
         subject: "Account Security Alert"
         template_path: "/templates/email/account_locked.html"
@@ -522,14 +522,14 @@ notification:
           - "user_name"
           - "unlock_time"
           - "support_url"
-    
+
     # Rate Limiting
     rate_limiting:
       per_user_per_hour: 5
       per_user_per_day: 20
       global_per_minute: 100
       global_per_hour: 5000
-  
+
   # SMS Notifications
   sms:
     enabled: false
@@ -537,23 +537,23 @@ notification:
     account_sid: "${TWILIO_ACCOUNT_SID}"
     auth_token: "${TWILIO_AUTH_TOKEN}"
     from_number: "+1234567890"
-    
+
     # Message Templates
     templates:
       two_factor_code:
         message: "Your verification code is: {{code}}. This code expires in 5 minutes."
-      
+
       password_reset:
         message: "Your password reset code is: {{code}}. If you didn't request this, please contact support."
-  
+
   # Push Notifications
   push:
     enabled: false
-    
+
     firebase:
       service_account_key: "/etc/secrets/firebase-service-account.json"
       project_id: "userservice-notifications"
-      
+
     apns:
       enabled: false
       certificate_path: "/etc/secrets/apns-cert.p12"
@@ -580,7 +580,7 @@ security:
     history_count: 5
     strength_algorithm: "zxcvbn"
     min_strength_score: 3
-  
+
   # Account Lockout
   account_lockout:
     enabled: true
@@ -589,26 +589,26 @@ security:
     progressive_delay: true
     reset_after_success: true
     notify_user: true
-  
+
   # Encryption
   encryption:
     algorithm: "AES-256-GCM"
     key_derivation: "PBKDF2"
     iterations: 100000
     salt_length: 32
-    
+
     # Field-level encryption
     encrypted_fields:
       - "email"
       - "phone_number"
       - "personal_notes"
-  
+
   # Audit Logging
   audit:
     enabled: true
     include_request_body: false
     include_response_body: false
-    
+
     events:
       - "user_login"
       - "user_logout"
@@ -620,13 +620,13 @@ security:
       - "failed_login"
       - "account_locked"
       - "email_verified"
-    
+
     storage:
       type: "database"
       retention_days: 365
       export_format: "json"
       compression: true
-    
+
     # Privacy
     anonymize_after_days: 730
     include_ip_address: true
@@ -645,7 +645,7 @@ features:
       blacklist:
         - "tempmail.org"
         - "10minutemail.com"
-  
+
   user_profiles:
     enabled: true
     allow_profile_pictures: true
@@ -656,26 +656,26 @@ features:
       max_width: 512
       max_height: 512
       quality: 85
-  
+
   two_factor_auth:
     enabled: true
     methods: ["totp", "sms", "email"]
     require_for_admins: true
     require_for_moderators: false
-    
+
     backup_codes:
       enabled: true
       count: 10
       length: 8
       regenerate_on_use: false
-  
+
   api_versioning:
     enabled: true
     default_version: "v2"
     supported_versions: ["v1", "v2"]
     deprecation_warnings:
       v1: "2024-12-31"
-    
+
     version_detection:
       header: "API-Version"
       query_param: "version"
@@ -701,7 +701,7 @@ environments:
           cpu_profiling: true
         mock_external_services: true
         auto_reload: true
-  
+
   staging:
     server:
       workers: 2
@@ -712,7 +712,7 @@ environments:
       development:
         create_sample_users: true
         sample_user_count: 100
-  
+
   production:
     server:
       workers: 4

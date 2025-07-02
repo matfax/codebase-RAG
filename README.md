@@ -224,7 +224,7 @@ Index files in a directory or Git repository with intelligent code chunking and 
     }
     ```
 -   **Returns**: Indexing results, time estimates, or recommendations for existing data
--   **Smart Behavior**: 
+-   **Smart Behavior**:
     - **Intelligent Chunking**: Automatically uses syntax-aware chunking for supported languages
     - Automatically detects existing indexed data
     - Provides time estimates and recommendations
@@ -248,7 +248,7 @@ Search indexed content using natural language queries with function-level precis
     }
     ```
 -   **Returns**: Search results with relevant code snippets and rich metadata
--   **Enhanced Results**: 
+-   **Enhanced Results**:
     - **Function-Level Precision**: Returns specific functions, classes, or methods instead of entire files
     - **Rich Metadata**: Includes function signatures, docstrings, and breadcrumb navigation
     - **Context Enhancement**: Provides surrounding code context and related imports
@@ -336,22 +336,22 @@ async def example():
     # Index current directory with intelligent chunking (default behavior)
     result = await app.call_tool("index_directory", {"directory": "."})
     print(result)
-    
+
     # Perform incremental update (only processes changed files)
     result = await app.call_tool("index_directory", {
-        "directory": ".", 
+        "directory": ".",
         "incremental": True
     })
     print(result)
-    
+
     # Search for specific functions - now returns precise matches!
     result = await app.call_tool("search", {"query": "validateUser function"})
     print("Function-level results:", result)
-    
+
     # Search for class methods
     result = await app.call_tool("search", {"query": "UserService class methods"})
     print("Class and method results:", result)
-    
+
     # Search with enhanced context
     result = await app.call_tool("search", {
         "query": "authentication logic",
@@ -455,7 +455,7 @@ The easiest way to register this server with Claude Code:
    ```bash
    # Recommended: Use the wrapper script
    claude mcp add codebase-rag-mcp "$(pwd)/mcp_server"
-   
+
    # Alternative: Direct Python execution
    claude mcp add codebase-rag-mcp "$(pwd)/.venv/bin/python" "$(pwd)/src/run_mcp.py"
    ```
@@ -465,7 +465,7 @@ The easiest way to register this server with Claude Code:
    - `@codebase-rag-mcp:index_directory` - Index a directory (with intelligent recommendations)
    - `@codebase-rag-mcp:search` - Search indexed content
    - `@codebase-rag-mcp:health_check` - Check server status
-   
+
    **Smart Indexing Workflow**:
    - First call to `index_directory` will detect existing data and provide recommendations
    - Choose from: use existing data, incremental update, full reindex, or manual tool
@@ -563,7 +563,7 @@ This document serves as both:
 The architecture documentation was created by:
 
 1. **Initial Exploration**: Using `codebaseRAG:search` tools to understand entry points
-2. **Component Discovery**: Function-level searches to map service relationships  
+2. **Component Discovery**: Function-level searches to map service relationships
 3. **Data Flow Analysis**: Tracing execution paths through intelligent chunking
 4. **Performance Analysis**: Real metrics from the current 11,363 indexed chunks
 5. **Best Practices**: Derived from actual system behavior and optimization
@@ -580,7 +580,7 @@ The architecture documentation was created by:
 ```
 📊 Indexed Collections:
 ├── Code: 8,524 intelligent chunks (functions, classes, methods)
-├── Config: 280 configuration chunks (JSON/YAML objects)  
+├── Config: 280 configuration chunks (JSON/YAML objects)
 ├── Documentation: 2,559 documentation chunks (Markdown sections)
 └── Total: 11,363 semantic chunks ready for search
 ```

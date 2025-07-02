@@ -5,9 +5,10 @@ import os
 import time
 import traceback
 from collections import defaultdict
+from collections.abc import Callable, Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+from typing import Any
 
 try:
     import psutil
@@ -37,9 +38,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 # Configure basic console logging for startup messages
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 console_logger = logging.getLogger(__name__)
 
 
@@ -47,7 +46,7 @@ console_logger = logging.getLogger(__name__)
 class QdrantConnectionError(Exception):
     """Raised when connection to Qdrant fails."""
 
-    def __init__(self, message: str, details: Optional[str] = None):
+    def __init__(self, message: str, details: str | None = None):
         super().__init__(message)
         self.details = details
 
@@ -55,7 +54,7 @@ class QdrantConnectionError(Exception):
 class IndexingError(Exception):
     """Raised when file indexing fails."""
 
-    def __init__(self, message: str, file_path: str, details: Optional[str] = None):
+    def __init__(self, message: str, file_path: str, details: str | None = None):
         super().__init__(message)
         self.file_path = file_path
         self.details = details
@@ -64,7 +63,7 @@ class IndexingError(Exception):
 class SearchError(Exception):
     """Raised when search operation fails."""
 
-    def __init__(self, message: str, query: str, details: Optional[str] = None):
+    def __init__(self, message: str, query: str, details: str | None = None):
         super().__init__(message)
         self.query = query
         self.details = details
@@ -81,12 +80,8 @@ PROJECT_MARKERS = [".git", "pyproject.toml"]  # Simplified
 
 # Memory management configuration
 MEMORY_WARNING_THRESHOLD_MB = int(os.getenv("MEMORY_WARNING_THRESHOLD_MB", "1000"))
-MEMORY_CLEANUP_INTERVAL = int(
-    os.getenv("MEMORY_CLEANUP_INTERVAL", "5")
-)  # Cleanup every N batches
-FORCE_CLEANUP_THRESHOLD_MB = int(
-    os.getenv("FORCE_CLEANUP_THRESHOLD_MB", "1500")
-)  # Force cleanup at this threshold
+MEMORY_CLEANUP_INTERVAL = int(os.getenv("MEMORY_CLEANUP_INTERVAL", "5"))  # Cleanup every N batches
+FORCE_CLEANUP_THRESHOLD_MB = int(os.getenv("FORCE_CLEANUP_THRESHOLD_MB", "1500"))  # Force cleanup at this threshold
 
 
 # Helper functions (simplified from reference)
@@ -111,13 +106,9 @@ def log_memory_usage(context: str = "") -> float:
     """Log current memory usage and return the value in MB."""
     memory_mb = get_memory_usage_mb()
     if memory_mb > 0:
-        get_logger().info(
-            f"Memory usage{' ' + context if context else ''}: {memory_mb:.1f}MB"
-        )
+        get_logger().info(f"Memory usage{' ' + context if context else ''}: {memory_mb:.1f}MB")
         if memory_mb > MEMORY_WARNING_THRESHOLD_MB:
-            get_logger().warning(
-                f"Memory usage ({memory_mb:.1f}MB) exceeds warning threshold ({MEMORY_WARNING_THRESHOLD_MB}MB)"
-            )
+            get_logger().warning(f"Memory usage ({memory_mb:.1f}MB) exceeds warning threshold ({MEMORY_WARNING_THRESHOLD_MB}MB)")
     return memory_mb
 
 
@@ -143,8 +134,7 @@ def force_memory_cleanup(context: str = "") -> None:
 
     if memory_after > FORCE_CLEANUP_THRESHOLD_MB:
         get_logger().warning(
-            f"Memory still high ({memory_after:.1f}MB) after cleanup. "
-            f"Consider reducing batch sizes or processing fewer files."
+            f"Memory still high ({memory_after:.1f}MB) after cleanup. " f"Consider reducing batch sizes or processing fewer files."
         )
 
 
@@ -152,10 +142,7 @@ def should_cleanup_memory(batch_count: int, force_check: bool = False) -> bool:
     """Determine if memory cleanup should be performed."""
     if force_check or batch_count % MEMORY_CLEANUP_INTERVAL == 0:
         memory_mb = get_memory_usage_mb()
-        return (
-            memory_mb > MEMORY_WARNING_THRESHOLD_MB
-            or batch_count % MEMORY_CLEANUP_INTERVAL == 0
-        )
+        return memory_mb > MEMORY_WARNING_THRESHOLD_MB or batch_count % MEMORY_CLEANUP_INTERVAL == 0
     return False
 
 
@@ -171,9 +158,7 @@ def get_adaptive_batch_size(base_batch_size: int, memory_usage_mb: float) -> int
     elif memory_usage_mb > MEMORY_WARNING_THRESHOLD_MB:
         # Moderate reduction under memory warning
         adjusted_size = max(1, base_batch_size // 2)
-        get_logger().info(
-            f"Memory warning ({memory_usage_mb:.1f}MB), reducing batch size from {base_batch_size} to {adjusted_size}"
-        )
+        get_logger().info(f"Memory warning ({memory_usage_mb:.1f}MB), reducing batch size from {base_batch_size} to {adjusted_size}")
         return adjusted_size
     else:
         return base_batch_size
@@ -183,13 +168,13 @@ def clear_processing_variables(*variables) -> None:
     """Explicitly clear variables and force garbage collection."""
     for var in variables:
         if var is not None:
-            if hasattr(var, "clear") and callable(getattr(var, "clear")):
+            if hasattr(var, "clear") and callable(var.clear):
                 var.clear()
             del var
     gc.collect()
 
 
-def _get_available_project_names(collections: List[str]) -> List[str]:
+def _get_available_project_names(collections: list[str]) -> list[str]:
     """Extract available project names from collection names."""
     project_names = set()
     for collection in collections:
@@ -205,12 +190,10 @@ def _get_available_project_names(collections: List[str]) -> List[str]:
             if len(parts) >= 3:
                 dir_name = parts[1]  # The directory name part
                 project_names.add(dir_name)
-    return sorted(list(project_names))
+    return sorted(project_names)
 
 
-def _retry_individual_points(
-    client, collection_name: str, points: List[PointStruct]
-) -> Tuple[int, int]:
+def _retry_individual_points(client, collection_name: str, points: list[PointStruct]) -> tuple[int, int]:
     """Retry individual points when batch insertion fails.
 
     Args:
@@ -259,9 +242,7 @@ def get_qdrant_client():
             _qdrant_client = QdrantClient(host=host, port=port)
             retry_operation(lambda: _qdrant_client.get_collections())
         except Exception as e:
-            raise QdrantConnectionError(
-                f"Failed to connect to Qdrant at {host}:{port}", details=str(e)
-            )
+            raise QdrantConnectionError(f"Failed to connect to Qdrant at {host}:{port}", details=str(e))
     return _qdrant_client
 
 
@@ -277,8 +258,8 @@ def get_embeddings_manager_instance():
 
 
 def get_current_project(
-    client_directory: Optional[str] = None,
-) -> Optional[Dict[str, str]]:
+    client_directory: str | None = None,
+) -> dict[str, str] | None:
     global _current_project
     if client_directory:
         cwd = Path(client_directory).resolve()
@@ -323,8 +304,8 @@ def get_collection_name(file_path: str, file_type: str = "code") -> str:
 
 def ensure_collection(
     collection_name: str,
-    embedding_dimension: Optional[int] = None,
-    embedding_model_name: Optional[str] = None,
+    embedding_dimension: int | None = None,
+    embedding_model_name: str | None = None,
     content_type: str = "general",
 ):
     client = get_qdrant_client()
@@ -333,18 +314,12 @@ def ensure_collection(
         existing = [c.name for c in client.get_collections().collections]
         if collection_name not in existing:
             # Simplified dimension and model name for now
-            final_dimension = (
-                embedding_dimension or 768
-            )  # Default dimension for nomic-embed-text
-            final_model_name = embedding_model_name or os.getenv(
-                "OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"
-            )
+            final_dimension = embedding_dimension or 768  # Default dimension for nomic-embed-text
+            final_model_name = embedding_model_name or os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
 
             client.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=final_dimension, distance=Distance.COSINE
-                ),
+                vectors_config=VectorParams(size=final_dimension, distance=Distance.COSINE),
             )
             # Store metadata (simplified)
             metadata_payload = {
@@ -354,9 +329,7 @@ def ensure_collection(
                 "content_type": content_type,
                 "created_at": datetime.now().isoformat(),
             }
-            metadata_point_id = hashlib.md5(
-                f"{collection_name}_metadata".encode()
-            ).hexdigest()
+            metadata_point_id = hashlib.md5(f"{collection_name}_metadata".encode()).hexdigest()
             metadata_point = PointStruct(
                 id=metadata_point_id,
                 vector=[0.0] * final_dimension,
@@ -364,13 +337,9 @@ def ensure_collection(
             )
             try:
                 client.upsert(collection_name=collection_name, points=[metadata_point])
-                get_logger().info(
-                    f"Created collection {collection_name} with model {final_model_name}"
-                )
+                get_logger().info(f"Created collection {collection_name} with model {final_model_name}")
             except Exception as e:
-                get_logger().warning(
-                    f"Failed to store metadata for collection {collection_name}: {e}"
-                )
+                get_logger().warning(f"Failed to store metadata for collection {collection_name}: {e}")
 
     retry_operation(check_and_create)
 
@@ -382,12 +351,12 @@ def _truncate_content(content: str, max_length: int = 1500) -> str:
 
 
 def _expand_search_context(
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     qdrant_client,
-    search_collections: List[str],
+    search_collections: list[str],
     context_chunks: int = 1,
     embedding_dimension: int = 384,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     # This is a simplified version. Full implementation is complex.
     # For now, just return original results.
     return results
@@ -397,14 +366,14 @@ def _perform_hybrid_search(
     qdrant_client,
     embedding_model,
     query: str,
-    query_embedding: List[float],
-    search_collections: List[str],
+    query_embedding: list[float],
+    search_collections: list[str],
     n_results: int,
     search_mode: str = "hybrid",
-    collection_filter: Optional[Dict] = None,
-    result_processor: Optional[Callable] = None,
-    metadata_extractor: Optional[Callable] = None,
-) -> List[Dict[str, Any]]:
+    collection_filter: dict | None = None,
+    result_processor: Callable | None = None,
+    metadata_extractor: Callable | None = None,
+) -> list[dict[str, Any]]:
     all_results = []
     for collection in search_collections:
         try:
@@ -437,7 +406,7 @@ def _perform_hybrid_search(
     return all_results
 
 
-def clear_project_collections() -> Dict[str, Any]:
+def clear_project_collections() -> dict[str, Any]:
     current_project = get_current_project()
     if not current_project:
         return {"error": "No project context found", "cleared": []}
@@ -463,9 +432,7 @@ def clear_project_collections() -> Dict[str, Any]:
     }
 
 
-def delete_file_chunks(
-    file_path: str, collection_name: Optional[str] = None
-) -> Dict[str, Any]:
+def delete_file_chunks(file_path: str, collection_name: str | None = None) -> dict[str, Any]:
     get_logger()
     try:
         if not file_path or not isinstance(file_path, str):
@@ -487,18 +454,10 @@ def delete_file_chunks(
                 return {"error": f"Collection '{collection_name}' does not exist"}
         except Exception:
             return {"error": f"Could not access collection '{collection_name}'"}
-        filter_condition = Filter(
-            must=[
-                FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))
-            ]
-        )
-        count_response = qdrant_client.count(
-            collection_name=collection_name, count_filter=filter_condition, exact=True
-        )
+        filter_condition = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+        count_response = qdrant_client.count(collection_name=collection_name, count_filter=filter_condition, exact=True)
         points_before = count_response.count
-        qdrant_client.delete(
-            collection_name=collection_name, points_selector=filter_condition
-        )
+        qdrant_client.delete(collection_name=collection_name, points_selector=filter_condition)
         return {
             "file_path": str(abs_path),
             "collection": collection_name,
@@ -508,7 +467,7 @@ def delete_file_chunks(
         return {"error": str(e), "file_path": file_path}
 
 
-def check_qdrant_health(client) -> Dict[str, Any]:
+def check_qdrant_health(client) -> dict[str, Any]:
     """Check Qdrant connection health and return status information."""
     try:
         start_time = time.time()
@@ -529,9 +488,7 @@ def check_qdrant_health(client) -> Dict[str, Any]:
         }
 
 
-def retry_qdrant_operation(
-    operation_func, operation_name: str, max_retries: int = None
-) -> Any:
+def retry_qdrant_operation(operation_func, operation_name: str, max_retries: int = None) -> Any:
     """Retry Qdrant operations with exponential backoff."""
     max_retries = max_retries or int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
     retry_delay = float(os.getenv("DB_RETRY_DELAY", "1.0"))
@@ -542,32 +499,20 @@ def retry_qdrant_operation(
             return operation_func()
         except Exception as e:
             if attempt == max_retries:
-                logger.error(
-                    f"{operation_name} failed after {max_retries + 1} attempts: {e}"
-                )
+                logger.error(f"{operation_name} failed after {max_retries + 1} attempts: {e}")
                 raise e
 
             delay = retry_delay * (2**attempt)  # Exponential backoff
-            logger.warning(
-                f"{operation_name} attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s..."
-            )
+            logger.warning(f"{operation_name} attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s...")
             time.sleep(delay)
 
 
-def log_database_metrics(
-    stats: Dict[str, Any], operation_time: float, operation_type: str
-) -> None:
+def log_database_metrics(stats: dict[str, Any], operation_time: float, operation_type: str) -> None:
     """Log detailed database operation metrics."""
     logger = get_logger()
 
-    points_per_second = (
-        stats["successful_insertions"] / operation_time if operation_time > 0 else 0
-    )
-    success_rate = (
-        (stats["successful_insertions"] / stats["total_points"]) * 100
-        if stats["total_points"] > 0
-        else 0
-    )
+    points_per_second = stats["successful_insertions"] / operation_time if operation_time > 0 else 0
+    success_rate = (stats["successful_insertions"] / stats["total_points"]) * 100 if stats["total_points"] > 0 else 0
 
     logger.info(
         f"Database {operation_type} metrics: "
@@ -579,9 +524,7 @@ def log_database_metrics(
     )
 
     if stats["failed_insertions"] > 0:
-        logger.warning(
-            f"Database operation had {stats['failed_insertions']} failed insertions"
-        )
+        logger.warning(f"Database operation had {stats['failed_insertions']} failed insertions")
 
     if stats["errors"]:
         logger.error(f"Database operation errors: {len(stats['errors'])} error(s)")
@@ -591,7 +534,7 @@ def log_database_metrics(
             logger.error(f"  ... and {len(stats['errors']) - 3} more errors")
 
 
-def check_existing_index(project_info: Dict[str, str]) -> Dict[str, Any]:
+def check_existing_index(project_info: dict[str, str]) -> dict[str, Any]:
     """Check if the project already has indexed data.
 
     Args:
@@ -615,9 +558,7 @@ def check_existing_index(project_info: Dict[str, str]) -> Dict[str, Any]:
                 if collection_name in existing_collections:
                     try:
                         # Get collection info
-                        collection_info_response = client.get_collection(
-                            collection_name
-                        )
+                        collection_info_response = client.get_collection(collection_name)
                         points_count = collection_info_response.points_count
 
                         project_collections.append(collection_name)
@@ -630,18 +571,14 @@ def check_existing_index(project_info: Dict[str, str]) -> Dict[str, Any]:
                             }
                         )
                     except Exception as e:
-                        get_logger().warning(
-                            f"Could not get info for collection {collection_name}: {e}"
-                        )
+                        get_logger().warning(f"Could not get info for collection {collection_name}: {e}")
 
         return {
             "has_existing_data": len(project_collections) > 0,
             "collections": project_collections,
             "total_points": total_points,
             "collection_details": collection_info,
-            "project_name": project_info.get("name", "unknown")
-            if project_info
-            else "unknown",
+            "project_name": (project_info.get("name", "unknown") if project_info else "unknown"),
         }
 
     except Exception as e:
@@ -649,7 +586,7 @@ def check_existing_index(project_info: Dict[str, str]) -> Dict[str, Any]:
         return {"has_existing_data": False, "error": str(e)}
 
 
-def estimate_indexing_time(file_count: int, existing_points: int = 0) -> Dict[str, Any]:
+def estimate_indexing_time(file_count: int, existing_points: int = 0) -> dict[str, Any]:
     """Estimate indexing time and provide recommendations.
 
     Args:
@@ -667,11 +604,7 @@ def estimate_indexing_time(file_count: int, existing_points: int = 0) -> Dict[st
     if existing_points > 0:
         # Estimate time saved by not re-indexing
         avg_points_per_file = existing_points / max(file_count, 1)
-        time_saved_seconds = (
-            existing_points / avg_points_per_file * seconds_per_file
-            if avg_points_per_file > 0
-            else 0
-        )
+        time_saved_seconds = existing_points / avg_points_per_file * seconds_per_file if avg_points_per_file > 0 else 0
         time_saved_minutes = time_saved_seconds / 60
     else:
         time_saved_minutes = 0
@@ -695,7 +628,7 @@ def estimate_indexing_time(file_count: int, existing_points: int = 0) -> Dict[st
     }
 
 
-def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
+def load_ragignore_patterns(directory: Path) -> tuple[set[str], set[str]]:
     exclude_dirs = set()
     exclude_patterns = set()
     default_exclude_dirs = {
@@ -758,7 +691,7 @@ def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
     if not ragignore_path:
         return default_exclude_dirs, default_exclude_patterns
     try:
-        with open(ragignore_path, "r") as f:
+        with open(ragignore_path) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -776,8 +709,8 @@ def load_ragignore_patterns(directory: Path) -> Tuple[Set[str], Set[str]]:
 
 
 def _process_chunk_batch_for_streaming(
-    chunks: List[Any], embeddings_manager, batch_size: int = 20
-) -> Generator[Tuple[str, List[PointStruct]], None, None]:
+    chunks: list[Any], embeddings_manager, batch_size: int = 20
+) -> Generator[tuple[str, list[PointStruct]], None, None]:
     """
     Process chunks in batches and yield (collection_name, points) for streaming insertion.
 
@@ -807,9 +740,7 @@ def _process_chunk_batch_for_streaming(
         else:
             batch_chunks = chunks[i : i + batch_size]
 
-        logger.info(
-            f"Processing chunk batch {i // batch_size + 1}: {len(batch_chunks)} chunks (memory: {current_memory:.1f}MB)"
-        )
+        logger.info(f"Processing chunk batch {i // batch_size + 1}: {len(batch_chunks)} chunks (memory: {current_memory:.1f}MB)")
 
         # Group chunks by collection within this batch
         batch_collections = defaultdict(list)
@@ -849,28 +780,23 @@ def _process_chunk_batch_for_streaming(
         for collection_name, collection_chunks in batch_collections.items():
             try:
                 # Ensure collection exists
-                ensure_collection(
-                    collection_name, content_type=collection_name.split("_")[-1]
-                )
+                ensure_collection(collection_name, content_type=collection_name.split("_")[-1])
 
                 # Prepare texts for batch embedding generation, filtering empty content
                 valid_chunks = []
                 texts = []
                 for chunk in collection_chunks:
-                    if (
-                        chunk.content and chunk.content.strip()
-                    ):  # Check content is not empty or whitespace-only
+                    if chunk.content and chunk.content.strip():  # Check content is not empty or whitespace-only
                         texts.append(chunk.content)
                         valid_chunks.append(chunk)
                     else:
                         logger.warning(
-                            f"Skipping empty chunk from {chunk.metadata.get('file_path', 'unknown')} at line {chunk.metadata.get('line_start', 'unknown')}"
+                            f"Skipping empty chunk from {chunk.metadata.get('file_path', 'unknown')} "
+                            f"at line {chunk.metadata.get('line_start', 'unknown')}"
                         )
 
                 if not texts:
-                    logger.warning(
-                        f"No valid content found for collection {collection_name}, skipping batch"
-                    )
+                    logger.warning(f"No valid content found for collection {collection_name}, skipping batch")
                     continue
 
                 # Generate embeddings in batch
@@ -882,20 +808,16 @@ def _process_chunk_batch_for_streaming(
                 embedding_time = time.time() - start_time
 
                 if embeddings is None:
-                    logger.error(
-                        f"Failed to generate embeddings for batch in collection {collection_name}"
-                    )
+                    logger.error(f"Failed to generate embeddings for batch in collection {collection_name}")
                     continue
 
                 # Create points for this collection batch
                 points = []
                 successful_embeddings = 0
 
-                for chunk, embedding in zip(valid_chunks, embeddings):
+                for chunk, embedding in zip(valid_chunks, embeddings, strict=False):
                     if embedding is None:
-                        logger.warning(
-                            f"Skipping chunk from {chunk.metadata['file_path']} due to failed embedding"
-                        )
+                        logger.warning(f"Skipping chunk from {chunk.metadata['file_path']} due to failed embedding")
                         continue
 
                     # Convert tensor to list if necessary
@@ -904,9 +826,7 @@ def _process_chunk_batch_for_streaming(
                     else:
                         embedding_list = embedding
 
-                    chunk_id = hashlib.md5(
-                        f"{chunk.metadata['file_path']}_{chunk.metadata.get('chunk_index', 0)}".encode()
-                    ).hexdigest()
+                    chunk_id = hashlib.md5(f"{chunk.metadata['file_path']}_{chunk.metadata.get('chunk_index', 0)}".encode()).hexdigest()
 
                     payload = {
                         "file_path": chunk.metadata["file_path"],
@@ -932,32 +852,25 @@ def _process_chunk_batch_for_streaming(
                         "tags": chunk.metadata.get("tags", []),
                     }
 
-                    points.append(
-                        PointStruct(id=chunk_id, vector=embedding_list, payload=payload)
-                    )
+                    points.append(PointStruct(id=chunk_id, vector=embedding_list, payload=payload))
                     successful_embeddings += 1
 
                 if points:
                     logger.info(
-                        f"Prepared {len(points)} points for collection {collection_name} "
-                        f"(embedding time: {embedding_time:.2f}s)"
+                        f"Prepared {len(points)} points for collection {collection_name} " f"(embedding time: {embedding_time:.2f}s)"
                     )
                     yield collection_name, points
 
                     # Clear points from memory after yielding
                     clear_processing_variables(points)
                 else:
-                    logger.warning(
-                        f"No valid points generated for collection {collection_name}"
-                    )
+                    logger.warning(f"No valid points generated for collection {collection_name}")
 
                 # Clear intermediate variables
                 clear_processing_variables(texts, embeddings, collection_chunks)
 
             except Exception as e:
-                logger.error(
-                    f"Error processing batch for collection {collection_name}: {e}"
-                )
+                logger.error(f"Error processing batch for collection {collection_name}: {e}")
                 # Clean up on error
                 clear_processing_variables(
                     texts if "texts" in locals() else None,
@@ -974,9 +887,9 @@ def _process_chunk_batch_for_streaming(
 
 
 def _stream_points_to_qdrant(
-    collection_points_generator: Generator[Tuple[str, List[PointStruct]], None, None],
+    collection_points_generator: Generator[tuple[str, list[PointStruct]], None, None],
     qdrant_batch_size: int = 500,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Stream points to Qdrant in configurable batches with comprehensive monitoring.
 
@@ -1027,29 +940,26 @@ def _stream_points_to_qdrant(
                     health_status = check_qdrant_health(qdrant_client)
                     stats["health_checks"].append(health_status)
                     if not health_status["healthy"]:
-                        logger.warning(
-                            f"Qdrant health check failed: {health_status['error']}"
-                        )
+                        logger.warning(f"Qdrant health check failed: {health_status['error']}")
                         # Attempt to reconnect
                         try:
                             global _qdrant_client
                             _qdrant_client = None  # Force reconnection
                             qdrant_client = get_qdrant_client()
                         except Exception as reconnect_error:
-                            error_msg = (
-                                f"Failed to reconnect to Qdrant: {reconnect_error}"
-                            )
+                            error_msg = f"Failed to reconnect to Qdrant: {reconnect_error}"
                             logger.error(error_msg)
                             stats["errors"].append(error_msg)
 
                 # Perform insertion with retry logic
                 insertion_start = time.time()
-                current_batch_points = batch_points  # Capture batch_points
+                # Capture variables for closure to avoid B023
+                current_batch_points = batch_points
+                current_collection_name = collection_name
+                current_qdrant_client = qdrant_client
 
                 def insert_batch():
-                    return qdrant_client.upsert(
-                        collection_name=collection_name, points=current_batch_points
-                    )
+                    return current_qdrant_client.upsert(collection_name=current_collection_name, points=current_batch_points)
 
                 try:
                     retry_qdrant_operation(
@@ -1060,12 +970,8 @@ def _stream_points_to_qdrant(
                     insertion_time = time.time() - insertion_start
 
                     # Update timing metrics
-                    stats["timing_metrics"]["min_batch_time"] = min(
-                        stats["timing_metrics"]["min_batch_time"], insertion_time
-                    )
-                    stats["timing_metrics"]["max_batch_time"] = max(
-                        stats["timing_metrics"]["max_batch_time"], insertion_time
-                    )
+                    stats["timing_metrics"]["min_batch_time"] = min(stats["timing_metrics"]["min_batch_time"], insertion_time)
+                    stats["timing_metrics"]["max_batch_time"] = max(stats["timing_metrics"]["max_batch_time"], insertion_time)
 
                     stats["successful_insertions"] += len(batch_points)
                     logger.info(
@@ -1078,23 +984,15 @@ def _stream_points_to_qdrant(
 
                     # Try individual point insertion for partial recovery
                     if len(batch_points) > 1:
-                        logger.info(
-                            f"Attempting individual point recovery for failed batch {stats['batch_count']}"
-                        )
-                        individual_successes, individual_failures = (
-                            _retry_individual_points(
-                                qdrant_client, collection_name, batch_points
-                            )
-                        )
+                        logger.info(f"Attempting individual point recovery for failed batch {stats['batch_count']}")
+                        individual_successes, individual_failures = _retry_individual_points(qdrant_client, collection_name, batch_points)
 
                         stats["successful_insertions"] += individual_successes
                         stats["failed_insertions"] += individual_failures
                         stats["partial_failures"] += 1
 
                         if individual_successes > 0:
-                            logger.info(
-                                f"Recovered {individual_successes}/{len(batch_points)} points individually"
-                            )
+                            logger.info(f"Recovered {individual_successes}/{len(batch_points)} points individually")
                     else:
                         stats["failed_insertions"] += len(batch_points)
 
@@ -1118,11 +1016,7 @@ def _stream_points_to_qdrant(
 
                     # Log intermediate metrics
                     current_time = time.time() - operation_start_time
-                    points_per_second = (
-                        stats["successful_insertions"] / current_time
-                        if current_time > 0
-                        else 0
-                    )
+                    points_per_second = stats["successful_insertions"] / current_time if current_time > 0 else 0
                     logger.info(
                         f"Progress: {stats['successful_insertions']} points inserted, "
                         f"{points_per_second:.1f} points/sec, "
@@ -1133,9 +1027,7 @@ def _stream_points_to_qdrant(
         total_operation_time = time.time() - operation_start_time
         stats["timing_metrics"]["total_time"] = total_operation_time
         if stats["batch_count"] > 0:
-            stats["timing_metrics"]["avg_batch_time"] = (
-                total_operation_time / stats["batch_count"]
-            )
+            stats["timing_metrics"]["avg_batch_time"] = total_operation_time / stats["batch_count"]
 
         # Convert set to list for JSON serialization
         stats["collections_used"] = list(stats["collections_used"])
@@ -1151,12 +1043,8 @@ def _stream_points_to_qdrant(
         )
 
         if stats["health_checks"]:
-            healthy_checks = sum(
-                1 for check in stats["health_checks"] if check["healthy"]
-            )
-            logger.info(
-                f"Health checks: {healthy_checks}/{len(stats['health_checks'])} passed"
-            )
+            healthy_checks = sum(1 for check in stats["health_checks"] if check["healthy"])
+            logger.info(f"Health checks: {healthy_checks}/{len(stats['health_checks'])} passed")
 
         return stats
 
@@ -1171,9 +1059,7 @@ def _stream_points_to_qdrant(
 
         # Log metrics even on failure
         if stats["total_points"] > 0:
-            log_database_metrics(
-                stats, total_operation_time, "failed streaming insertion"
-            )
+            log_database_metrics(stats, total_operation_time, "failed streaming insertion")
 
         return stats
 
@@ -1193,12 +1079,12 @@ def register_mcp_tools(mcp_app: FastMCP):
     @mcp_app.tool()
     def index_directory(
         directory: str = ".",
-        patterns: List[str] = None,
+        patterns: list[str] = None,
         recursive: bool = True,
         clear_existing: bool = False,
         incremental: bool = False,
-        project_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        project_name: str | None = None,
+    ) -> dict[str, Any]:
         """
         Index files in a directory with smart existing data detection and time estimation.
 
@@ -1222,9 +1108,7 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             # Initial memory check
             initial_memory = memory_monitor.check_memory_usage(logger)
-            logger.info(
-                f"Index operation starting - Initial memory: {initial_memory['memory_mb']} MB"
-            )
+            logger.info(f"Index operation starting - Initial memory: {initial_memory['memory_mb']} MB")
 
             if patterns is None:
                 patterns = [
@@ -1270,9 +1154,7 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             # Use custom project name if provided, otherwise auto-detect
             if project_name:
-                current_project = (
-                    project_name.replace(" ", "_").replace("-", "_").lower()
-                )
+                current_project = project_name.replace(" ", "_").replace("-", "_").lower()
                 logger.info(f"Using custom project name: {current_project}")
             else:
                 current_project = get_current_project(client_directory=str(dir_path))
@@ -1296,9 +1178,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 quick_analysis = analysis_service.analyze_repository(str(dir_path))
                 estimated_file_count = quick_analysis.get("relevant_files", 0)
             except Exception as e:
-                get_logger().warning(
-                    f"Could not get quick file count: {e}, proceeding with full analysis"
-                )
+                get_logger().warning(f"Could not get quick file count: {e}, proceeding with full analysis")
                 estimated_file_count = 0
 
             # Generate intelligent time estimates and recommendations
@@ -1308,26 +1188,19 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             # Determine mode for estimation
             estimation_mode = "incremental" if incremental else "clear_existing"
-            estimate = time_estimator.estimate_indexing_time(
-                str(dir_path), estimation_mode
-            )
+            estimate = time_estimator.estimate_indexing_time(str(dir_path), estimation_mode)
 
             # Legacy time estimates for backward compatibility
             time_estimates = {
                 "estimated_time_minutes": estimate.estimated_minutes,
-                "time_saved_by_keeping_existing_minutes": 0.0
-                if not incremental
-                else estimate.estimated_minutes * 0.8,
+                "time_saved_by_keeping_existing_minutes": (0.0 if not incremental else estimate.estimated_minutes * 0.8),
                 "recommendation": estimate.recommendation,
                 "file_count": estimate.file_count,
                 "existing_points": existing_index_info.get("total_points", 0),
             }
 
             # Smart decision logic for clear_existing
-            if (
-                existing_index_info.get("has_existing_data", False)
-                and not clear_existing
-            ):
+            if existing_index_info.get("has_existing_data", False) and not clear_existing:
                 # Found existing data but clear_existing is False
                 return {
                     "success": False,
@@ -1337,41 +1210,29 @@ def register_mcp_tools(mcp_app: FastMCP):
                         "project_name": existing_index_info["project_name"],
                         "collections": existing_index_info["collections"],
                         "total_points": existing_index_info["total_points"],
-                        "collection_details": existing_index_info.get(
-                            "collection_details", []
-                        ),
+                        "collection_details": existing_index_info.get("collection_details", []),
                     },
                     "estimates": time_estimates,
                     "recommendations": {
                         "keep_existing": {
                             "description": "Keep existing data to save time",
-                            "time_saved_minutes": time_estimates[
-                                "time_saved_by_keeping_existing_minutes"
-                            ],
+                            "time_saved_minutes": time_estimates["time_saved_by_keeping_existing_minutes"],
                             "action": "Use existing indexed data for searches",
                         },
                         "incremental_update": {
                             "description": "Add only new/modified files using incremental mode",
                             "action": "Call index_directory again with incremental=true",
-                            "estimated_time_minutes": time_estimator.estimate_indexing_time(
-                                str(dir_path), "incremental"
-                            ).estimated_minutes,
+                            "estimated_time_minutes": time_estimator.estimate_indexing_time(str(dir_path), "incremental").estimated_minutes,
                         },
                         "full_reindex": {
                             "description": "Clear existing data and reindex everything",
-                            "estimated_time_minutes": time_estimates[
-                                "estimated_time_minutes"
-                            ],
+                            "estimated_time_minutes": time_estimates["estimated_time_minutes"],
                             "action": "Call index_directory again with clear_existing=true",
                         },
                         "manual_tool": {
                             "description": "Use standalone manual indexing tool for heavy operations",
-                            "command": time_estimator.get_manual_tool_command(
-                                str(dir_path), estimation_mode
-                            ),
-                            "recommended": time_estimator.should_recommend_manual_tool(
-                                estimate
-                            ),
+                            "command": time_estimator.get_manual_tool_command(str(dir_path), estimation_mode),
+                            "recommended": time_estimator.should_recommend_manual_tool(estimate),
                             "reason": "Recommended for operations exceeding 5 minutes",
                         },
                     },
@@ -1380,18 +1241,14 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             # Handle clearing existing data if requested
             if clear_existing and existing_index_info.get("has_existing_data", False):
-                get_logger().info(
-                    f"Clearing existing data for project {existing_index_info['project_name']}..."
-                )
+                get_logger().info(f"Clearing existing data for project {existing_index_info['project_name']}...")
                 clear_result = clear_project_collections()
                 if clear_result.get("errors"):
                     return {
                         "error": "Failed to clear some collections",
                         "clear_errors": clear_result["errors"],
                     }
-                get_logger().info(
-                    f"Cleared {len(clear_result.get('cleared_collections', []))} collections"
-                )
+                get_logger().info(f"Cleared {len(clear_result.get('cleared_collections', []))} collections")
 
             exclude_dirs, exclude_patterns = load_ragignore_patterns(dir_path)
 
@@ -1427,13 +1284,9 @@ def register_mcp_tools(mcp_app: FastMCP):
                     "total_files": 0,
                     "total_points": 0,
                     "collections": [],
-                    "project_context": current_project["name"]
-                    if current_project
-                    else "no project",
+                    "project_context": (current_project["name"] if current_project else "no project"),
                     "directory": str(dir_path),
-                    "existing_data": existing_index_info
-                    if existing_index_info.get("has_existing_data", False)
-                    else None,
+                    "existing_data": (existing_index_info if existing_index_info.get("has_existing_data", False) else None),
                 }
 
             # Get configuration for streaming processing
@@ -1443,9 +1296,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             # Check initial memory and adapt batch sizes if needed
             initial_memory = get_memory_usage_mb()
             chunk_batch_size = get_adaptive_batch_size(chunk_batch_size, initial_memory)
-            qdrant_batch_size = get_adaptive_batch_size(
-                qdrant_batch_size, initial_memory
-            )
+            qdrant_batch_size = get_adaptive_batch_size(qdrant_batch_size, initial_memory)
 
             get_logger().info(
                 f"Starting streaming indexing with chunk batch size: {chunk_batch_size}, Qdrant batch size: {qdrant_batch_size}"
@@ -1462,9 +1313,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             )
 
             # Stream points to Qdrant and collect statistics
-            streaming_stats = _stream_points_to_qdrant(
-                collection_points_generator, qdrant_batch_size=qdrant_batch_size
-            )
+            streaming_stats = _stream_points_to_qdrant(collection_points_generator, qdrant_batch_size=qdrant_batch_size)
 
             # Extract results from streaming stats
             collections_used = set(streaming_stats["collections_used"])
@@ -1478,15 +1327,13 @@ def register_mcp_tools(mcp_app: FastMCP):
             indexed_files_count = len(unique_files)
 
             # For MCP response size management, limit the files list
-            MAX_FILES_IN_RESPONSE = int(os.getenv("MAX_FILES_IN_RESPONSE", "50"))
-            if indexed_files_count <= MAX_FILES_IN_RESPONSE:
+            max_files_in_response = int(os.getenv("MAX_FILES_IN_RESPONSE", "50"))
+            if indexed_files_count <= max_files_in_response:
                 indexed_files = list(unique_files)
             else:
                 # Return only a sample of files for large codebases
-                indexed_files = list(unique_files)[:MAX_FILES_IN_RESPONSE]
-                get_logger().info(
-                    f"Truncating file list in response: showing {MAX_FILES_IN_RESPONSE} of {indexed_files_count} files"
-                )
+                indexed_files = list(unique_files)[:max_files_in_response]
+                get_logger().info(f"Truncating file list in response: showing {max_files_in_response} of {indexed_files_count} files")
 
             # Add any errors from streaming to existing errors list
             if streaming_stats["errors"]:
@@ -1505,28 +1352,17 @@ def register_mcp_tools(mcp_app: FastMCP):
                 "total_files": indexed_files_count,
                 "total_points": total_indexed_points,
                 "collections": list(collections_used),
-                "project_context": current_project["name"]
-                if current_project
-                else "no project",
+                "project_context": (current_project["name"] if current_project else "no project"),
                 "directory": str(dir_path),
-                "was_reindexed": clear_existing
-                and existing_index_info.get("has_existing_data", False),
+                "was_reindexed": clear_existing and existing_index_info.get("has_existing_data", False),
                 "performance": {
                     "batches_processed": streaming_stats["batch_count"],
                     "processing_time_seconds": actual_time,
-                    "estimated_time_minutes": time_estimates.get(
-                        "estimated_time_minutes", 0
-                    ),
-                    "actual_time_minutes": round(actual_time / 60, 1)
-                    if actual_time > 0
-                    else 0,
-                    "points_per_second": round(total_indexed_points / actual_time, 1)
-                    if actual_time > 0
-                    else 0,
+                    "estimated_time_minutes": time_estimates.get("estimated_time_minutes", 0),
+                    "actual_time_minutes": (round(actual_time / 60, 1) if actual_time > 0 else 0),
+                    "points_per_second": (round(total_indexed_points / actual_time, 1) if actual_time > 0 else 0),
                     "memory_efficient": True,
-                    "final_memory_mb": final_memory
-                    if "final_memory" in locals()
-                    else None,
+                    "final_memory_mb": (final_memory if "final_memory" in locals() else None),
                     "progress_tracking": progress_summary,
                 },
                 "errors": {
@@ -1554,13 +1390,11 @@ def register_mcp_tools(mcp_app: FastMCP):
                 }
 
             # Add sample files only if the list is manageable
-            if indexed_files_count <= MAX_FILES_IN_RESPONSE:
+            if indexed_files_count <= max_files_in_response:
                 result["indexed_files"] = indexed_files
             else:
                 result["sample_files"] = indexed_files  # Sample of files
-                result["note"] = (
-                    f"Showing {len(indexed_files)} sample files out of {indexed_files_count} total files indexed"
-                )
+                result["note"] = f"Showing {len(indexed_files)} sample files out of {indexed_files_count} total files indexed"
             return result
 
         except Exception as e:
@@ -1584,8 +1418,8 @@ def register_mcp_tools(mcp_app: FastMCP):
         search_mode: str = "hybrid",
         include_context: bool = True,
         context_chunks: int = 1,
-        target_projects: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        target_projects: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Search indexed content using natural language queries.
 
@@ -1615,9 +1449,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 if not isinstance(target_projects, list):
                     return {"error": "target_projects must be a list of project names"}
                 if not all(isinstance(p, str) for p in target_projects):
-                    return {
-                        "error": "All project names in target_projects must be strings"
-                    }
+                    return {"error": "All project names in target_projects must be strings"}
                 if len(target_projects) == 0:
                     return {"error": "target_projects cannot be empty if specified"}
 
@@ -1637,26 +1469,18 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             query_embedding = query_embedding_tensor.tolist()
 
-            all_collections = [
-                c.name for c in qdrant_client.get_collections().collections
-            ]
+            all_collections = [c.name for c in qdrant_client.get_collections().collections]
 
             # Handle target_projects logic
             if target_projects:
                 # Normalize project names for collection matching
-                normalized_projects = [
-                    p.replace(" ", "_").replace("-", "_").lower()
-                    for p in target_projects
-                ]
+                normalized_projects = [p.replace(" ", "_").replace("-", "_").lower() for p in target_projects]
                 search_collections = []
 
                 # Find collections for specified projects
                 for project_name in normalized_projects:
                     project_collections = [
-                        c
-                        for c in all_collections
-                        if c.startswith(f"project_{project_name}_")
-                        or c.startswith(f"dir_{project_name}_")
+                        c for c in all_collections if c.startswith(f"project_{project_name}_") or c.startswith(f"dir_{project_name}_")
                     ]
                     search_collections.extend(project_collections)
 
@@ -1664,9 +1488,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 if not search_collections:
                     return {
                         "error": f"No indexed collections found for projects: {target_projects}",
-                        "available_projects": _get_available_project_names(
-                            all_collections
-                        ),
+                        "available_projects": _get_available_project_names(all_collections),
                         "query": query,
                     }
 
@@ -1675,23 +1497,15 @@ def register_mcp_tools(mcp_app: FastMCP):
             else:
                 current_project = get_current_project()
                 if current_project:
-                    search_collections = [
-                        c
-                        for c in all_collections
-                        if c.startswith(current_project["collection_prefix"])
-                    ]
+                    search_collections = [c for c in all_collections if c.startswith(current_project["collection_prefix"])]
                 else:
-                    search_collections = [
-                        c for c in all_collections if c.startswith("global_")
-                    ]
+                    search_collections = [c for c in all_collections if c.startswith("global_")]
 
             def general_metadata_extractor(payload):
                 collection = payload.get("collection", "")
                 return {
                     "display_path": payload.get("file_path", ""),
-                    "type": "code"
-                    if "_code" in collection
-                    else ("config" if "_config" in collection else "docs"),
+                    "type": ("code" if "_code" in collection else ("config" if "_config" in collection else "docs")),
                     "language": payload.get("language", ""),
                     "line_start": payload.get("line_start", 0),
                     "line_end": payload.get("line_end", 0),
@@ -1720,13 +1534,9 @@ def register_mcp_tools(mcp_app: FastMCP):
 
             for result in all_results:
                 if "content" in result:
-                    result["content"] = _truncate_content(
-                        result["content"], max_length=1500
-                    )
+                    result["content"] = _truncate_content(result["content"], max_length=1500)
                 if "expanded_content" in result:
-                    result["expanded_content"] = _truncate_content(
-                        result["expanded_content"], max_length=2000
-                    )
+                    result["expanded_content"] = _truncate_content(result["expanded_content"], max_length=2000)
 
             current_project = get_current_project()
 
@@ -1742,9 +1552,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 "results": all_results,
                 "query": query,
                 "total": len(all_results),
-                "project_context": current_project["name"]
-                if current_project
-                else "no project",
+                "project_context": (current_project["name"] if current_project else "no project"),
                 "search_scope": search_scope,
                 "search_mode": search_mode,
                 "collections_searched": search_collections,
@@ -1758,21 +1566,21 @@ def register_mcp_tools(mcp_app: FastMCP):
 
     # Register additional tools that were defined outside the function
     @mcp_app.tool()
-    def analyze_repository_tool(directory: str = ".") -> Dict[str, Any]:
+    def analyze_repository_tool(directory: str = ".") -> dict[str, Any]:
         """
         Analyze repository structure and provide detailed statistics for indexing planning.
         """
         return analyze_repository(directory)
 
     @mcp_app.tool()
-    def get_file_filtering_stats_tool(directory: str = ".") -> Dict[str, Any]:
+    def get_file_filtering_stats_tool(directory: str = ".") -> dict[str, Any]:
         """
         Get detailed statistics about file filtering for debugging and optimization.
         """
         return get_file_filtering_stats(directory)
 
     @mcp_app.tool()
-    def check_index_status(directory: str = ".") -> Dict[str, Any]:
+    def check_index_status(directory: str = ".") -> dict[str, Any]:
         """
         Check if a directory already has indexed data and provide recommendations.
 
@@ -1791,9 +1599,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 return {
                     "has_existing_data": False,
                     "message": "No existing indexed data found for this project",
-                    "project_context": current_project.get("name", "unknown")
-                    if current_project
-                    else "unknown",
+                    "project_context": (current_project.get("name", "unknown") if current_project else "unknown"),
                     "directory": str(dir_path),
                     "recommendation": "Ready for initial indexing",
                 }
@@ -1808,9 +1614,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             except Exception:
                 estimated_file_count = 0
 
-            time_estimates = estimate_indexing_time(
-                estimated_file_count, existing_index_info.get("total_points", 0)
-            )
+            time_estimates = estimate_indexing_time(estimated_file_count, existing_index_info.get("total_points", 0))
 
             return {
                 "has_existing_data": True,
@@ -1819,19 +1623,13 @@ def register_mcp_tools(mcp_app: FastMCP):
                 "existing_data": {
                     "collections": existing_index_info["collections"],
                     "total_points": existing_index_info["total_points"],
-                    "collection_details": existing_index_info.get(
-                        "collection_details", []
-                    ),
+                    "collection_details": existing_index_info.get("collection_details", []),
                 },
                 "estimates": time_estimates,
                 "recommendations": {
                     "current_status": "Data already indexed and ready for search",
-                    "reindex_time_estimate_minutes": time_estimates[
-                        "estimated_time_minutes"
-                    ],
-                    "time_saved_by_keeping_existing_minutes": time_estimates[
-                        "time_saved_by_keeping_existing_minutes"
-                    ],
+                    "reindex_time_estimate_minutes": time_estimates["estimated_time_minutes"],
+                    "time_saved_by_keeping_existing_minutes": time_estimates["time_saved_by_keeping_existing_minutes"],
                     "actions": {
                         "use_existing": "Data is ready for search operations",
                         "full_reindex": "Call index_directory with clear_existing=true to reindex everything",
@@ -1847,7 +1645,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             }
 
     @mcp_app.tool()
-    def get_indexing_progress() -> Dict[str, Any]:
+    def get_indexing_progress() -> dict[str, Any]:
         """
         Get current progress of any ongoing indexing operations.
 
@@ -1873,9 +1671,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {"error": f"Failed to get indexing progress: {str(e)}"}
 
     @mcp_app.tool()
-    def get_chunking_metrics(
-        language: Optional[str] = None, export_path: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def get_chunking_metrics(language: str | None = None, export_path: str | None = None) -> dict[str, Any]:
         """
         Get comprehensive chunking performance metrics.
 
@@ -1900,9 +1696,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 if not lang_metrics:
                     return {
                         "error": f"No metrics found for language: {language}",
-                        "available_languages": list(
-                            parser_service.get_supported_languages()
-                        ),
+                        "available_languages": list(parser_service.get_supported_languages()),
                     }
 
                 console_logger.info(
@@ -1957,7 +1751,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {"error": error_msg}
 
     @mcp_app.tool()
-    def reset_chunking_metrics() -> Dict[str, Any]:
+    def reset_chunking_metrics() -> dict[str, Any]:
         """
         Reset session-specific chunking metrics.
 
@@ -1988,9 +1782,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {"error": error_msg}
 
     @mcp_app.tool()
-    def diagnose_parser_health(
-        comprehensive: bool = False, language: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def diagnose_parser_health(comprehensive: bool = False, language: str | None = None) -> dict[str, Any]:
         """
         Diagnose Tree-sitter parser health and functionality.
 
@@ -2028,10 +1820,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 if test_result.parsed_content:
                     result["sample_parsed_content"] = test_result.parsed_content
 
-                console_logger.info(
-                    f"Language test completed: {language} - "
-                    f"{'Success' if test_result.success else 'Failed'}"
-                )
+                console_logger.info(f"Language test completed: {language} - " f"{'Success' if test_result.success else 'Failed'}")
 
                 return result
 
@@ -2041,9 +1830,7 @@ def register_mcp_tools(mcp_app: FastMCP):
                 health_report = parser_diagnostics.run_comprehensive_diagnostics()
 
                 # Generate human-readable report
-                diagnostic_report = parser_diagnostics.generate_diagnostic_report(
-                    health_report
-                )
+                diagnostic_report = parser_diagnostics.generate_diagnostic_report(health_report)
 
                 result = {
                     "test_type": "comprehensive",
@@ -2092,9 +1879,7 @@ def register_mcp_tools(mcp_app: FastMCP):
 
                 quick_result["test_type"] = "quick_check"
 
-                console_logger.info(
-                    f"Quick health check completed: {quick_result.get('status', 'unknown')}"
-                )
+                console_logger.info(f"Quick health check completed: {quick_result.get('status', 'unknown')}")
 
                 return quick_result
 
@@ -2106,7 +1891,7 @@ def register_mcp_tools(mcp_app: FastMCP):
             return {"error": error_msg}
 
 
-def analyze_repository(directory: str = ".") -> Dict[str, Any]:
+def analyze_repository(directory: str = ".") -> dict[str, Any]:
     """
     Analyze repository structure and provide detailed statistics for indexing planning.
 
@@ -2137,12 +1922,8 @@ def analyze_repository(directory: str = ".") -> Dict[str, Any]:
         console_logger.info(f"  - Total files: {analysis['total_files']:,}")
         console_logger.info(f"  - Relevant files: {analysis['relevant_files']:,}")
         console_logger.info(f"  - Exclusion rate: {analysis['exclusion_rate']}%")
-        console_logger.info(
-            f"  - Repository size: {analysis['size_analysis']['total_size_mb']}MB"
-        )
-        console_logger.info(
-            f"  - Complexity level: {analysis['indexing_complexity']['level']}"
-        )
+        console_logger.info(f"  - Repository size: {analysis['size_analysis']['total_size_mb']}MB")
+        console_logger.info(f"  - Complexity level: {analysis['indexing_complexity']['level']}")
 
         return analysis
 
@@ -2154,7 +1935,7 @@ def analyze_repository(directory: str = ".") -> Dict[str, Any]:
         return {"error": error_msg, "directory": directory}
 
 
-def get_file_filtering_stats(directory: str = ".") -> Dict[str, Any]:
+def get_file_filtering_stats(directory: str = ".") -> dict[str, Any]:
     """
     Get detailed statistics about file filtering for debugging and optimization.
 
@@ -2188,29 +1969,18 @@ def get_file_filtering_stats(directory: str = ".") -> Dict[str, Any]:
         console_logger.info(
             f"  - Excluded by binary detection: {stats['excluded_by_binary_extension'] + stats['excluded_by_binary_header']:,}"
         )
-        console_logger.info(
-            f"  - Excluded by .ragignore: {stats['excluded_by_ragignore']:,}"
-        )
+        console_logger.info(f"  - Excluded by .ragignore: {stats['excluded_by_ragignore']:,}")
 
         # Calculate percentages
         total = stats["total_examined"]
         if total > 0:
             stats["inclusion_rate"] = round(stats["included"] / total * 100, 1)
-            stats["size_exclusion_rate"] = round(
-                stats["excluded_by_size"] / total * 100, 1
-            )
+            stats["size_exclusion_rate"] = round(stats["excluded_by_size"] / total * 100, 1)
             stats["binary_exclusion_rate"] = round(
-                (
-                    stats["excluded_by_binary_extension"]
-                    + stats["excluded_by_binary_header"]
-                )
-                / total
-                * 100,
+                (stats["excluded_by_binary_extension"] + stats["excluded_by_binary_header"]) / total * 100,
                 1,
             )
-            stats["ragignore_exclusion_rate"] = round(
-                stats["excluded_by_ragignore"] / total * 100, 1
-            )
+            stats["ragignore_exclusion_rate"] = round(stats["excluded_by_ragignore"] / total * 100, 1)
 
         return stats
 

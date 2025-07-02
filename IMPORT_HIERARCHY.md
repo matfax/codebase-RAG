@@ -9,7 +9,7 @@ This document defines the import hierarchy for the refactored MCP system to prev
 ```
 src/tools/core/
 ├── errors.py           # Custom exception classes
-├── retry_utils.py      # Retry logic utilities  
+├── retry_utils.py      # Retry logic utilities
 └── memory_utils.py     # Memory management utilities
 ```
 
@@ -29,7 +29,7 @@ src/tools/core/
 ```
 src/tools/database/
 ├── collection_manager.py  # Collection CRUD operations
-├── streaming.py           # Streaming database operations  
+├── streaming.py           # Streaming database operations
 └── operations.py          # General database utilities
 ```
 
@@ -155,7 +155,7 @@ from tools.core.errors import QdrantConnectionError
 # Level 1 importing from Level 2+ (FORBIDDEN)
 from tools.database.operations import some_function  # WRONG
 
-# Horizontal imports at same level (FORBIDDEN)  
+# Horizontal imports at same level (FORBIDDEN)
 from tools.indexing.search_tools import search  # From indexing_tools.py - WRONG
 
 # Registry importing specific implementations (MINIMIZE)
