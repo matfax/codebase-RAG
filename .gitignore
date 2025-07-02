@@ -1,4 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
-indexing_report.*
+indexing_report_*.json
+chunking_metrics.json
+.DS_Store
