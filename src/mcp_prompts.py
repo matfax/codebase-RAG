@@ -6,28 +6,20 @@ providing intelligent guided workflows for AI agents and developers.
 
 The system offers:
 - Project exploration and analysis prompts
-- Component understanding and tracing prompts  
+- Component understanding and tracing prompts
 - Smart recommendation and optimization prompts
 - Context-aware workflow orchestration
 """
 
-import os
 import logging
-import time
-from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
-from datetime import datetime
-from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
-
+from services.embedding_service import EmbeddingService
 from services.indexing_service import IndexingService
 from services.project_analysis_service import ProjectAnalysisService
-from services.embedding_service import EmbeddingService
-from utils.performance_monitor import MemoryMonitor
-from models.prompt_context import PromptContext, PromptResult
-
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +27,12 @@ logger = logging.getLogger(__name__)
 class MCPPromptsSystem:
     """
     Core MCP Prompts system providing intelligent workflow guidance.
-    
+
     This system registers and manages intelligent prompts that help users
     explore codebases, understand components, trace functionality, and
     receive smart recommendations for next steps.
     """
-    
+
     def __init__(self, mcp_app: FastMCP):
         self.mcp_app = mcp_app
         self.logger = logger
@@ -49,7 +41,7 @@ class MCPPromptsSystem:
         self.embedding_service = None
         self._initialize_services()
         self._register_prompts()
-    
+
     def _initialize_services(self):
         """Initialize required services for prompt operations."""
         try:
@@ -60,104 +52,119 @@ class MCPPromptsSystem:
         except Exception as e:
             self.logger.error(f"Failed to initialize MCP Prompts services: {e}")
             raise
-    
+
     def _register_prompts(self):
         """Register all MCP prompts with the FastMCP app."""
         self.logger.info("Registering MCP Prompts...")
-        
+
         # Core exploration prompts
         self._register_explore_project()
         self._register_understand_component()
         self._register_trace_functionality()
         self._register_find_entry_points()
-        
+
         # Smart recommendation prompts
         self._register_suggest_next_steps()
         self._register_optimize_search()
-        
+
         self.logger.info("All MCP Prompts registered successfully")
-    
+
     def _register_explore_project(self):
         """Register the explore_project prompt."""
+
         @self.mcp_app.prompt()
         def explore_project(
             directory: str = ".",
             focus_area: Optional[str] = None,
-            detail_level: str = "overview"
+            detail_level: str = "overview",
         ) -> List[base.Message]:
             """
-            Get a comprehensive guided exploration of project architecture and structure.
-            
-            This prompt analyzes the entire project to provide architectural insights,
-            key module identification, dependency mapping, and strategic navigation guidance.
+            Get a comprehensive guided exploration of project architecture and
+            structure.
+
+            This prompt analyzes the entire project to provide architectural
+            insights, key module identification, dependency mapping, and strategic
+            navigation guidance.
             Perfect for onboarding new developers or understanding unfamiliar codebases.
-            
+
             Args:
-                directory: Project directory to explore (default: current directory)  
-                focus_area: Specific area to focus on (e.g., "authentication", "data_layer", "api")
-                detail_level: Level of detail - "overview", "detailed", or "comprehensive"
+                directory: Project directory to explore (default: current directory)
+                focus_area: Specific area to focus on (e.g., "authentication",
+                "data_layer", "api")
+                detail_level: Level of detail - "overview", "detailed", or
+                "comprehensive"
             """
             try:
                 # Use enhanced project exploration service
-                from services.project_exploration_service import ProjectExplorationService
+                from services.project_exploration_service import (
+                    ProjectExplorationService,
+                )
+
                 exploration_service = ProjectExplorationService()
-                
+
                 # Perform comprehensive project exploration
                 exploration_result = exploration_service.explore_project(
                     project_path=directory,
                     focus_area=focus_area,
                     detail_level=detail_level,
                     include_dependencies=detail_level in ["detailed", "comprehensive"],
-                    analyze_complexity=detail_level in ["detailed", "comprehensive"]
+                    analyze_complexity=detail_level in ["detailed", "comprehensive"],
                 )
-                
+
                 # Format the exploration results into a comprehensive prompt
                 formatted_summary = exploration_service.format_exploration_summary(
                     exploration_result, detail_level
                 )
-                
+
                 # Create guided exploration prompt with rich analysis
                 exploration_prompt = self._build_enhanced_exploration_prompt(
-                    directory, exploration_result, focus_area, detail_level, formatted_summary
+                    directory,
+                    exploration_result,
+                    focus_area,
+                    detail_level,
+                    formatted_summary,
                 )
-                
-                return [base.Message(
-                    content=exploration_prompt,
-                    role="user"
-                )]
-                
+
+                return [base.Message(content=exploration_prompt, role="user")]
+
             except Exception as e:
                 self.logger.error(f"Error in explore_project prompt: {e}")
                 # Fallback to basic exploration
-                return self._create_fallback_exploration_prompt(directory, focus_area, detail_level, str(e))
-    
+                return self._create_fallback_exploration_prompt(
+                    directory, focus_area, detail_level, str(e)
+                )
+
     def _register_understand_component(self):
         """Register the understand_component prompt."""
+
         @self.mcp_app.prompt()
         def understand_component(
             component_name: str,
             component_type: str = "auto",
             include_dependencies: bool = True,
-            include_usage_examples: bool = True
+            include_usage_examples: bool = True,
         ) -> List[base.Message]:
             """
             Get in-depth understanding of a specific component, module, or function.
-            
-            This prompt provides detailed analysis of component responsibilities, interfaces,
-            dependencies, and usage patterns. Ideal for understanding complex components
-            before making modifications or integrating with them.
-            
+
+            This prompt provides detailed analysis of component responsibilities,
+            interfaces, dependencies, and usage patterns. Ideal for understanding
+            complex components before making modifications or integrating with them.
+
             Args:
-                component_name: Name of component to analyze (class, function, module, file)
-                component_type: Type hint - "class", "function", "module", "file", or "auto" 
+                component_name: Name of component to analyze (class, function,
+                module, file)
+                component_type: Type hint - "class", "function", "module", "file",
+                or "auto"
                 include_dependencies: Whether to analyze dependencies and relationships
                 include_usage_examples: Whether to provide usage examples and patterns
             """
             try:
                 # Use enhanced component analysis service
                 from services.component_analysis_service import ComponentAnalysisService
+
                 analysis_service = ComponentAnalysisService()
-                
+
                 # Perform comprehensive component analysis
                 analysis_result = analysis_service.analyze_component(
                     component_name=component_name,
@@ -165,60 +172,80 @@ class MCPPromptsSystem:
                     component_type=component_type,
                     include_dependencies=include_dependencies,
                     include_usage_examples=include_usage_examples,
-                    analyze_quality=True
+                    analyze_quality=True,
                 )
-                
+
                 # Format the analysis results into a comprehensive summary
                 formatted_summary = analysis_service.format_analysis_summary(
                     analysis_result, detail_level="detailed"
                 )
-                
+
                 # Create enhanced component understanding prompt
                 understanding_prompt = self._build_enhanced_component_prompt(
-                    component_name, analysis_result, include_dependencies, 
-                    include_usage_examples, formatted_summary
+                    component_name,
+                    analysis_result,
+                    include_dependencies,
+                    include_usage_examples,
+                    formatted_summary,
                 )
-                
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(type="text", text=understanding_prompt), role="user"
-                )]
-                
+
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(
+                            type="text", text=understanding_prompt
+                        ),
+                    )
+                ]
+
             except Exception as e:
                 self.logger.error(f"Error in understand_component prompt: {e}")
                 # Fallback to basic component analysis
                 return self._create_fallback_component_prompt(
-                    component_name, component_type, include_dependencies, 
-                    include_usage_examples, str(e)
+                    component_name,
+                    component_type,
+                    include_dependencies,
+                    include_usage_examples,
+                    str(e),
                 )
-    
+
     def _register_trace_functionality(self):
         """Register the trace_functionality prompt."""
+
         @self.mcp_app.prompt()
         def trace_functionality(
             functionality_description: str,
             trace_type: str = "full_flow",
             include_config: bool = True,
-            include_data_flow: bool = True
+            include_data_flow: bool = True,
         ) -> List[base.Message]:
             """
             Trace the complete implementation path of specific functionality.
-            
-            This prompt traces functionality from API endpoints to database operations,
-            identifying the complete call chain, configuration dependencies, and data flow.
-            Essential for understanding complex feature implementations or debugging issues.
-            
+
+            This prompt traces functionality from API endpoints to database
+            operations, identifying the complete call chain, configuration
+            dependencies, and data flow.
+            Essential for understanding complex feature implementations or debugging
+            issues.
+
             Args:
-                functionality_description: Description of functionality to trace (e.g., "user authentication", "file upload")
-                trace_type: Type of trace - "full_flow", "api_to_db", "user_journey", or "data_pipeline"  
-                include_config: Whether to include configuration and environment dependencies
-                include_data_flow: Whether to trace data transformation and flow patterns
+                functionality_description: Description of functionality to trace
+                (e.g., "user authentication", "file upload")
+                trace_type: Type of trace - "full_flow", "api_to_db",
+                "user_journey", or "data_pipeline"
+                include_config: Whether to include configuration and environment
+                dependencies
+                include_data_flow: Whether to trace data transformation and flow
+                patterns
             """
             try:
                 # Use enhanced functionality tracing service
-                from services.functionality_tracing_service import FunctionalityTracingService
+                from services.functionality_tracing_service import (
+                    FunctionalityTracingService,
+                )
+
                 tracing_service = FunctionalityTracingService()
-                
+
                 # Perform comprehensive functionality tracing
                 trace_result = tracing_service.trace_functionality(
                     functionality_description=functionality_description,
@@ -226,50 +253,62 @@ class MCPPromptsSystem:
                     trace_type=trace_type,
                     include_config=include_config,
                     include_data_flow=include_data_flow,
-                    max_depth=10
+                    max_depth=10,
                 )
-                
+
                 # Format the trace results into a comprehensive summary
                 formatted_summary = tracing_service.format_trace_summary(
                     trace_result, detail_level="detailed"
                 )
-                
+
                 # Create enhanced functionality tracing prompt
                 tracing_prompt = self._build_enhanced_trace_prompt(
-                    functionality_description, trace_result, trace_type, 
-                    include_config, include_data_flow, formatted_summary
+                    functionality_description,
+                    trace_result,
+                    trace_type,
+                    include_config,
+                    include_data_flow,
+                    formatted_summary,
                 )
-                
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(type="text", text=tracing_prompt), role="user"
-                )]
-                
+
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(type="text", text=tracing_prompt),
+                    )
+                ]
+
             except Exception as e:
                 self.logger.error(f"Error in trace_functionality prompt: {e}")
                 # Fallback to basic functionality tracing
                 return self._create_fallback_trace_prompt(
-                    functionality_description, trace_type, include_config, 
-                    include_data_flow, str(e)
+                    functionality_description,
+                    trace_type,
+                    include_config,
+                    include_data_flow,
+                    str(e),
                 )
-    
+
     def _register_find_entry_points(self):
         """Register the find_entry_points prompt."""
+
         @self.mcp_app.prompt()
         def find_entry_points(
             entry_type: str = "all",
             learning_path: bool = True,
-            include_examples: bool = True
+            include_examples: bool = True,
         ) -> List[base.Message]:
             """
             Identify and explain all main entry points into the application.
-            
-            This prompt discovers entry points like main functions, API routes, CLI commands,
-            and other application starting points, providing a structured learning path
-            for new developers to understand how the application is used and invoked.
-            
+
+            This prompt discovers entry points like main functions, API routes,
+            CLI commands, and other application starting points, providing a
+            structured learning path for new developers to understand how the
+            application is used and invoked.
+
             Args:
-                entry_type: Type of entry points - "all", "api", "cli", "main_functions", or "scripts"
+                entry_type: Type of entry points - "all", "api", "cli",
+                "main_functions", or "scripts"
                 learning_path: Whether to suggest an optimal learning/reading order
                 include_examples: Whether to provide usage examples for each entry point
             """
@@ -278,157 +317,216 @@ class MCPPromptsSystem:
                 entry_points_prompt = self._build_entry_points_prompt(
                     entry_type, learning_path, include_examples
                 )
-                
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(type="text", text=entry_points_prompt), role="user"
-                )]
-                
+
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(type="text", text=entry_points_prompt),
+                    )
+                ]
+
             except Exception as e:
                 self.logger.error(f"Error in find_entry_points prompt: {e}")
-                return [base.Message(
-                    content="I need to find all the entry points for this application. Can you help me identify main functions, API routes, CLI commands, and other ways to start or interact with this codebase?",
-                    role="user"
-                )]
-    
+                return [
+                    base.Message(
+                        content=(
+                            "I need to find all the entry points for this application. "
+                            "Can you help me identify main functions, API routes, "
+                            "CLI commands, and other ways to start or interact with "
+                            "this codebase?"
+                        ),
+                        role="user",
+                    )
+                ]
+
     def _register_suggest_next_steps(self):
-        """Register the suggest_next_steps prompt."""  
+        """Register the suggest_next_steps prompt."""
+
         @self.mcp_app.prompt()
         def suggest_next_steps(
             current_context: str,
             user_role: str = "developer",
             task_type: str = "exploration",
-            difficulty_level: str = "intermediate"
+            difficulty_level: str = "intermediate",
         ) -> List[base.Message]:
             """
             Get intelligent recommendations for next actions based on current context.
-            
-            This prompt analyzes your current exploration state and provides personalized
+
+            This prompt analyzes your current exploration state and provides
+            personalized
             recommendations for next steps, considering your role, task objectives, and
             skill level. Helps maintain momentum and direction in complex codebase work.
-            
+
             Args:
-                current_context: Description of what you're currently working on or have discovered
-                user_role: Your role - "developer", "architect", "reviewer", "newcomer", or "debugger"
-                task_type: Type of task - "exploration", "development", "refactoring", "debugging", or "review"
-                difficulty_level: Skill level - "beginner", "intermediate", or "advanced"
+                current_context: Description of what you're currently working on or
+                                 have discovered
+                user_role: Your role - "developer", "architect", "reviewer",
+                           "newcomer", or "debugger"
+                task_type: Type of task - "exploration", "development", "refactoring",
+                           "debugging", or "review"
+                difficulty_level: Skill level - "beginner", "intermediate",
+                                  or "advanced"
             """
             try:
                 # Build next steps recommendation prompt
                 next_steps_prompt = self._build_next_steps_prompt(
                     current_context, user_role, task_type, difficulty_level
                 )
-                
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(type="text", text=next_steps_prompt), role="user"
-                )]
-                
+
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(type="text", text=next_steps_prompt),
+                    )
+                ]
+
             except Exception as e:
                 self.logger.error(f"Error in suggest_next_steps prompt: {e}")
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(, role="user"
-                        text=f"Based on my current context: '{current_context}', can you suggest the best next steps for a {user_role} working on {task_type} tasks?"
-                    )]
-                )]
-    
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(
+                            text=(
+                                f"Based on my current context: '{current_context}', "
+                                f"can you suggest the best next steps for a {user_role} "
+                                f"working on {task_type} tasks?"
+                            ),
+                        ),
+                    )
+                ]
+
     def _register_optimize_search(self):
         """Register the optimize_search prompt."""
+
         @self.mcp_app.prompt()
         def optimize_search(
             previous_searches: List[str],
             search_goal: str,
             refine_strategy: bool = True,
-            suggest_alternatives: bool = True  
+            suggest_alternatives: bool = True,
         ) -> List[base.Message]:
             """
-            Optimize search strategies and suggest better approaches for finding information.
-            
-            This prompt analyzes your search patterns and results to recommend more effective
-            search terms, strategies, and alternative approaches for finding the information
-            you need in the codebase.
-            
+            Optimize search strategies and suggest better approaches for finding
+            information.
+
+            This prompt analyzes your search patterns and results to recommend more
+            effective search terms, strategies, and alternative approaches for finding
+            the information you need in the codebase.
+
             Args:
                 previous_searches: List of previous search queries you've tried
                 search_goal: What you're ultimately trying to find or understand
                 refine_strategy: Whether to suggest refined search terms and strategies
-                suggest_alternatives: Whether to suggest alternative investigation approaches
+                suggest_alternatives: Whether to suggest alternative investigation
+                                      approaches
             """
             try:
                 # Build search optimization prompt
                 search_optimization_prompt = self._build_search_optimization_prompt(
-                    previous_searches, search_goal, refine_strategy, suggest_alternatives
+                    previous_searches,
+                    search_goal,
+                    refine_strategy,
+                    suggest_alternatives,
                 )
-                
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(type="text", text=search_optimization_prompt), role="user"
-                )]
-                
+
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(
+                            type="text", text=search_optimization_prompt
+                        ),
+                    )
+                ]
+
             except Exception as e:
                 self.logger.error(f"Error in optimize_search prompt: {e}")
-                return [base.Message(
-                    role="user",
-                    content=base.TextContent(, role="user"
-                        text=f"I've been searching for '{search_goal}' with these queries: {previous_searches}. Can you help me optimize my search strategy and suggest better approaches?"
-                    )]
-                )]
-    
-    def _build_exploration_prompt(self, directory: str, stats: Dict, focus_area: Optional[str], detail_level: str) -> str:
+                return [
+                    base.Message(
+                        role="user",
+                        content=base.TextContent(
+                            text=(
+                                f"I've been searching for '{search_goal}' with these "
+                                f"queries: {previous_searches}. Can you help me optimize "
+                                f"my search strategy and suggest better approaches?"
+                            ),
+                        ),
+                    )
+                ]
+
+    def _build_exploration_prompt(
+        self, directory: str, stats: Dict, focus_area: Optional[str], detail_level: str
+    ) -> str:
         """Build the project exploration prompt text."""
-        base_prompt = f"""I need to explore and understand the codebase at '{directory}'. Here's what I know about the project:
-
-📊 **Project Statistics:**
-- Total files: {stats['total_files']:,}
-- Relevant code files: {stats['relevant_files']:,}  
-- Size: {stats['size_mb']} MB
-- Complexity: {stats['complexity']}
-- Languages: {', '.join(stats['languages'].keys()) if stats['languages'] else 'Not detected'}
-
-🎯 **Exploration Goal:** 
-I want a {detail_level} exploration of this project's architecture and structure."""
+        base_prompt = (
+            f"I need to explore and understand the codebase at '{directory}'. "
+            f"Here's what I know about the project:\n\n"
+            f"📊 **Project Statistics:**\n"
+            f"- Total files: {stats['total_files']:,}\n"
+            f"- Relevant code files: {stats['relevant_files']:,}\n"
+            f"- Size: {stats['size_mb']} MB\n"
+            f"- Complexity: {stats['complexity']}\n"
+            f"- Languages: {', '.join(stats['languages'].keys()) if stats['languages'] else 'Not detected'}\n\n"
+            f"🎯 **Exploration Goal:**\n"
+            f"I want a {detail_level} exploration of this project's "
+            f"architecture and structure."
+        )
 
         if focus_area:
-            base_prompt += f"\n\n🔍 **Focus Area:** Please pay special attention to '{focus_area}' related components and functionality."
+            base_prompt += (
+                f"\n\n🔍 **Focus Area:** Please pay special attention to '{focus_area}' "
+                "related components and functionality."
+            )
 
-        base_prompt += f"""
-
-📋 **Please help me with:**
-1. **Architecture Overview:** What's the overall architecture pattern and project structure?
-2. **Key Components:** What are the most important modules, classes, and functions?
-3. **Entry Points:** How does the application start and what are the main interaction points?
-4. **Dependencies:** What are the key dependencies and how do components interact?
-5. **Navigation Strategy:** What's the best order to explore and understand this codebase?
-
-🚀 **Next Steps:** After this overview, suggest the most valuable next exploration steps based on what you discover.
-
-Please search the codebase systematically and provide actionable insights that will help me quickly become productive with this project."""
+        base_prompt += (
+            "\n\n📋 **Please help me with:**\n"
+            "1. **Architecture Overview:** What's the overall architecture pattern "
+            "and project structure?\n"
+            "2. **Key Components:** What are the most important modules, classes, "
+            "and functions?\n"
+            "3. **Entry Points:** How does the application start and what are the "
+            "main interaction points?\n"
+            "4. **Dependencies:** What are the key dependencies and how do "
+            "components interact?\n"
+            "5. **Navigation Strategy:** What's the best order to explore and "
+            "understand this codebase?\n"
+            "\n\n🚀 **Next Steps:** After this overview, suggest the most "
+            "valuable next exploration steps based on what you discover.\n\n"
+            "Please search the codebase systematically and provide actionable "
+            "insights that will help me quickly become productive with this project."
+        )
 
         return base_prompt
-    
-    def _build_component_understanding_prompt(self, component_name: str, component_type: str, 
-                                           include_deps: bool, include_examples: bool, search_query: str) -> str:
+
+    def _build_component_understanding_prompt(
+        self,
+        component_name: str,
+        component_type: str,
+        include_deps: bool,
+        include_examples: bool,
+        search_query: str,
+    ) -> str:
         """Build the component understanding prompt text."""
-        base_prompt = f"""I need to deeply understand the component '{component_name}' in this codebase.
-
-🎯 **Component to Analyze:** {component_name}
-📝 **Component Type:** {component_type}
-
-🔍 **Analysis Requirements:**
-1. **Purpose & Responsibility:** What does this component do and why does it exist?
-2. **Interface & API:** What are its public methods, parameters, and return types?
-3. **Implementation Details:** How does it work internally?"""
+        base_prompt = (
+            f"I need to deeply understand the component '{component_name}' in this codebase.\n\n"
+            f"🎯 **Component to Analyze:** {component_name}\n"
+            f"📝 **Component Type:** {component_type}\n\n"
+            f"🔍 **Analysis Requirements:**\n"
+            f"1. **Purpose & Responsibility:** What does this component do and why does it exist?\n"
+            f"2. **Interface & API:** What are its public methods, parameters, and return types?\n"
+            f"3. **Implementation Details:** How does it work internally?"
+        )
 
         if include_deps:
-            base_prompt += "\n4. **Dependencies:** What does it depend on and what depends on it?"
-            
+            base_prompt += (
+                "\n4. **Dependencies:** What does it depend on and what depends on it?"
+            )
+
         if include_examples:
             base_prompt += "\n5. **Usage Examples:** How is it typically used? Show me real examples from the codebase."
 
         base_prompt += f"""
 
-🔍 **Search Strategy:** 
+🔍 **Search Strategy:**
 Please search for '{search_query}' and any related terms to find all relevant code.
 
 📋 **Deliverables:**
@@ -440,9 +538,14 @@ Please search for '{search_query}' and any related terms to find all relevant co
 Please search thoroughly and provide practical insights I can use immediately."""
 
         return base_prompt
-    
-    def _build_functionality_tracing_prompt(self, functionality: str, trace_type: str, 
-                                          include_config: bool, include_data_flow: bool) -> str:
+
+    def _build_functionality_tracing_prompt(
+        self,
+        functionality: str,
+        trace_type: str,
+        include_config: bool,
+        include_data_flow: bool,
+    ) -> str:
         """Build the functionality tracing prompt text."""
         base_prompt = f"""I need to trace the complete implementation of '{functionality}' through this codebase.
 
@@ -457,15 +560,15 @@ Please search thoroughly and provide practical insights I can use immediately.""
 
         if include_config:
             base_prompt += "\n5. **Configuration:** What configuration settings and environment variables affect this functionality?"
-            
+
         if include_data_flow:
             base_prompt += "\n6. **Data Flow:** How is data transformed as it flows through the system?"
 
-        base_prompt += f"""
+        base_prompt += """
 
 📋 **Trace Strategy:**
 - Start from the most likely entry points
-- Follow the execution path step by step  
+- Follow the execution path step by step
 - Document key decision points and branches
 - Identify error handling and edge cases
 
@@ -478,8 +581,10 @@ Please search thoroughly and provide practical insights I can use immediately.""
 Please search systematically and map out the complete journey of this functionality."""
 
         return base_prompt
-    
-    def _build_entry_points_prompt(self, entry_type: str, learning_path: bool, include_examples: bool) -> str:
+
+    def _build_entry_points_prompt(
+        self, entry_type: str, learning_path: bool, include_examples: bool
+    ) -> str:
         """Build the entry points discovery prompt text."""
         base_prompt = f"""I need to discover all the entry points for this application.
 
@@ -494,7 +599,7 @@ Please search systematically and map out the complete journey of this functional
 
         if learning_path:
             base_prompt += "\n\n📚 **Learning Path:** Please suggest the optimal order to explore these entry points for a new developer."
-            
+
         if include_examples:
             base_prompt += "\n\n💡 **Usage Examples:** Provide examples of how to invoke each entry point."
 
@@ -515,13 +620,15 @@ Please search systematically and map out the complete journey of this functional
 Please search comprehensively and provide a complete entry point guide."""
 
         return base_prompt
-    
-    def _build_next_steps_prompt(self, context: str, user_role: str, task_type: str, difficulty: str) -> str:
+
+    def _build_next_steps_prompt(
+        self, context: str, user_role: str, task_type: str, difficulty: str
+    ) -> str:
         """Build the next steps recommendation prompt text."""
         base_prompt = f"""Based on my current work context, I need intelligent recommendations for next steps.
 
 🎯 **Current Context:** {context}
-👤 **My Role:** {user_role}  
+👤 **My Role:** {user_role}
 📋 **Task Type:** {task_type}
 🎚️ **Difficulty Level:** {difficulty}
 
@@ -535,7 +642,7 @@ Please search comprehensively and provide a complete entry point guide."""
 
 🎯 **Provide Recommendations For:**
 - Immediate next actions (next 30 minutes)
-- Short-term goals (next few hours)  
+- Short-term goals (next few hours)
 - Learning opportunities based on what I've discovered
 - Potential blockers or challenges to prepare for
 
@@ -548,12 +655,19 @@ Please search comprehensively and provide a complete entry point guide."""
 Please analyze my situation and provide actionable, prioritized recommendations."""
 
         return base_prompt
-    
-    def _build_search_optimization_prompt(self, previous_searches: List[str], goal: str, 
-                                        refine_strategy: bool, suggest_alternatives: bool) -> str:
+
+    def _build_search_optimization_prompt(
+        self,
+        previous_searches: List[str],
+        goal: str,
+        refine_strategy: bool,
+        suggest_alternatives: bool,
+    ) -> str:
         """Build the search optimization prompt text."""
-        searches_text = "', '".join(previous_searches) if previous_searches else "none provided"
-        
+        searches_text = (
+            "', '".join(previous_searches) if previous_searches else "none provided"
+        )
+
         base_prompt = f"""I need help optimizing my search strategy to find what I'm looking for.
 
 🎯 **Search Goal:** {goal}
@@ -566,7 +680,7 @@ Please analyze my situation and provide actionable, prioritized recommendations.
 
         if refine_strategy:
             base_prompt += "\n4. **Strategy Refinement:** How can I improve my search terms and approach?"
-            
+
         if suggest_alternatives:
             base_prompt += "\n5. **Alternative Approaches:** What other investigation methods might work better?"
 
@@ -580,15 +694,22 @@ Please analyze my situation and provide actionable, prioritized recommendations.
 
 🔧 **Search Techniques to Consider:**
 - Technical terminology vs. business terminology
-- Implementation details vs. high-level concepts  
+- Implementation details vs. high-level concepts
 - Configuration vs. code vs. documentation
 - Current implementation vs. planned features
 
 Help me find '{goal}' more effectively by improving my search approach."""
 
         return base_prompt
-    
-    def _build_enhanced_exploration_prompt(self, directory: str, exploration_result, focus_area: Optional[str], detail_level: str, formatted_summary: str) -> str:
+
+    def _build_enhanced_exploration_prompt(
+        self,
+        directory: str,
+        exploration_result,
+        focus_area: Optional[str],
+        detail_level: str,
+        formatted_summary: str,
+    ) -> str:
         """Build enhanced exploration prompt with comprehensive analysis."""
         base_prompt = f"""I need to explore and understand the codebase at '{directory}'. I've conducted a comprehensive analysis and here are the results:
 
@@ -616,7 +737,13 @@ Please search the codebase systematically using the identified entry points and 
 
         return base_prompt
 
-    def _create_fallback_exploration_prompt(self, directory: str, focus_area: Optional[str], detail_level: str, error_msg: str) -> List[base.Message]:
+    def _create_fallback_exploration_prompt(
+        self,
+        directory: str,
+        focus_area: Optional[str],
+        detail_level: str,
+        error_msg: str,
+    ) -> List[base.Message]:
         """Create fallback exploration prompt when enhanced analysis fails."""
         fallback_prompt = f"""I want to explore and understand the codebase at '{directory}' but encountered some analysis limitations: {error_msg}
 
@@ -639,19 +766,27 @@ Please help me get a {detail_level} understanding of this project's structure an
 
 🚀 **Goal:** Provide me with actionable insights and a strategic approach to understanding this project quickly and effectively."""
 
-        return [base.Message(
-            role="user",
-            content=base.TextContent(type="text", text=fallback_prompt), role="user"
-        )]
+        return [
+            base.Message(
+                role="user", content=base.TextContent(type="text", text=fallback_prompt)
+            )
+        ]
 
-    def _build_enhanced_component_prompt(self, component_name: str, analysis_result, include_dependencies: bool, include_usage_examples: bool, formatted_summary: str) -> str:
+    def _build_enhanced_component_prompt(
+        self,
+        component_name: str,
+        analysis_result,
+        include_dependencies: bool,
+        include_usage_examples: bool,
+        formatted_summary: str,
+    ) -> str:
         """Build enhanced component understanding prompt with comprehensive analysis."""
         base_prompt = f"""I need to deeply understand the component '{component_name}' in this codebase. I've conducted a comprehensive analysis and here are the results:
 
 {formatted_summary}
 
 🎯 **My Understanding Goals:**
-Based on the analysis, I want to fully comprehend how this {analysis_result.primary_component.component_type if analysis_result.primary_component else 'component'} works and how to use it effectively."""
+Based on the analysis, I want to fully comprehend how this {analysis_result.primary_component.component_type if analysis_result.primary_component else "component"} works and how to use it effectively."""
 
         if analysis_result.primary_component:
             base_prompt += f"""
@@ -663,7 +798,9 @@ Based on the analysis, I want to fully comprehend how this {analysis_result.prim
 
         if analysis_result.usage_patterns:
             usage_count = len(analysis_result.usage_patterns)
-            base_prompt += f"\n- **Usage Examples Found**: {usage_count} different usage patterns"
+            base_prompt += (
+                f"\n- **Usage Examples Found**: {usage_count} different usage patterns"
+            )
 
         base_prompt += """
 
@@ -693,12 +830,19 @@ Please search the codebase to provide additional context and examples beyond wha
 
         return base_prompt
 
-    def _create_fallback_component_prompt(self, component_name: str, component_type: str, include_dependencies: bool, include_usage_examples: bool, error_msg: str) -> List[base.Message]:
+    def _create_fallback_component_prompt(
+        self,
+        component_name: str,
+        component_type: str,
+        include_dependencies: bool,
+        include_usage_examples: bool,
+        error_msg: str,
+    ) -> List[base.Message]:
         """Create fallback component prompt when enhanced analysis fails."""
         fallback_prompt = f"""I need to understand the component '{component_name}' in this codebase but encountered some analysis limitations: {error_msg}
 
 🎯 **Component Understanding Request:**
-I want to deeply understand this {component_type if component_type != 'auto' else 'component'} and how to work with it effectively."""
+I want to deeply understand this {component_type if component_type != "auto" else "component"} and how to work with it effectively."""
 
         fallback_prompt += """
 
@@ -725,12 +869,21 @@ I want to deeply understand this {component_type if component_type != 'auto' els
 
 Please search the codebase systematically to find and analyze this component."""
 
-        return [base.Message(
-            role="user",
-            content=base.TextContent(type="text", text=fallback_prompt), role="user"
-        )]
+        return [
+            base.Message(
+                role="user", content=base.TextContent(type="text", text=fallback_prompt)
+            )
+        ]
 
-    def _build_enhanced_trace_prompt(self, functionality_description: str, trace_result, trace_type: str, include_config: bool, include_data_flow: bool, formatted_summary: str) -> str:
+    def _build_enhanced_trace_prompt(
+        self,
+        functionality_description: str,
+        trace_result,
+        trace_type: str,
+        include_config: bool,
+        include_data_flow: bool,
+        formatted_summary: str,
+    ) -> str:
         """Build enhanced trace prompt with comprehensive analysis."""
         base_prompt = f"""I need to trace the complete implementation of '{functionality_description}' through this codebase. I've conducted a comprehensive trace analysis and here are the results:
 
@@ -745,11 +898,13 @@ I want to understand the complete {trace_type} implementation of this functional
 
 🔍 **Key Information Discovered:**
 - **Entry Points Found**: {entry_count} different ways to access this functionality"""
-            
+
             if trace_result.api_endpoints:
                 api_count = len(trace_result.api_endpoints)
-                base_prompt += f"\n- **API Endpoints**: {api_count} REST/API endpoints identified"
-            
+                base_prompt += (
+                    f"\n- **API Endpoints**: {api_count} REST/API endpoints identified"
+                )
+
             if trace_result.execution_paths:
                 path_count = len(trace_result.execution_paths)
                 base_prompt += f"\n- **Execution Paths**: {path_count} different execution flows analyzed"
@@ -784,7 +939,14 @@ Please search the codebase to provide additional context and examples beyond wha
 
         return base_prompt
 
-    def _create_fallback_trace_prompt(self, functionality_description: str, trace_type: str, include_config: bool, include_data_flow: bool, error_msg: str) -> List[base.Message]:
+    def _create_fallback_trace_prompt(
+        self,
+        functionality_description: str,
+        trace_type: str,
+        include_config: bool,
+        include_data_flow: bool,
+        error_msg: str,
+    ) -> List[base.Message]:
         """Create fallback trace prompt when enhanced analysis fails."""
         fallback_prompt = f"""I need to trace the complete implementation of '{functionality_description}' in this codebase but encountered some analysis limitations: {error_msg}
 
@@ -816,19 +978,19 @@ I want to understand the complete {trace_type} implementation of this functional
 
 Please search the codebase systematically to map out the complete implementation journey."""
 
-        return [base.Message(
-            role="user",
-            content=base.TextContent(type="text", text=fallback_prompt), role="user"
-        )]
+        return [
+            base.Message(
+                role="user", content=base.TextContent(type="text", text=fallback_prompt)
+            )
+        ]
 
 
 def register_mcp_prompts(mcp_app: FastMCP) -> MCPPromptsSystem:
     """
     Register MCP Prompts system with a FastMCP application.
-    
+
     Args:
         mcp_app: FastMCP application instance
-        
     Returns:
         MCPPromptsSystem: Initialized prompts system
     """
