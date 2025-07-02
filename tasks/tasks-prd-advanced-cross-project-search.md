@@ -26,12 +26,12 @@
   - [x] 1.4 Add project name normalization for collection matching
   - [x] 1.5 Implement error handling for invalid project specifications
 
-- [ ] 2.0 Implement Target Projects Logic in Search Services
-  - [ ] 2.1 Update `search_sync()` function in `src/tools/indexing/search_tools.py` to accept target_projects
-  - [ ] 2.2 Create `get_target_project_collections()` helper function for collection filtering
-  - [ ] 2.3 Modify collection selection logic to support project-specific filtering
-  - [ ] 2.4 Update search result metadata to include project information
-  - [ ] 2.5 Add project path information to search results
+- [x] 2.0 Implement Target Projects Logic in Search Services
+  - [x] 2.1 Update `search_sync()` function in `src/tools/indexing/search_tools.py` to accept target_projects
+  - [x] 2.2 Create `get_target_project_collections()` helper function for collection filtering
+  - [x] 2.3 Modify collection selection logic to support project-specific filtering
+  - [x] 2.4 Update search result metadata to include project information
+  - [x] 2.5 Add project path information to search results
 
 - [ ] 3.0 Create Project Discovery and Validation Utilities
   - [ ] 3.1 Add `list_indexed_projects()` function to `src/tools/project/project_utils.py`

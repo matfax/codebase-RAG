@@ -387,6 +387,7 @@ async def search(
     search_mode: str = "hybrid",
     include_context: bool = True,
     context_chunks: int = 1,
+    target_projects: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Search indexed content using natural language queries.
@@ -401,12 +402,13 @@ async def search(
         search_mode: Search strategy - "semantic", "keyword", or "hybrid" (default: "hybrid")
         include_context: Whether to include surrounding code context (default: True)
         context_chunks: Number of context chunks to include before/after results (default: 1)
+        target_projects: List of specific project names to search in (optional)
     
     Returns:
         Dictionary containing search results with metadata, scores, and context
     """
     # Use the synchronous implementation
-    return search_sync(query, n_results, cross_project, search_mode, include_context, context_chunks)
+    return search_sync(query, n_results, cross_project, search_mode, include_context, context_chunks, target_projects)
 
 
 def search_sync(
@@ -416,6 +418,7 @@ def search_sync(
     search_mode: str = "hybrid",
     include_context: bool = True,
     context_chunks: int = 1,
+    target_projects: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Synchronous implementation of search functionality.
@@ -427,6 +430,7 @@ def search_sync(
         search_mode: Search strategy - "semantic", "keyword", or "hybrid" (default: "hybrid")
         include_context: Whether to include surrounding code context (default: True)
         context_chunks: Number of context chunks to include before/after results (default: 1)
+        target_projects: List of specific project names to search in (optional)
     
     Returns:
         Dictionary containing search results with metadata, scores, and context
@@ -446,6 +450,18 @@ def search_sync(
         if not isinstance(context_chunks, int) or context_chunks < 0 or context_chunks > 5:
             raise ValidationError("context_chunks must be between 0 and 5", 
                                 field_name="context_chunks", value=str(context_chunks))
+        
+        # Validate target_projects parameter
+        if target_projects is not None:
+            if not isinstance(target_projects, list):
+                raise ValidationError("target_projects must be a list of project names", 
+                                    field_name="target_projects", value=str(target_projects))
+            if not all(isinstance(p, str) for p in target_projects):
+                raise ValidationError("All project names in target_projects must be strings", 
+                                    field_name="target_projects", value=str(target_projects))
+            if len(target_projects) == 0:
+                raise ValidationError("target_projects cannot be empty if specified", 
+                                    field_name="target_projects", value=str(target_projects))
         
         # Initialize services
         embeddings_manager = get_embeddings_manager_instance()
@@ -474,7 +490,22 @@ def search_sync(
         # Determine search collections
         all_collections = [c.name for c in qdrant_client.get_collections().collections]
         
-        if cross_project:
+        # Handle target_projects logic
+        if target_projects:
+            search_collections = get_target_project_collections(target_projects, all_collections)
+            
+            # Check if any collections were found
+            if not search_collections:
+                from ..project.project_utils import get_available_project_names
+                return {
+                    "error": f"No indexed collections found for projects: {target_projects}",
+                    "available_projects": get_available_project_names(all_collections),
+                    "query": query,
+                    "results": [],
+                    "total": 0
+                }
+                
+        elif cross_project:
             # Search across all collections
             search_collections = [c for c in all_collections if not c.endswith('_file_metadata')]
         else:
@@ -542,15 +573,24 @@ def search_sync(
         # Get current project info
         current_project = get_current_project()
         
+        # Determine search scope description
+        if target_projects:
+            search_scope = f"specific projects: {', '.join(target_projects)}"
+        elif cross_project:
+            search_scope = "all projects"
+        else:
+            search_scope = "current project"
+        
         # Build response
         response = {
             "results": search_results,
             "query": query,
             "total": len(search_results),
             "project_context": current_project.get("name", "no project") if current_project else "no project",
-            "search_scope": "all projects" if cross_project else "current project",
+            "search_scope": search_scope,
             "search_mode": search_mode,
             "collections_searched": search_collections,
+            "target_projects": target_projects if target_projects else None,
             "performance": {
                 "collections_count": len(search_collections),
                 "context_expanded": include_context and context_chunks > 0,
@@ -603,6 +643,32 @@ def search_sync(
 
 
 # Utility functions for collection management and search optimization
+
+def get_target_project_collections(target_projects: List[str], all_collections: List[str]) -> List[str]:
+    """Get collections for specified target projects.
+    
+    Args:
+        target_projects: List of project names to search
+        all_collections: List of all available collections
+        
+    Returns:
+        List of collection names for the target projects
+    """
+    # Normalize project names for collection matching
+    normalized_projects = [p.replace(" ", "_").replace("-", "_").lower() for p in target_projects]
+    search_collections = []
+    
+    # Find collections for specified projects
+    for project_name in normalized_projects:
+        project_collections = [
+            c for c in all_collections 
+            if (c.startswith(f"project_{project_name}_") or c.startswith(f"dir_{project_name}_"))
+            and not c.endswith('_file_metadata')
+        ]
+        search_collections.extend(project_collections)
+    
+    return search_collections
+
 
 def get_search_collections(cross_project: bool = False, project_context: Optional[str] = None) -> List[str]:
     """Get list of collections to search based on scope and project context.

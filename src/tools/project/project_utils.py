@@ -6,7 +6,7 @@ managing project configuration, and handling collection naming.
 
 import os
 import logging
-from typing import Dict, Optional, Set, Tuple, Any
+from typing import Dict, Optional, Set, Tuple, Any, List
 from pathlib import Path
 
 # Configure logging
@@ -209,6 +209,33 @@ def clear_project_collections() -> Dict[str, Any]:
             "error": error_msg,
             "project": current_project.get('name', 'unknown')
         }
+
+
+def get_available_project_names(collections: List[str]) -> List[str]:
+    """Extract available project names from collection names.
+    
+    Args:
+        collections: List of collection names to analyze
+        
+    Returns:
+        List of available project names
+    """
+    project_names = set()
+    for collection in collections:
+        if collection.startswith("project_"):
+            # Extract project name from "project_{name}_{type}"
+            parts = collection.split("_")
+            if len(parts) >= 3:
+                project_name = parts[1]  # The project name part
+                project_names.add(project_name)
+        elif collection.startswith("dir_"):
+            # Extract directory name from "dir_{name}_{type}"  
+            parts = collection.split("_")
+            if len(parts) >= 3:
+                dir_name = parts[1]  # The directory name part
+                project_names.add(dir_name)
+    
+    return sorted(list(project_names))
 
 
 def delete_file_chunks(file_path: str, collection_name: Optional[str] = None) -> Dict[str, Any]:
