@@ -26,21 +26,20 @@ This system implements state-of-the-art **syntax-aware code chunking** using Tre
 
 ### Supported Languages
 
-**Phase 1 (Fully Supported):**
-- Python (.py) - Functions, classes, methods, constants
-- JavaScript (.js, .jsx) - Functions, objects, modules
-- TypeScript (.ts, .tsx) - Interfaces, types, classes, functions
-
-**Phase 2 (Extended Support):**
-- Go (.go) - Functions, structs, interfaces, methods
-- Rust (.rs) - Functions, structs, impl blocks, traits
-- Java (.java) - Classes, methods, interfaces
-- C/C++ (.c, .cpp, .h) - Functions, structs, classes
+**Fully Implemented Languages:**
+- **Python (.py, .pyw, .pyi)**: Functions, classes, methods, constants, docstrings, decorators
+- **JavaScript (.js, .jsx, .mjs, .cjs)**: Functions, classes, modules, arrow functions
+- **TypeScript (.ts)**: Interfaces, types, classes, functions, generics, annotations
+- **TypeScript JSX (.tsx)**: React components, interfaces, types, functions
+- **Go (.go)**: Functions, structs, interfaces, methods, packages
+- **Rust (.rs)**: Functions, structs, impl blocks, traits, modules, macros
+- **Java (.java)**: Classes, methods, interfaces, annotations, generics
+- **C++ (.cpp, .cxx, .cc, .c, .hpp, .hxx, .hh, .h)**: Functions, classes, structs, namespaces, templates
 
 **Structured Files:**
-- JSON/YAML - Object-level chunking (e.g., separate chunks for `scripts`, `dependencies`)
-- Markdown - Header-based hierarchical chunking
-- Configuration files - Section-based parsing
+- **JSON/YAML**: Object-level chunking (e.g., separate chunks for `scripts`, `dependencies`)
+- **Markdown**: Header-based hierarchical chunking
+- **Configuration files**: Section-based parsing
 
 ### How It Works
 
@@ -75,7 +74,7 @@ This system implements state-of-the-art **syntax-aware code chunking** using Tre
 Before you begin, ensure you have the following installed:
 
 - **Python 3.10+**: The project is developed with Python.
-- **Poetry**: Used for dependency management. If you don't have it, you can install it via `pipx install poetry` or `pip install poetry` (preferably in a virtual environment).
+- **uv**: Modern Python package manager for fast dependency management. Install from [astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
 - **Docker (Recommended for Qdrant)**: Qdrant is best run as a Docker container.
 - **Ollama**: For running local language models and embedding models. Download from [ollama.com](https://ollama.com/).
 - **Tree-sitter Language Parsers**: Automatically installed with the project dependencies for intelligent code chunking support.
@@ -136,21 +135,16 @@ LOG_LEVEL=INFO                           # DEBUG, INFO, WARNING, ERROR
     cd codebase-rag-mcp # Or your project directory name
     ```
 
-2.  **Create and activate a virtual environment**:
+2.  **Install dependencies and create virtual environment**:
     ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
+    uv sync
     ```
+    *This automatically creates a virtual environment and installs all dependencies from the lock file.*
 
-3.  **Install project dependencies**:
+3.  **Copy environment configuration**:
     ```bash
-    .venv/bin/poetry install
-    ```
-    *Note: If `poetry install` fails due to `pyproject.toml` changes, run `.venv/bin/poetry lock` first, then `.venv/bin/poetry install` again. Also, ensure you have Python 3.10 or higher installed and activated in your virtual environment.*
-
-4.  **Add MCP to your project dependencies**:
-    ```bash
-    .venv/bin/poetry add "mcp[cli]"
+    cp .env.example .env
+    # Edit .env file to customize settings as needed
     ```
 
 ## Running Qdrant
@@ -172,87 +166,64 @@ This command will start Qdrant and map its default ports (6333 for gRPC, 6334 fo
     ```
     You can use any other embedding model available in Ollama, just ensure you specify its name correctly when making API calls.
 
-## Running the MCP Server
+## IDE Integration
 
-Once Qdrant and Ollama are running, you can start the MCP server:
+This MCP server integrates seamlessly with various AI development environments:
 
-```bash
-.venv/bin/python src/run_mcp.py
-```
+### Claude Code Integration
 
-The server runs in stdio mode and communicates via JSON-RPC. You will see startup logs like:
-```
-2025-06-30 11:35:31 - __main__ - INFO - Starting Codebase RAG MCP Server...
-2025-06-30 11:35:31 - __main__ - INFO - Server name: codebase-rag-mcp
-2025-06-30 11:35:31 - __main__ - INFO - Listening for JSON-RPC requests on stdin...
-```
-
-### Registering with Claude Code
-
-To register this MCP server with Claude Code:
+Register the server with Claude Code for use in conversations:
 
 ```bash
-./register_mcp.sh
+claude mcp add codebase-rag-mcp \
+  --command "uv" \
+  --args "run" \
+  --args "python" \
+  --args "src/run_mcp.py"
 ```
 
-This will create a configuration file and provide instructions for registering the server.
+Once registered, you can use natural language queries like:
+- "Find functions that handle file uploads"
+- "Show me React components that use hooks"
+- "Locate error handling patterns in this codebase"
+
+### Gemini CLI Integration
+
+*Integration instructions and screenshots coming soon*
+
+### VS Code Integration
+
+*Extension and configuration instructions coming soon*
 
 ## MCP Tools
 
-The server provides the following MCP tools that can be used by AI assistants:
+The server provides powerful MCP tools for intelligent codebase search and analysis:
 
-### 1. `health_check`
+### Primary Tool: `search` - Semantic Code Search
 
-Check the health status of the MCP server.
+Search indexed codebases using natural language queries with function-level precision.
 
--   **Parameters**: None
--   **Returns**: Server status information
+**Example Queries:**
+- "Find functions that handle file uploads"
+- "Show me React components that use useState hook"
+- "Locate error handling patterns in Python"
+- "Find database connection initialization code"
 
-### 2. `index_directory`
+**Key Features:**
+- **🔍 Function-Level Precision**: Returns specific functions, classes, and methods instead of entire files
+- **📝 Natural Language**: Use conversational queries to find code
+- **🌐 Cross-Project Search**: Search across multiple indexed projects
+- **📚 Rich Context**: Include surrounding code for better understanding
+- **⚡ Multiple Search Modes**: Semantic, keyword, or hybrid search strategies
 
-Index files in a directory or Git repository with intelligent code chunking and existing data detection.
+### Additional Tools
 
--   **Parameters**:
-    ```json
-    {
-      "directory": "string",        // Path to local directory (default: ".")
-      "patterns": ["string"],       // File patterns to include (optional)
-      "recursive": "boolean",       // Search recursively (default: true)
-      "clear_existing": "boolean",  // Clear existing index (default: false)
-      "incremental": "boolean",     // Use incremental indexing (default: false)
-      "project_name": "string"      // Custom project name for collections (optional)
-    }
-    ```
--   **Returns**: Indexing results, time estimates, or recommendations for existing data
--   **Smart Behavior**:
-    - **Intelligent Chunking**: Automatically uses syntax-aware chunking for supported languages
-    - Automatically detects existing indexed data
-    - Provides time estimates and recommendations
-    - Suggests manual tool for large operations (>5 minutes)
-    - Supports incremental mode for changed files only
-    - **Error Tolerance**: Gracefully handles syntax errors with fallback mechanisms
+For comprehensive functionality, additional tools are available:
+- **`index_directory`**: Index a codebase for intelligent searching
+- **`health_check`**: Verify server connectivity and status
+- **`analyze_repository_tool`**: Get repository statistics and analysis
 
-### 3. `search`
-
-Search indexed content using natural language queries with function-level precision.
-
--   **Parameters**:
-    ```json
-    {
-      "query": "string",           // Natural language query (required)
-      "n_results": "integer",      // Number of results (default: 5)
-      "cross_project": "boolean",  // Search across all projects (default: false)
-      "search_mode": "string",     // Search mode (default: "hybrid")
-      "include_context": "boolean", // Include surrounding context (default: true)
-      "context_chunks": "integer"  // Number of context chunks (default: 1)
-    }
-    ```
--   **Returns**: Search results with relevant code snippets and rich metadata
--   **Enhanced Results**:
-    - **Function-Level Precision**: Returns specific functions, classes, or methods instead of entire files
-    - **Rich Metadata**: Includes function signatures, docstrings, and breadcrumb navigation
-    - **Context Enhancement**: Provides surrounding code context and related imports
-    - **Syntax Highlighting**: Results include language detection and proper formatting
+For complete tool documentation with parameters and examples, see **[docs/MCP_TOOLS.md](docs/MCP_TOOLS.md)**.
 
 ## Manual Indexing Tool
 
@@ -260,16 +231,16 @@ For large codebases or operations that might take several minutes, use the stand
 
 ```bash
 # Full indexing (clear existing data)
-python manual_indexing.py -d /path/to/large/repo -m clear_existing
+uv run python manual_indexing.py -d /path/to/large/repo -m clear_existing
 
 # Incremental indexing (only changed files)
-python manual_indexing.py -d /path/to/repo -m incremental
+uv run python manual_indexing.py -d /path/to/repo -m incremental
 
 # With verbose output
-python manual_indexing.py -d /path/to/repo -m incremental --verbose
+uv run python manual_indexing.py -d /path/to/repo -m incremental --verbose
 
 # Skip confirmation prompts
-python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm
+uv run python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm
 ```
 
 ### Manual Tool Features
@@ -300,87 +271,6 @@ Incremental indexing dramatically reduces processing time by only handling chang
 - **Memory Efficient**: Only processes changed content
 - **Network Friendly**: Fewer embedding API calls
 
-### Usage Examples
-
-#### Via MCP Tool
-```python
-# Check for existing data and get recommendations
-result = await app.call_tool("index_directory", {"directory": "/my/project"})
-# If existing data found, you'll get recommendations including incremental update
-
-# Perform incremental update
-result = await app.call_tool("index_directory", {
-    "directory": "/my/project",
-    "incremental": True
-})
-```
-
-#### Via Manual Tool
-```bash
-# First time indexing
-python manual_indexing.py -d /my/project -m clear_existing
-
-# Subsequent updates (much faster)
-python manual_indexing.py -d /my/project -m incremental
-```
-
-## Usage Examples
-
-### Using with Python (AsyncIO)
-
-```python
-import asyncio
-from main import app
-
-async def example():
-    # Index current directory with intelligent chunking (default behavior)
-    result = await app.call_tool("index_directory", {"directory": "."})
-    print(result)
-
-    # Perform incremental update (only processes changed files)
-    result = await app.call_tool("index_directory", {
-        "directory": ".",
-        "incremental": True
-    })
-    print(result)
-
-    # Search for specific functions - now returns precise matches!
-    result = await app.call_tool("search", {"query": "validateUser function"})
-    print("Function-level results:", result)
-
-    # Search for class methods
-    result = await app.call_tool("search", {"query": "UserService class methods"})
-    print("Class and method results:", result)
-
-    # Search with enhanced context
-    result = await app.call_tool("search", {
-        "query": "authentication logic",
-        "include_context": True,
-        "context_chunks": 2
-    })
-    print("Results with surrounding code context:", result)
-
-asyncio.run(example())
-```
-
-### Testing the Server
-
-```bash
-# Test basic functionality
-.venv/bin/python test_full_functionality.py
-
-# Test stdio communication
-.venv/bin/python test_mcp_stdio.py
-
-# Run demo
-.venv/bin/python demo_mcp_usage.py
-
-# Test manual indexing tool
-python manual_indexing.py -d . -m clear_existing --no-confirm
-
-# Test incremental indexing
-python manual_indexing.py -d . -m incremental --no-confirm
-```
 
 ## Performance and Best Practices
 
@@ -434,7 +324,7 @@ python manual_indexing.py -d /path/to/project --verbose
 To run the unit and integration tests, use `pytest`:
 
 ```bash
-.venv/bin/pytest tests/
+uv run pytest tests/
 ```
 
 ## Integrating with AI Assistants
@@ -456,8 +346,8 @@ The easiest way to register this server with Claude Code:
    # Recommended: Use the wrapper script
    claude mcp add codebase-rag-mcp "$(pwd)/mcp_server"
 
-   # Alternative: Direct Python execution
-   claude mcp add codebase-rag-mcp "$(pwd)/.venv/bin/python" "$(pwd)/src/run_mcp.py"
+   # Alternative: Direct uv execution
+   claude mcp add codebase-rag-mcp uv run python "$(pwd)/src/run_mcp.py"
    ```
 
 3. **Usage in Claude Code**:
@@ -475,7 +365,7 @@ The easiest way to register this server with Claude Code:
 
 For other MCP-compatible clients, configure them to run:
 ```bash
-/path/to/your/project/.venv/bin/python /path/to/your/project/src/run_mcp.py
+uv run python /path/to/your/project/src/run_mcp.py
 ```
 
 Refer to your specific MCP client documentation for configuration details.
@@ -484,35 +374,34 @@ Refer to your specific MCP client documentation for configuration details.
 
 ```
 src/
-├── main.py                    # FastMCP server entry point
-├── mcp_tools.py              # MCP tool implementations
-├── run_mcp.py               # MCP server startup script
-├── services/                # Core business logic
-│   ├── indexing_service.py        # Codebase processing and indexing orchestration
-│   ├── code_parser_service.py     # Intelligent code chunking with Tree-sitter
-│   ├── qdrant_service.py          # Vector database operations
-│   ├── embedding_service.py       # Ollama integration
-│   ├── project_analysis_service.py # Project structure analysis
-│   ├── file_metadata_service.py   # File change tracking
-│   └── change_detector_service.py # Incremental indexing logic
-├── models/                  # Data models
-│   ├── file_metadata.py          # File metadata tracking
-│   ├── code_chunk.py             # Code chunk data structures for intelligent chunking
-│   └── __init__.py
-├── utils/                   # Utilities
-│   ├── performance_monitor.py     # Progress and memory monitoring
-│   ├── stage_logger.py           # Detailed logging utilities
-│   └── __init__.py
-└── api/                     # FastAPI endpoints (legacy)
-    └── endpoints.py
+├── main.py                    # MCP server entry point
+├── run_mcp.py                 # Server startup script
+├── models/                    # Data models and structures
+│   ├── code_chunk.py         # Intelligent chunk representations
+│   └── file_metadata.py      # File tracking and metadata
+├── services/                  # Core business logic
+│   ├── code_parser_service.py    # AST parsing and chunking
+│   ├── indexing_service.py       # Orchestration and processing
+│   ├── embedding_service.py      # Ollama integration
+│   ├── qdrant_service.py         # Vector database operations
+│   └── project_analysis_service.py # Repository analysis
+├── tools/                     # MCP tool implementations
+│   ├── core/                 # Error handling and utilities
+│   ├── indexing/             # Parsing and chunking tools
+│   └── project/              # Project management tools
+├── utils/                     # Shared utilities
+│   ├── language_registry.py     # Language support definitions
+│   ├── tree_sitter_manager.py   # Parser management
+│   └── performance_monitor.py   # Progress tracking
+└── prompts/                   # Advanced query prompts
 
-manual_indexing.py           # Standalone manual indexing tool
-tests/                       # Unit and integration tests
-tasks/                       # PRD and task documentation
-register_mcp.sh             # MCP registration script
-pyproject.toml              # Poetry configuration
-poetry.lock                 # Dependency lock file
-.env                        # Environment configuration
+Root Files:
+├── manual_indexing.py         # Standalone indexing tool
+├── pyproject.toml            # uv/Python configuration
+├── uv.lock                   # Dependency lock file
+└── docs/                     # Documentation
+    ├── MCP_TOOLS.md          # Comprehensive tool reference
+    └── BEST_PRACTICES.md     # Optimization guides
 ```
 
 ### Key Components
@@ -585,32 +474,11 @@ The architecture documentation was created by:
 └── Total: 11,363 semantic chunks ready for search
 ```
 
-### 🚀 Try These Live Examples
+## Documentation
 
-Since this project is already indexed, you can immediately test these searches:
-
-```python
-# Search for specific components mentioned in the architecture doc
-await app.call_tool("search", {
-    "query": "Tree-sitter AST parsing implementation",
-    "n_results": 3
-})
-
-# Find intelligent chunking functions
-await app.call_tool("search", {
-    "query": "CodeParserService class methods",
-    "include_context": True
-})
-
-# Explore MCP tool registration
-await app.call_tool("search", {
-    "query": "register_tools FastMCP application"
-})
-```
-
-![](resources/codebase_RAG_example1.gif)
-
-This real-world example demonstrates the system's capability to understand, analyze, and document complex codebases with unprecedented precision and intelligence.
+For comprehensive guides and references:
+- **[docs/MCP_TOOLS.md](docs/MCP_TOOLS.md)**: Complete MCP tools reference with parameters and examples
+- **[docs/BEST_PRACTICES.md](docs/BEST_PRACTICES.md)**: Best practices for search optimization and cross-project workflows
 
 ## License
 

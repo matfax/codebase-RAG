@@ -5,30 +5,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ### Setup
-- `.venv/bin/poetry install` - Install dependencies
-- `.venv/bin/poetry add "mcp[cli]"` - Add MCP CLI support
-- `.venv/bin/poetry lock` - Update lock file if pyproject.toml changes
 
-### Running the MCP Server
-- `.venv/bin/python src/run_mcp.py` - Start the MCP server in stdio mode
-- `./register_mcp.sh` - Register with Claude Code (creates configuration)
-- Server communicates via stdio, not HTTP
-- Logs are output to stderr, JSON-RPC communication via stdin/stdout
+**Quick Start:**
+- `uv sync` - Install dependencies and create virtual environment
+- `uv run python src/run_mcp.py` - Start the MCP server to test installation
+
+**Development Setup:**
+- `uv add "mcp[cli]"` - Add MCP CLI support (if needed)
+- `uv lock` - Update lock file if pyproject.toml changes
+- `cp .env.example .env` - Copy environment configuration and customize as needed
+
+### Registering with Claude Code
+
+To use this MCP server with Claude Code:
+
+```bash
+claude mcp add codebase-rag-mcp \
+  --command "uv" \
+  --args "run" \
+  --args "python" \
+  --args "src/run_mcp.py"
+```
+
+This registers the server with Claude Code for use in conversations.
 
 ### Testing
-- `.venv/bin/pytest tests/` - Run all tests
-- `.venv/bin/pytest tests/test_specific.py` - Run specific test file
-- `.venv/bin/pytest tests/test_code_parser_service.py` - Test intelligent chunking service
-- `.venv/bin/pytest tests/test_intelligent_chunking.py` - Test chunking integration
-- `python test_full_functionality.py` - Test basic MCP functionality
-- `python test_mcp_stdio.py` - Test stdio communication
-- `python demo_mcp_usage.py` - Run usage demo
+- `uv run pytest tests/` - Run all tests
+- `uv run pytest tests/test_specific.py` - Run specific test file
+- `uv run pytest tests/test_code_parser_service.py` - Test intelligent chunking service
+- `uv run pytest tests/test_intelligent_chunking.py` - Test chunking integration
+- `uv run python test_full_functionality.py` - Test basic MCP functionality
+- `uv run python test_mcp_stdio.py` - Test stdio communication
+- `uv run python demo_mcp_usage.py` - Run usage demo
 
 ### Manual Indexing Tool
-- `python manual_indexing.py -d /path/to/repo -m clear_existing` - Full indexing
-- `python manual_indexing.py -d /path/to/repo -m incremental` - Incremental indexing
-- `python manual_indexing.py -d /path/to/repo -m incremental --verbose` - Verbose output
-- `python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm` - Skip prompts
+- `uv run python manual_indexing.py -d /path/to/repo -m clear_existing` - Full indexing
+- `uv run python manual_indexing.py -d /path/to/repo -m incremental` - Incremental indexing
+- `uv run python manual_indexing.py -d /path/to/repo -m incremental --verbose` - Verbose output
+- `uv run python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm` - Skip prompts
 
 ### Performance Testing and Validation
 - Manual tool provides pre-indexing analysis with file count and time estimates
@@ -38,40 +52,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### External Dependencies
 - **Qdrant**: `docker run -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_data:/qdrant/storage qdrant/qdrant`
 - **Ollama**: Must be running locally with embedding models (e.g., `ollama pull nomic-embed-text`)
-- **Tree-sitter**: Language parsers are automatically installed via Poetry dependencies for intelligent code chunking
+- **Tree-sitter**: Language parsers are automatically installed via uv dependencies for intelligent code chunking
 
 ## Architecture Overview
 
 This is a **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases using natural language with **function-level precision** through intelligent syntax-aware code chunking.
 
-### Core Components
+### Project Structure
 
-1. **MCP Server** (`src/main.py`, `src/mcp_tools.py`)
-   - FastMCP-based server exposing indexing and search tools
-   - Registers MCP tools for codebase operations
-   - Uses environment variables from `.env` file
+```
+src/
+├── main.py                    # MCP server entry point
+├── run_mcp.py                 # Server startup script
+├── models/                    # Data models and structures
+│   ├── code_chunk.py         # Intelligent chunk representations
+│   └── file_metadata.py      # File tracking and metadata
+├── services/                  # Core business logic
+│   ├── code_parser_service.py    # AST parsing and chunking
+│   ├── indexing_service.py       # Orchestration and processing
+│   ├── embedding_service.py      # Ollama integration
+│   ├── qdrant_service.py         # Vector database operations
+│   └── project_analysis_service.py # Repository analysis
+├── tools/                     # MCP tool implementations
+│   ├── core/                 # Error handling and utilities
+│   ├── indexing/             # Parsing and chunking tools
+│   └── project/              # Project management tools
+├── utils/                     # Shared utilities
+│   ├── language_registry.py     # Language support definitions
+│   ├── tree_sitter_manager.py   # Parser management
+│   └── performance_monitor.py   # Progress tracking
+└── prompts/                   # Advanced query prompts (future)
 
-2. **Services Layer** (`src/services/`)
-   - `indexing_service.py`: Orchestrates codebase processing with parallel processing and batch optimization
-   - `code_parser_service.py`: **NEW** - Intelligent code chunking using Tree-sitter AST parsing for syntax-aware code analysis
-   - `qdrant_service.py`: Vector database operations with streaming and retry logic
-   - `embedding_service.py`: Ollama integration with batch embedding generation
-   - `project_analysis_service.py`: Repository analysis and file filtering
-   - `file_metadata_service.py`: File change tracking for incremental indexing
-   - `change_detector_service.py`: Change detection and selective reprocessing logic
-
-3. **Models Layer** (`src/models/`)
-   - `file_metadata.py`: File metadata tracking with content hashing and change detection
-   - `code_chunk.py`: **NEW** - Data structures for intelligent code chunks with rich metadata (signatures, docstrings, AST info)
-
-4. **Utilities Layer** (`src/utils/`)
-   - `performance_monitor.py`: Progress tracking, ETA estimation, and memory monitoring
-   - `stage_logger.py`: Detailed timing and performance logging
-
-5. **Manual Indexing Tool** (`manual_indexing.py`)
-   - Standalone script for heavy indexing operations
-   - Command-line interface with validation and progress reporting
-   - Integration with all core services for consistent behavior
+Root Files:
+├── manual_indexing.py         # Standalone indexing tool
+├── pyproject.toml            # uv/Python configuration
+└── docs/                     # Documentation (referenced)
 
 6. **Data Flow**
 
@@ -139,17 +154,7 @@ Environment variables (`.env` file):
 - `LOG_LEVEL`: Logging level (default: `INFO`)
 - `FOLLOW_SYMLINKS`: Follow symbolic links (default: `false`)
 
-### MCP Tools Available
-
-#### `index_directory(directory, patterns, recursive, clear_existing, incremental, project_name)`
-- **🎯 Intelligent Chunking**: Automatically uses syntax-aware chunking for supported languages
-- **Smart Indexing**: Automatically detects existing data and provides recommendations
-- **Incremental Mode**: `incremental=true` processes only changed files
-- **Time Estimation**: Provides processing time estimates and manual tool recommendations
-- **Batch Processing**: Optimized for large codebases with parallel processing
-- **Progress Tracking**: Real-time progress reporting with ETA
-- **Error Tolerance**: Graceful handling of syntax errors with comprehensive reporting
-- **Project Naming**: Optional `project_name` parameter for custom collection naming
+### Primary MCP Tool
 
 #### `search(query, n_results, cross_project, search_mode, include_context, context_chunks)`
 - **🔍 Function-Level Precision**: Returns specific functions, classes, and methods instead of entire files
@@ -159,16 +164,19 @@ Environment variables (`.env` file):
 - **Multiple Search Modes**: Hybrid, semantic, and keyword search options
 - **Rich Metadata**: Results include function signatures, docstrings, and AST-derived information
 
-#### `health_check()`
-- **Server Status**: Verify MCP server health and connectivity
-- **Dependency Check**: Validate Qdrant and Ollama service availability
-- **Performance Metrics**: Basic system status and response times
+**Example Usage:**
+- "Find functions that handle file uploads"
+- "Show me React components that use hooks"
+- "Find error handling patterns in Python"
 
-#### Additional MCP Tools
-- `analyze_repository_tool()`: Repository structure analysis and statistics
-- `get_file_filtering_stats_tool()`: File filtering analysis for optimization
-- `check_index_status()`: Check existing index status with recommendations
-- `get_indexing_progress()`: Real-time progress monitoring for ongoing operations
+### Additional MCP Tools
+
+For advanced users and developers, additional tools are available:
+- `index_directory()`: Index a codebase for searching
+- `health_check()`: Verify server connectivity and status
+- `analyze_repository_tool()`: Get repository statistics and analysis
+
+See `docs/MCP_TOOLS.md` for comprehensive tool documentation and `docs/BEST_PRACTICES.md` for optimization guides and workflows.
 
 ## Intelligent Code Chunking System
 
@@ -177,16 +185,15 @@ The system uses **Tree-sitter** parsers to perform syntax-aware code analysis, b
 
 ### Supported Languages and Chunk Types
 
-**Phase 1 (Fully Implemented):**
-- **Python (.py)**: Functions, classes, methods, constants, docstrings
-- **JavaScript (.js, .jsx)**: Functions, objects, modules, arrow functions
-- **TypeScript (.ts, .tsx)**: Interfaces, types, classes, functions, generics
-
-**Phase 2 (Extended Support):**
-- **Go (.go)**: Functions, structs, interfaces, methods
-- **Rust (.rs)**: Functions, structs, impl blocks, traits
-- **Java (.java)**: Classes, methods, interfaces, annotations
-- **C/C++ (.c, .cpp, .h)**: Functions, structs, classes
+**Fully Implemented Languages:**
+- **Python (.py, .pyw, .pyi)**: Functions, classes, methods, constants, docstrings, decorators
+- **JavaScript (.js, .jsx, .mjs, .cjs)**: Functions, classes, modules, arrow functions
+- **TypeScript (.ts)**: Interfaces, types, classes, functions, generics, annotations
+- **TypeScript JSX (.tsx)**: React components, interfaces, types, functions
+- **Go (.go)**: Functions, structs, interfaces, methods, packages
+- **Rust (.rs)**: Functions, structs, impl blocks, traits, modules, macros
+- **Java (.java)**: Classes, methods, interfaces, annotations, generics
+- **C++ (.cpp, .cxx, .cc, .c, .hpp, .hxx, .hh, .h)**: Functions, classes, structs, namespaces, templates
 
 **Structured Files:**
 - **JSON/YAML**: Object-level chunking (e.g., `scripts`, `dependencies` as separate chunks)
