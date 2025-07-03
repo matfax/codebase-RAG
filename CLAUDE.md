@@ -71,7 +71,7 @@ Environment variables (`.env` file):
 ### MCP Tools Available
 
 #### `index_directory(directory, patterns, recursive, clear_existing, incremental, project_name)`
-#### `search(query, n_results, cross_project, search_mode, include_context, context_chunks)`
+#### `search(query, n_results, cross_project, search_mode, include_context, context_chunks, target_projects)`
 
 ## Intelligent Code Chunking System
 

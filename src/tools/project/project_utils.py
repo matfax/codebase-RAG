@@ -220,7 +220,7 @@ def clear_project_collections() -> dict[str, Any]:
     Returns:
         Dictionary with results of clearing operations
     """
-    from ...tools.database.qdrant_utils import get_qdrant_client
+    from tools.database.qdrant_utils import get_qdrant_client
 
     current_project = get_current_project()
     if not current_project:
@@ -264,7 +264,7 @@ def list_indexed_projects() -> dict[str, Any]:
         Dictionary with information about all indexed projects
     """
     try:
-        from ...tools.database.qdrant_utils import get_qdrant_client
+        from tools.database.qdrant_utils import get_qdrant_client
 
         client = get_qdrant_client()
         all_collections = [c.name for c in client.get_collections().collections]
@@ -371,7 +371,7 @@ def validate_project_exists(project_name: str) -> dict[str, Any]:
         Dictionary with validation results
     """
     try:
-        from ...tools.database.qdrant_utils import get_qdrant_client
+        from tools.database.qdrant_utils import get_qdrant_client
 
         client = get_qdrant_client()
         all_collections = [c.name for c in client.get_collections().collections]
@@ -430,7 +430,7 @@ def get_project_collections(project_name: str) -> dict[str, Any]:
         Dictionary with project collections information
     """
     try:
-        from ...tools.database.qdrant_utils import get_qdrant_client
+        from tools.database.qdrant_utils import get_qdrant_client
 
         client = get_qdrant_client()
         all_collections = [c.name for c in client.get_collections().collections]
@@ -533,7 +533,7 @@ def get_project_metadata(project_name: str) -> dict[str, Any]:
 
         if file_metadata_collections:
             try:
-                from ...tools.database.qdrant_utils import get_qdrant_client
+                from tools.database.qdrant_utils import get_qdrant_client
 
                 client = get_qdrant_client()
 
@@ -604,8 +604,7 @@ def delete_file_chunks(file_path: str, collection_name: str | None = None) -> di
         Dictionary with deletion results
     """
     from qdrant_client.http.models import FieldCondition, Filter, MatchValue
-
-    from ...tools.database.qdrant_utils import get_qdrant_client
+    from tools.database.qdrant_utils import get_qdrant_client
 
     logger.info(f"Deleting chunks for file: {file_path}")
 

@@ -212,7 +212,7 @@ Search indexed codebases using natural language queries with function-level prec
 **Key Features:**
 - **🔍 Function-Level Precision**: Returns specific functions, classes, and methods instead of entire files
 - **📝 Natural Language**: Use conversational queries to find code
-- **🌐 Cross-Project Search**: Search across multiple indexed projects
+- **🌐 Cross-Project Search**: Search across all projects or target specific projects with `target_projects`
 - **📚 Rich Context**: Include surrounding code for better understanding
 - **⚡ Multiple Search Modes**: Semantic, keyword, or hybrid search strategies
 

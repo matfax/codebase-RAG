@@ -66,11 +66,11 @@ def check_index_status(directory: str = ".") -> dict[str, Any]:
         try:
             from pathlib import Path
 
-            from ...tools.database.qdrant_utils import (
+            from tools.database.qdrant_utils import (
                 check_existing_index,
                 estimate_indexing_time,
             )
-            from ...tools.project.project_utils import get_current_project
+            from tools.project.project_utils import get_current_project
 
             dir_path = Path(directory).resolve()
             if not dir_path.exists():

@@ -191,7 +191,7 @@ def clear_project_data(project_name: str | None = None, directory: str = ".") ->
         try:
             if project_name:
                 # Clear specific project by name
-                from ...tools.database.qdrant_utils import get_qdrant_client
+                from tools.database.qdrant_utils import get_qdrant_client
 
                 client = get_qdrant_client()
                 collections = [c.name for c in client.get_collections().collections]

@@ -39,6 +39,8 @@ class ChunkType(Enum):
     # Configuration and data chunks
     CONFIG_BLOCK = "config_block"  # JSON, YAML, TOML sections
     DATA_STRUCTURE = "data_structure"  # Complex data definitions
+    OBJECT = "object"  # JSON/YAML object chunks
+    SECTION = "section"  # Markdown section chunks
 
     # Documentation chunks
     DOCSTRING = "docstring"

@@ -15,6 +15,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `search_mode` (optional, default: "hybrid"): Search strategy ("semantic", "keyword", or "hybrid")
 - `include_context` (optional, default: true): Include surrounding code context
 - `context_chunks` (optional, default: 1): Number of context chunks before/after (0-5)
+- `target_projects` (optional): List of specific project names to search in
 
 **Example Queries:**
 - "Find functions that handle file uploads"
@@ -182,9 +183,15 @@ Reindex a specific file by clearing existing chunks and reprocessing.
 - Combine functional and technical terms for better results
 
 ### Cross-Project Search
-- Enable `cross_project=true` for searching across multiple codebases
+- Enable `cross_project=true` for searching across all indexed projects
+- Use `target_projects=["project1", "project2"]` to search specific projects only
 - Use project-specific terms when searching within a single project
 - Consider context chunks for understanding code relationships
+
+**Search Scope Options:**
+- **Current Project Only** (default): `cross_project=false`
+- **All Projects**: `cross_project=true`
+- **Specific Projects**: `target_projects=["PocketFlow", "MyApp"]`
 
 ### Performance Optimization
 - Use incremental indexing for large codebases after initial indexing

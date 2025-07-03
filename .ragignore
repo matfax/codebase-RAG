@@ -30,6 +30,8 @@ htmlcov/
 .m2/
 .cargo/
 .stack-work/
+trees/
+progress/
 
 # IDE and editor directories
 .idea/

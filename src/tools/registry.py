@@ -93,6 +93,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         search_mode: str = "hybrid",
         include_context: bool = True,
         context_chunks: int = 1,
+        target_projects: list[str] = None,
     ):
         """Search indexed content using natural language queries.
 
@@ -106,6 +107,7 @@ def register_tools(mcp_app: FastMCP) -> None:
             search_mode: Search strategy - "semantic", "keyword", or "hybrid" (default: "hybrid")
             include_context: Whether to include surrounding code context (default: True)
             context_chunks: Number of context chunks to include before/after results (0-5, default: 1)
+            target_projects: List of specific project names to search in (optional)
 
         Returns:
             Dictionary containing search results with metadata, scores, and context
@@ -117,6 +119,7 @@ def register_tools(mcp_app: FastMCP) -> None:
             search_mode,
             include_context,
             context_chunks,
+            target_projects,
         )
 
     @mcp_app.tool()

@@ -219,6 +219,67 @@ class ChunkingMetricsTracker:
         # Log performance warning if needed
         self._check_performance_warnings(metric)
 
+    def record_file_processed(
+        self,
+        language: str,
+        chunk_count: int,
+        processing_time_ms: float,
+        parse_success: bool,
+        error_count: int,
+        file_path: str = "",
+        file_size_bytes: int = 0,
+        quality_issues: int = 0,
+        repaired_chunks: int = 0,
+        fallback_used: bool = False,
+        error_recovery_used: bool = False,
+    ) -> None:
+        """
+        Record metrics for a file processing operation with individual parameters.
+
+        Args:
+            language: Programming language of the file
+            chunk_count: Number of chunks extracted
+            processing_time_ms: Processing time in milliseconds
+            parse_success: Whether parsing was successful
+            error_count: Number of errors encountered
+            file_path: Path to the file (optional)
+            file_size_bytes: Size of the file in bytes (optional)
+            quality_issues: Number of quality issues found (optional)
+            repaired_chunks: Number of chunks that were repaired (optional)
+            fallback_used: Whether fallback parsing was used (optional)
+            error_recovery_used: Whether error recovery was used (optional)
+        """
+        # Create a simple ChunkingMetric directly
+        metric = ChunkingMetric(
+            timestamp=datetime.now(),
+            file_path=file_path,
+            language=language,
+            success=parse_success and not fallback_used,
+            chunk_count=chunk_count,
+            error_count=error_count,
+            processing_time_ms=processing_time_ms,
+            fallback_used=fallback_used,
+            error_recovery_used=error_recovery_used,
+            chunk_types={},  # Empty since we don't have detailed chunk info
+            file_size_bytes=file_size_bytes,
+        )
+
+        # Update language-specific metrics
+        self._update_language_metrics(metric, quality_issues, repaired_chunks)
+
+        # Update global metrics
+        self._update_global_metrics(metric)
+
+        # Store recent metric
+        self.recent_metrics.append(metric)
+
+        # Persist metrics if enabled
+        if self.enable_persistence:
+            self._persist_metrics()
+
+        # Log performance warning if needed
+        self._check_performance_warnings(metric)
+
     def _update_language_metrics(self, metric: ChunkingMetric, quality_issues: int, repaired_chunks: int) -> None:
         """Update language-specific metrics."""
         language = metric.language
