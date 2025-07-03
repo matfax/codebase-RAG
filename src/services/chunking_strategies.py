@@ -248,19 +248,23 @@ class FallbackChunkingStrategy(BaseChunkingStrategy):
         content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
         content_lines = content.split("\n")
 
+        # Generate chunk_id using file path and content hash
+        chunk_id = f"{file_path}:{content_hash[:8]}"
+
         chunk = CodeChunk(
-            content=content,
+            chunk_id=chunk_id,
             file_path=file_path,
-            chunk_type=ChunkType.FILE,
-            name=f"file_{self.language}",
-            signature=None,
+            content=content,
+            chunk_type=ChunkType.WHOLE_FILE,
+            language=self.language,
             start_line=1,
             end_line=len(content_lines),
-            language=self.language,
+            start_byte=0,
+            end_byte=len(content.encode("utf-8")),
+            name=f"file_{self.language}",
+            signature=None,
             docstring=None,
             content_hash=content_hash,
-            has_syntax_errors=self.ast_extractor.count_errors(root_node) > 0,
-            error_details=None,
         )
 
         return [chunk]
@@ -424,19 +428,23 @@ class StructuredFileChunkingStrategy(BaseChunkingStrategy):
 
         content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
 
+        # Generate chunk_id using file path and content hash
+        chunk_id = f"{file_path}:{content_hash[:8]}"
+
         return CodeChunk(
-            content=content,
+            chunk_id=chunk_id,
             file_path=file_path,
+            content=content,
             chunk_type=chunk_type,
-            name=name,
-            signature=None,
+            language=self.language,
             start_line=start_line,
             end_line=end_line,
-            language=self.language,
+            start_byte=0,  # Structured files start at beginning
+            end_byte=len(content.encode("utf-8")),
+            name=name,
+            signature=None,
             docstring=None,
             content_hash=content_hash,
-            has_syntax_errors=False,
-            error_details=None,
         )
 
     def _extract_single_chunk(self, file_path: str, content: str) -> CodeChunk:
@@ -446,19 +454,23 @@ class StructuredFileChunkingStrategy(BaseChunkingStrategy):
         content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
         content_lines = content.split("\n")
 
+        # Generate chunk_id using file path and content hash
+        chunk_id = f"{file_path}:{content_hash[:8]}"
+
         return CodeChunk(
-            content=content,
+            chunk_id=chunk_id,
             file_path=file_path,
-            chunk_type=ChunkType.FILE,
-            name=f"file_{self.language}",
-            signature=None,
+            content=content,
+            chunk_type=ChunkType.WHOLE_FILE,
+            language=self.language,
             start_line=1,
             end_line=len(content_lines),
-            language=self.language,
+            start_byte=0,
+            end_byte=len(content.encode("utf-8")),
+            name=f"file_{self.language}",
+            signature=None,
             docstring=None,
             content_hash=content_hash,
-            has_syntax_errors=False,
-            error_details=None,
         )
 
 

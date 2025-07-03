@@ -214,15 +214,21 @@ class AstExtractionService:
             context_before = self.extract_context_before(content_lines, start_line - 1, 2)
             context_after = self.extract_context_after(content_lines, end_line - 1, 2)
 
+            # Combine context into a single string
+            context_parts = []
+            if context_before:
+                context_parts.append(f"Before: {context_before}")
+            context_parts.append(f"Error: {error_text}")
+            if context_after:
+                context_parts.append(f"After: {context_after}")
+
             error = CodeSyntaxError(
-                line=start_line,
-                column=start_col,
+                start_line=start_line,
+                start_column=start_col,
                 end_line=end_line,
                 end_column=end_col,
-                error_text=error_text,
-                context_before=context_before,
-                context_after=context_after,
-                language=language,
+                error_type="syntax_error",
+                context=" | ".join(context_parts),
             )
             errors.append(error)
 
@@ -697,16 +703,22 @@ class AstExtractionService:
 
             content_hash = hashlib.md5(chunk_content.encode("utf-8")).hexdigest()
 
+            # Generate chunk_id using file path and content hash
+            chunk_id = f"{file_path}:{content_hash[:8]}"
+
             # Create chunk
             chunk = CodeChunk(
-                content=chunk_content,
+                chunk_id=chunk_id,
                 file_path=file_path,
+                content=chunk_content,
                 chunk_type=chunk_type,
-                name=name or f"unnamed_{chunk_type.value}",
-                signature=signature,
+                language=language,
                 start_line=start_line,
                 end_line=end_line,
-                language=language,
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+                name=name or f"unnamed_{chunk_type.value}",
+                signature=signature,
                 docstring=docstring,
                 content_hash=content_hash,
             )

@@ -4,3 +4,4 @@ __pycache__/
 indexing_report_*.json
 chunking_metrics.json
 .DS_Store
+trees/
