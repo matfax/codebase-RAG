@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Quick Start:**
 - `uv sync` - Install dependencies and create virtual environment
-- `uv run python src/run_mcp.py` - Start the MCP server to test installation
+- `uvx --directory . run python src/run_mcp.py` - Start the MCP server to test installation
 
 **Development Setup:**
 - `uv add "mcp[cli]"` - Add MCP CLI support (if needed)
@@ -21,7 +21,9 @@ To use this MCP server with Claude Code:
 
 ```bash
 claude mcp add codebase-rag-mcp \
-  --command "uv" \
+  --command "uvx" \
+  --args "--directory" \
+  --args "." \
   --args "run" \
   --args "python" \
   --args "src/run_mcp.py"
@@ -30,19 +32,19 @@ claude mcp add codebase-rag-mcp \
 This registers the server with Claude Code for use in conversations.
 
 ### Testing
-- `uv run pytest tests/` - Run all tests
-- `uv run pytest tests/test_specific.py` - Run specific test file
-- `uv run pytest tests/test_code_parser_service.py` - Test intelligent chunking service
-- `uv run pytest tests/test_intelligent_chunking.py` - Test chunking integration
-- `uv run python test_full_functionality.py` - Test basic MCP functionality
-- `uv run python test_mcp_stdio.py` - Test stdio communication
-- `uv run python demo_mcp_usage.py` - Run usage demo
+- `uvx --directory . run pytest tests/` - Run all tests
+- `uvx --directory . run pytest tests/test_specific.py` - Run specific test file
+- `uvx --directory . run pytest tests/test_code_parser_service.py` - Test intelligent chunking service
+- `uvx --directory . run pytest tests/test_intelligent_chunking.py` - Test chunking integration
+- `uvx --directory . run python test_full_functionality.py` - Test basic MCP functionality
+- `uvx --directory . run python test_mcp_stdio.py` - Test stdio communication
+- `uvx --directory . run python demo_mcp_usage.py` - Run usage demo
 
 ### Manual Indexing Tool
-- `uv run python manual_indexing.py -d /path/to/repo -m clear_existing` - Full indexing
-- `uv run python manual_indexing.py -d /path/to/repo -m incremental` - Incremental indexing
-- `uv run python manual_indexing.py -d /path/to/repo -m incremental --verbose` - Verbose output
-- `uv run python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm` - Skip prompts
+- `uvx --directory . run python manual_indexing.py -d /path/to/repo -m clear_existing` - Full indexing
+- `uvx --directory . run python manual_indexing.py -d /path/to/repo -m incremental` - Incremental indexing
+- `uvx --directory . run python manual_indexing.py -d /path/to/repo -m incremental --verbose` - Verbose output
+- `uvx --directory . run python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm` - Skip prompts
 
 ### Performance Testing and Validation
 - Manual tool provides pre-indexing analysis with file count and time estimates

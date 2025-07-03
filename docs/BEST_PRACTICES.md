@@ -164,7 +164,32 @@ A comprehensive guide for effective use of the Codebase RAG MCP Server, includin
    )
    ```
 
-2. **Comparative Analysis**
+2. **Targeted Project Searches**
+   ```
+   # Search specific projects for focused analysis
+   search(
+     query="Find authentication implementation patterns",
+     target_projects=["backend-api", "user-service"],
+     n_results=10
+   )
+
+   # Compare patterns between frontend and backend
+   search(
+     query="Show me error handling patterns",
+     target_projects=["frontend-react", "backend-node"],
+     include_context=true
+   )
+
+   # Agent knowledge acquisition from specific project
+   search(
+     query="Show me all API endpoint patterns and middleware",
+     target_projects=["main-api-service"],
+     n_results=20,
+     context_chunks=2
+   )
+   ```
+
+3. **Comparative Analysis**
    ```
    # Compare implementations across projects
    search(
@@ -172,15 +197,48 @@ A comprehensive guide for effective use of the Codebase RAG MCP Server, includin
      cross_project=true,
      search_mode="semantic"
    )
+
+   # Compare specific projects only
+   search(
+     query="Compare authentication middleware implementations",
+     target_projects=["service-a", "service-b", "legacy-service"],
+     search_mode="hybrid"
+   )
    ```
 
-3. **Architecture Pattern Discovery**
+4. **Architecture Pattern Discovery**
    ```
-   # Find common architectural patterns
+   # Find common architectural patterns across all projects
    search(
      query="Locate dependency injection containers",
      cross_project=true,
      include_context=true
+   )
+
+   # Focus on microservices architecture patterns
+   search(
+     query="Find service communication patterns",
+     target_projects=["user-service", "payment-service", "notification-service"],
+     include_context=true
+   )
+   ```
+
+5. **Agent Knowledge Transfer**
+   ```
+   # Give Agent comprehensive knowledge of a specific project
+   search(
+     query="Show me the complete application architecture and key patterns",
+     target_projects=["core-application"],
+     n_results=50,
+     include_context=true,
+     context_chunks=3
+   )
+
+   # Load Agent with knowledge from related projects for development context
+   search(
+     query="Find all configuration patterns and deployment scripts",
+     target_projects=["infrastructure", "deployment-configs"],
+     n_results=30
    )
    ```
 
