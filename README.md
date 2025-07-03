@@ -436,7 +436,7 @@ This section demonstrates real-world usage of the Agentic-RAG system with actual
 
 ### 📋 Project Architecture Exploration Example
 
-The [ARCHITECTURE_DEEP_DIVE.md](./ARCHITECTURE_DEEP_DIVE.md) file was generated using this RAG system as a live demonstration. It showcases:
+The [ARCHITECTURE_DEEP_DIVE.md](./docs/ARCHITECTURE_DEEP_DIVE.md) file was generated using this RAG system as a live demonstration. It showcases:
 
 - **Comprehensive codebase analysis** using function-level search precision
 - **Component relationship mapping** through intelligent chunking

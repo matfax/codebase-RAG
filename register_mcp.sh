@@ -7,7 +7,16 @@ echo "Registering Codebase RAG MCP Server with Claude Code..."
 
 # Get the absolute path to the MCP runner
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
+# Check for uv virtual environment
+if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+    PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
+else
+    # Try to find Python via uv
+    PYTHON_PATH=$(cd "$SCRIPT_DIR" && uv run which python 2>/dev/null)
+    if [ -z "$PYTHON_PATH" ]; then
+        PYTHON_PATH="$SCRIPT_DIR/.venv/bin/python"
+    fi
+fi
 MCP_RUNNER="$SCRIPT_DIR/src/run_mcp.py"
 
 echo "Project directory: $SCRIPT_DIR"
@@ -17,7 +26,7 @@ echo "MCP runner: $MCP_RUNNER"
 # Verify files exist
 if [ ! -f "$PYTHON_PATH" ]; then
     echo "❌ Error: Python virtual environment not found at $PYTHON_PATH"
-    echo "Please run 'poetry install' first."
+    echo "Please run 'uv sync' first."
     exit 1
 fi
 
