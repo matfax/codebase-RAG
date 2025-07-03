@@ -325,14 +325,12 @@ class CodeParserService:
             error_details = error_message or f"Exception: {exception_context}"
             syntax_errors.append(
                 CodeSyntaxError(
-                    line=1,
-                    column=0,
+                    start_line=1,
+                    start_column=0,
                     end_line=len(content.split("\n")) if content else 1,
                     end_column=0,
-                    error_text=error_details,
-                    context_before=None,
-                    context_after=None,
-                    language=language,
+                    error_type="parsing_error",
+                    context=error_details,
                 )
             )
 
