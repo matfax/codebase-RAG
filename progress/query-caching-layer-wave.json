@@ -1,0 +1,18 @@
+{
+  "agent": "query-caching-layer-wave",
+  "current_wave": "9.0",
+  "wave_description": "Cache Invalidation System",
+  "wave_status": "ready",
+  "current_subtask": "9.1",
+  "subtask_description": "Implement cache invalidation service",
+  "completed_subtasks": ["8.1.1", "8.1.2", "8.1.3", "8.1.4", "8.1.5", "8.2.1", "8.2.2", "8.2.3", "8.2.4", "8.2.5"],
+  "wave_subtasks": ["9.1", "9.2"],
+  "overall_progress": "40%",
+  "wave_progress": "100%",
+  "last_updated": "2025-01-09T08:00:00Z",
+  "total_waves": 20,
+  "completed_waves": 8,
+  "feature_name": "query-caching-layer",
+  "setup_complete": true,
+  "completed_waves_list": ["1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0"]
+}
