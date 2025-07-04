@@ -112,6 +112,39 @@ def _truncate_content(content: str, max_length: int = 1500) -> str:
     return content[:max_length] + "\n... (truncated)"
 
 
+def _is_valid_content(content: str) -> bool:
+    """Check if content is valid for search results.
+
+    Args:
+        content: Content to validate
+
+    Returns:
+        True if content is valid, False if it should be filtered out
+    """
+    if not content:
+        return False
+
+    # Remove whitespace and check if anything meaningful remains
+    stripped_content = content.strip()
+    if not stripped_content:
+        return False
+
+    # Filter out content that's too short to be meaningful (less than 3 characters)
+    if len(stripped_content) < 3:
+        return False
+
+    # Filter out content that's only punctuation, brackets, or special characters
+    meaningful_chars = sum(1 for c in stripped_content if c.isalnum() or c in ["_", "-", "."])
+    if meaningful_chars == 0:
+        return False
+
+    # Filter out content that's mostly whitespace (more than 80% whitespace)
+    if meaningful_chars / len(stripped_content) < 0.2:
+        return False
+
+    return True
+
+
 def _expand_search_context(
     results: list[dict[str, Any]],
     qdrant_client,
@@ -277,7 +310,7 @@ def _perform_hybrid_search(
         query: Original search query
         query_embedding: Query vector embedding
         search_collections: List of collections to search
-        n_results: Number of results to return per collection
+        n_results: Total number of results to return across all collections
         search_mode: Search mode (semantic, keyword, hybrid)
         collection_filter: Optional filter for collections
         result_processor: Optional function to process each result
@@ -287,20 +320,51 @@ def _perform_hybrid_search(
         List of search results with scores and metadata
     """
     all_results = []
+    empty_content_stats = {"total_found": 0, "empty_skipped": 0, "by_collection": {}}
+
+    # Calculate how many results to retrieve from each collection
+    # We want to retrieve enough results to ensure we get the best results
+    # across all collections, but not excessively more than needed
+    num_collections = len(search_collections)
+    if num_collections == 1:
+        # Single collection: request exactly what we need plus a buffer
+        per_collection_limit = max(n_results, 10)
+    else:
+        # Multiple collections: calculate optimal distribution
+        # Base allocation per collection, with minimum buffer
+        base_per_collection = max(1, n_results // num_collections)
+        # Add buffer to ensure we get good results, but cap it reasonably
+        buffer_per_collection = min(max(5, n_results // 4), 20)
+        per_collection_limit = base_per_collection + buffer_per_collection
 
     for collection in search_collections:
+        empty_content_stats["by_collection"][collection] = {"found": 0, "empty": 0}
         try:
             # Perform vector similarity search
             search_results = qdrant_client.search(
                 collection_name=collection,
                 query_vector=query_embedding,
                 query_filter=collection_filter,
-                limit=n_results,
+                limit=per_collection_limit,
                 score_threshold=0.1,  # Minimum similarity threshold
             )
 
             for result in search_results:
+                empty_content_stats["total_found"] += 1
+                empty_content_stats["by_collection"][collection]["found"] += 1
+
                 if not isinstance(result.payload, dict):
+                    continue
+
+                # Enhanced content filtering - skip results with empty, whitespace-only, or minimal content
+                content = result.payload.get("content", "")
+                if not _is_valid_content(content):
+                    empty_content_stats["empty_skipped"] += 1
+                    empty_content_stats["by_collection"][collection]["empty"] += 1
+                    file_path = result.payload.get("file_path", "unknown")
+                    chunk_type = result.payload.get("chunk_type", "unknown")
+                    chunk_name = result.payload.get("name", "unknown")
+                    logger.debug(f"Skipping result with invalid content from {collection}: {file_path} ({chunk_type}:{chunk_name})")
                     continue
 
                 # Build base result structure
@@ -309,7 +373,7 @@ def _perform_hybrid_search(
                     "collection": collection,
                     "search_mode": search_mode,
                     "file_path": result.payload.get("file_path", ""),
-                    "content": result.payload.get("content", ""),
+                    "content": content,
                     "chunk_index": result.payload.get("chunk_index", 0),
                     "project": result.payload.get("project", "unknown"),
                     "line_start": result.payload.get("line_start", 0),
@@ -339,11 +403,56 @@ def _perform_hybrid_search(
             # Continue with other collections
             continue
 
-    # Sort results by score in descending order
-    all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    # Sort results by score in descending order, with secondary sort by collection type
+    # to ensure stable ordering for results with same score
+    all_results.sort(key=lambda x: (x.get("score", 0), x.get("collection", ""), x.get("line_start", 0)), reverse=True)
 
-    # Limit total results
-    return all_results[: n_results * len(search_collections)]
+    # Log collection-wise result statistics
+    collection_stats = {}
+    for result in all_results:
+        coll = result.get("collection", "unknown")
+        if coll not in collection_stats:
+            collection_stats[coll] = {"count": 0, "top_score": 0, "avg_score": 0, "scores": []}
+        collection_stats[coll]["count"] += 1
+        collection_stats[coll]["scores"].append(result.get("score", 0))
+        collection_stats[coll]["top_score"] = max(collection_stats[coll]["top_score"], result.get("score", 0))
+
+    # Calculate average scores
+    for coll, stats in collection_stats.items():
+        if stats["scores"]:
+            stats["avg_score"] = sum(stats["scores"]) / len(stats["scores"])
+
+    logger.debug(f"Cross-collection aggregation: {len(all_results)} total results from {len(search_collections)} collections")
+    for coll, stats in collection_stats.items():
+        logger.debug(f"  {coll}: {stats['count']} results, top_score={stats['top_score']:.3f}, avg_score={stats['avg_score']:.3f}")
+
+    # Log empty content statistics if any were found
+    if empty_content_stats["empty_skipped"] > 0:
+        empty_rate = (empty_content_stats["empty_skipped"] / empty_content_stats["total_found"]) * 100
+        logger.warning(
+            f"Filtered out {empty_content_stats['empty_skipped']} results with empty content "
+            f"({empty_rate:.1f}% of {empty_content_stats['total_found']} total found)"
+        )
+
+        # Log per-collection breakdown
+        for coll, stats in empty_content_stats["by_collection"].items():
+            if stats["empty"] > 0:
+                coll_rate = (stats["empty"] / stats["found"]) * 100 if stats["found"] > 0 else 0
+                logger.debug(f"Collection {coll}: {stats['empty']}/{stats['found']} empty ({coll_rate:.1f}%)")
+
+    # Limit total results to n_results (properly aggregated across collections)
+    final_results = all_results[:n_results]
+
+    # Log final result distribution
+    if final_results:
+        final_collection_counts = {}
+        for result in final_results:
+            coll = result.get("collection", "unknown")
+            final_collection_counts[coll] = final_collection_counts.get(coll, 0) + 1
+
+        logger.debug(f"Final result distribution ({len(final_results)} results): {final_collection_counts}")
+
+    return final_results
 
 
 def _create_general_metadata_extractor() -> Callable[[dict[str, Any]], dict[str, Any]]:
