@@ -277,7 +277,7 @@ def _perform_hybrid_search(
         query: Original search query
         query_embedding: Query vector embedding
         search_collections: List of collections to search
-        n_results: Number of results to return per collection
+        n_results: Total number of results to return across all collections
         search_mode: Search mode (semantic, keyword, hybrid)
         collection_filter: Optional filter for collections
         result_processor: Optional function to process each result
@@ -287,20 +287,40 @@ def _perform_hybrid_search(
         List of search results with scores and metadata
     """
     all_results = []
+    empty_content_stats = {"total_found": 0, "empty_skipped": 0, "by_collection": {}}
+
+    # Calculate how many results to retrieve from each collection
+    # We want to retrieve more than n_results to ensure we get the best results
+    # across all collections, then trim to n_results at the end
+    per_collection_limit = max(n_results, 10)  # Minimum 10 to ensure good coverage
 
     for collection in search_collections:
+        empty_content_stats["by_collection"][collection] = {"found": 0, "empty": 0}
         try:
             # Perform vector similarity search
             search_results = qdrant_client.search(
                 collection_name=collection,
                 query_vector=query_embedding,
                 query_filter=collection_filter,
-                limit=n_results,
+                limit=per_collection_limit,
                 score_threshold=0.1,  # Minimum similarity threshold
             )
 
             for result in search_results:
+                empty_content_stats["total_found"] += 1
+                empty_content_stats["by_collection"][collection]["found"] += 1
+
                 if not isinstance(result.payload, dict):
+                    continue
+
+                # Skip results with empty or missing content
+                content = result.payload.get("content", "")
+                if not content or not content.strip():
+                    empty_content_stats["empty_skipped"] += 1
+                    empty_content_stats["by_collection"][collection]["empty"] += 1
+                    file_path = result.payload.get("file_path", "unknown")
+                    chunk_type = result.payload.get("chunk_type", "unknown")
+                    logger.debug(f"Skipping result with empty content from {collection}: {file_path} ({chunk_type})")
                     continue
 
                 # Build base result structure
@@ -309,7 +329,7 @@ def _perform_hybrid_search(
                     "collection": collection,
                     "search_mode": search_mode,
                     "file_path": result.payload.get("file_path", ""),
-                    "content": result.payload.get("content", ""),
+                    "content": content,
                     "chunk_index": result.payload.get("chunk_index", 0),
                     "project": result.payload.get("project", "unknown"),
                     "line_start": result.payload.get("line_start", 0),
@@ -342,8 +362,22 @@ def _perform_hybrid_search(
     # Sort results by score in descending order
     all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    # Limit total results
-    return all_results[: n_results * len(search_collections)]
+    # Log empty content statistics if any were found
+    if empty_content_stats["empty_skipped"] > 0:
+        empty_rate = (empty_content_stats["empty_skipped"] / empty_content_stats["total_found"]) * 100
+        logger.warning(
+            f"Filtered out {empty_content_stats['empty_skipped']} results with empty content "
+            f"({empty_rate:.1f}% of {empty_content_stats['total_found']} total found)"
+        )
+
+        # Log per-collection breakdown
+        for coll, stats in empty_content_stats["by_collection"].items():
+            if stats["empty"] > 0:
+                coll_rate = (stats["empty"] / stats["found"]) * 100 if stats["found"] > 0 else 0
+                logger.debug(f"Collection {coll}: {stats['empty']}/{stats['found']} empty ({coll_rate:.1f}%)")
+
+    # Limit total results to n_results (not multiplied by collection count)
+    return all_results[:n_results]
 
 
 def _create_general_metadata_extractor() -> Callable[[dict[str, Any]], dict[str, Any]]:
