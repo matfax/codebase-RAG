@@ -325,6 +325,8 @@ class IndexingPipeline:
                         point_id = str(uuid4())
                         metadata = chunk.metadata.copy()
                         metadata["collection"] = collection_name
+                        # CRITICAL FIX: Include chunk content in payload
+                        metadata["content"] = chunk.content
 
                         point = PointStruct(id=point_id, vector=embedding.tolist(), payload=metadata)
                         points.append(point)

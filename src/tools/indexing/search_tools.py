@@ -687,19 +687,44 @@ def get_target_project_collections(target_projects: list[str], all_collections: 
     Returns:
         List of collection names for the target projects
     """
-    # Normalize project names for collection matching
-    normalized_projects = [p.replace(" ", "_").replace("-", "_").lower() for p in target_projects]
+    # Do not normalize case - preserve original project names for exact matching first
     search_collections = []
 
     # Find collections for specified projects
-    for project_name in normalized_projects:
-        project_collections = [
+    for original_name in target_projects:
+        # Try exact match first (preserving original case)
+        exact_match_collections = [
             c
             for c in all_collections
-            if (c.startswith(f"project_{project_name}_") or c.startswith(f"dir_{project_name}_")) and not c.endswith("_file_metadata")
+            if (c.startswith(f"project_{original_name}_") or c.startswith(f"dir_{original_name}_")) and not c.endswith("_file_metadata")
         ]
-        search_collections.extend(project_collections)
 
+        if exact_match_collections:
+            search_collections.extend(exact_match_collections)
+        else:
+            # Try normalized case matching (replace spaces/hyphens with underscores, convert to lowercase)
+            normalized_name = original_name.replace(" ", "_").replace("-", "_").lower()
+            normalized_match_collections = [
+                c
+                for c in all_collections
+                if (c.startswith(f"project_{normalized_name}_") or c.startswith(f"dir_{normalized_name}_"))
+                and not c.endswith("_file_metadata")
+            ]
+
+            if normalized_match_collections:
+                search_collections.extend(normalized_match_collections)
+            else:
+                # Finally, try partial case-insensitive matching
+                partial_match_collections = [
+                    c
+                    for c in all_collections
+                    if (
+                        (c.startswith("project_") and original_name.lower() in c.lower())
+                        or (c.startswith("dir_") and original_name.lower() in c.lower())
+                    )
+                    and not c.endswith("_file_metadata")
+                ]
+                search_collections.extend(partial_match_collections)
     return search_collections
 
 
