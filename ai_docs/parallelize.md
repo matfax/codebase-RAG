@@ -1,6 +1,6 @@
 # /parallelize
 
-Create N number of git worktrees and run Claude Code instances in each worktree for concurrent development.
+Create N git worktrees and run AI agents in each worktree for concurrent development.
 
 ## Variables
 
@@ -8,53 +8,53 @@ FEATURE_NAME: $ARGUMENTS
 PLAN_TO_EXECUTE: $ARGUMENTS
 NUMBER_OF_PARALLEL_WORKTREES: $ARGUMENTS
 
-## Execute Phase 1
+## Execute Phase 1: Environment Setup
 
-Always check that the current directory uncommit changes. If there are, immediately exit the command with an error message, letting user know to commit or stash their changes before running the command.
+**Safety Check:** Before proceeding, I will check for any uncommitted changes in the current directory. If changes are found, I will exit with an error, prompting you to commit or stash them.
 
-CREATE new directory trees/ if it doesn't already exist.
+**Directory Setup:** I will ensure the `trees/` directory exists at the project root.
 
-> Execute these steps in parallel for concurrency
->
-> Use absolute paths for all commands
+> The following steps will be executed in parallel for each worktree to ensure efficiency. I will use absolute paths for all commands.
 
-CREATE NUMBER_OF_PARALLEL_WORKTREES worktrees using the following commands:
+For each instance from 1 to NUMBER_OF_PARALLEL_WORKTREES, I will:
 
-RUN git worktree add -b FEATURE_NAME-<instance-number> ./trees/FEATURE_NAME-<instance-number>
-COPY ./.env to ./trees/FEATURE_NAME-<instance-number>/.env (if exists)
-RUN cd ./trees/FEATURE_NAME-<instance-number>
-RUN .venv/bin/poetry install
+1.  **Create Worktree:** `git worktree add -b <FEATURE_NAME>-<instance-number> ./trees/<FEATURE_NAME>-<instance-number>`
+2.  **Copy Environment:** Copy the `.env` file to `./trees/<FEATURE_NAME>-<instance-number>/.env` if it exists.
+3.  **Install Dependencies:** Change directory to `./trees/<FEATURE_NAME>-<instance-number>` and run `uv sync` to install dependencies specified in `uv.lock`.
 
-VERIFY setup by running git worktree list
+**Verification:** After setup, I will run `git worktree list` to confirm all worktrees were created successfully.
 
-## Execute Phase 2
+## Execute Phase 2: Parallel Development
 
-Read and understand the @ai_docs/process-task-list.mdc and PLAN_TO_EXECUTE meticulously before proceeding.
+I will now create NUMBER_OF_PARALLEL_WORKTREES independent AI sub-agents. Each agent will work in its own dedicated worktree to build the feature concurrently. This allows for isolated development and testing.
 
-Create NUMBER_OF_PARALLEL_WORKTREES new subagents that use the Task tool to create N versions of the same feature in parallel. Kick off all subagents to start work at the same time DO NOT run one after another. Each subagent will run in it's own worktree directory located in trees/. DO NOT make changes to the main directory.
+Each sub-agent will operate in its respective directory:
+-   Agent 1: `trees/<FEATURE_NAME>-1/`
+-   Agent 2: `trees/<FEATURE_NAME>-2/`
+-   ...and so on.
 
-This enables the subagents to concurrently build the same feature in separate worktree directories in parallel so we can test and validate each subagent's changes in isolation then pick the best worktree to merge into main. Each subagent's implementation must be complete and production ready.
+**Core Task:**
+Each agent will independently and meticulously implement the engineering plan detailed in **PLAN_TO_EXECUTE**.
 
-The first subagent will run in trees/<FEATURE_NAME>-<instance-number>/
-The second subagent will run in trees/<FEATURE_NAME>-<instance-number>/
-...
-The last subagent will run in trees/<FEATURE_NAME>-<instance-number>/
+**Progress Tracking:**
+Each agent will report its progress by writing to a JSON file in the shared `progress/` directory:
 
-The code in trees/<FEATURE_NAME>-<instance-number>/ will be identical to the code in the current branch. It will be setup and ready for you to build the feature end to end.
-
-Each subagent will independently meticulously read and implement the engineering plan detailed in PLAN_TO_EXECUTE in their respective workspace.
-
-Each agent should write a progress file:
-
-echo '{
-  "agent": "spec1",
+```json
+{
+  "agent": "<FEATURE_NAME>-<instance-number>",
   "status": "in-progress",
   "step": "parser module implemented",
   "last_updated": "'$(date -Iseconds)'"
-}' > ../progress/spec1.json
+}
+```
+The file will be named `progress/<FEATURE_NAME>-<instance-number>.json`.
 
-Replace "spec1" with your actual agent branch name. Make sure the ../progress/ folder is shared among all worktrees.
+**Completion and Validation:**
+Upon completing its task, each agent will:
 
-When the subagent completes it's work, have the subagent report their final changes made in a comprehensive `RESULTS.md` file at the root of their respective workspace. They should always include example of how to use the code if applicable.
+1.  **Generate Report:** Create a comprehensive `RESULTS.md` file in its worktree root, detailing the changes made and providing usage examples if applicable.
+2.  **Run Tests:** Execute `.venv/bin/pytest tests/` within its worktree to ensure all tests pass.
+3.  **Fix Issues:** Address any test failures, linting errors, or type-checking issues identified.
+4.  **Final Status:** Update its progress file to reflect "completed" status.
 
-Each subagent must also run `.venv/bin/pytest tests/` at the root of their respective worktree and fix any test failures that they encounter. They should also run any additional validation commands like linting or type checking as specified in the project's CLAUDE.md file.
+This process ensures that we can review multiple, complete, and validated implementations to select the best one for merging into the main branch.

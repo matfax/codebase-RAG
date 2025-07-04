@@ -347,15 +347,19 @@ def get_available_project_names(collections: list[str]) -> list[str]:
     for collection in collections:
         if collection.startswith("project_"):
             # Extract project name from "project_{name}_{type}"
+            # Handle multi-part project names like "project_PocketFlow_Template_Python_code"
             parts = collection.split("_")
             if len(parts) >= 3:
-                project_name = parts[1]  # The project name part
+                # Everything between 'project_' and the last '_type' is the project name
+                project_name = "_".join(parts[1:-1])
                 project_names.add(project_name)
         elif collection.startswith("dir_"):
             # Extract directory name from "dir_{name}_{type}"
+            # Handle multi-part directory names like "dir_My_Project_Name_code"
             parts = collection.split("_")
             if len(parts) >= 3:
-                dir_name = parts[1]  # The directory name part
+                # Everything between 'dir_' and the last '_type' is the directory name
+                dir_name = "_".join(parts[1:-1])
                 project_names.add(dir_name)
 
     return sorted(project_names)
