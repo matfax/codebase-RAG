@@ -394,4 +394,14 @@ def register_tools(mcp_app: FastMCP) -> None:
         """
         return await invalidate_chunks(file_path, chunk_ids, reason)
 
+    # Register file monitoring tools
+    from .cache.file_monitoring_tools import register_file_monitoring_tools
+
+    register_file_monitoring_tools(mcp_app)
+
+    # Register cascade invalidation tools
+    from .cache.cascade_invalidation_tools import register_cascade_invalidation_tools
+
+    register_cascade_invalidation_tools(mcp_app)
+
     logger.info("All MCP Tools registered successfully")

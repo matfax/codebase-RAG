@@ -26,6 +26,7 @@ dependencies = [
     "tree-sitter-cpp",
     "redis>=5.0.0,<6",
     "cryptography>=42.0.0,<43",
+    "watchdog>=3.0.0,<4",
 ]
 
 [dependency-groups]

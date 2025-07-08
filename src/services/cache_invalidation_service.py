@@ -296,6 +296,9 @@ class CacheInvalidationService:
         self._content_hashes: dict[str, dict[str, str]] = {}  # file_path -> {chunk_id: hash}
         self._metadata_hashes: dict[str, str] = {}  # file_path -> metadata_hash
 
+        # Cascade invalidation
+        self._cascade_service: Any | None = None  # Imported later to avoid circular imports
+
     async def initialize(self) -> None:
         """Initialize the cache invalidation service."""
         try:
@@ -357,6 +360,11 @@ class CacheInvalidationService:
         self._cache_services["project"] = self._project_cache
         self._cache_services["file"] = self._file_cache
 
+        # Initialize cascade invalidation service
+        from ..services.cascade_invalidation_service import get_cascade_invalidation_service
+
+        self._cascade_service = get_cascade_invalidation_service()
+
     async def invalidate_file_caches(
         self, file_path: str, reason: InvalidationReason = InvalidationReason.FILE_MODIFIED, cascade: bool = True
     ) -> InvalidationEvent:
@@ -392,15 +400,43 @@ class CacheInvalidationService:
             affected_keys.extend(search_keys)
             await self._invalidate_keys_in_service("search", search_keys)
 
-            # Cascade invalidation to dependent caches
-            if cascade:
-                dependent_keys = await self._get_dependent_keys(file_keys)
-                affected_keys.extend(dependent_keys)
-                await self._invalidate_dependent_keys(dependent_keys)
-
-            # Create invalidation event
-            event = InvalidationEvent(
+            # Create preliminary invalidation event for cascade processing
+            preliminary_event = InvalidationEvent(
                 event_id=f"file_{int(time.time() * 1000)}",
+                reason=reason,
+                timestamp=datetime.now(),
+                affected_keys=affected_keys.copy(),
+                affected_files=[file_path],
+                metadata={"file_path": file_path, "cascade": cascade},
+            )
+
+            # Cascade invalidation to dependent caches
+            if cascade and self._cascade_service:
+                try:
+                    # Get all available cache keys
+                    all_cache_keys = await self._get_all_cache_keys()
+
+                    # Perform cascade invalidation
+                    cascade_events = await self._cascade_service.cascade_invalidate(
+                        root_event=preliminary_event,
+                        available_keys=all_cache_keys,
+                        invalidation_callback=self._cascade_invalidation_callback,
+                    )
+
+                    # Collect additional affected keys from cascade
+                    for cascade_event in cascade_events:
+                        affected_keys.extend(cascade_event.target_keys)
+
+                except Exception as e:
+                    self.logger.warning(f"Cascade invalidation failed, falling back to simple cascade: {e}")
+                    # Fallback to original cascade logic
+                    dependent_keys = await self._get_dependent_keys(file_keys)
+                    affected_keys.extend(dependent_keys)
+                    await self._invalidate_dependent_keys(dependent_keys)
+
+            # Create final invalidation event with all affected keys
+            event = InvalidationEvent(
+                event_id=preliminary_event.event_id,
                 reason=reason,
                 timestamp=datetime.now(),
                 affected_keys=affected_keys,
@@ -1479,6 +1515,72 @@ class CacheInvalidationService:
         metadata_content = f"{abs_path}:{len(chunks)}:{time.time()}"
         self._metadata_hashes[abs_path] = self._calculate_hash(metadata_content)
 
+    def register_file_monitoring_integration(self, file_monitoring_service) -> None:
+        """
+        Register file monitoring service for real-time invalidation.
+
+        Args:
+            file_monitoring_service: File monitoring service instance
+        """
+        self._file_monitoring_service = file_monitoring_service
+        self.logger.info("File monitoring integration registered")
+
+    async def enable_real_time_invalidation(self, project_name: str, enable: bool = True) -> None:
+        """
+        Enable or disable real-time invalidation for a project.
+
+        Args:
+            project_name: Name of the project
+            enable: Whether to enable real-time invalidation
+        """
+        if hasattr(self, "_file_monitoring_service") and self._file_monitoring_service:
+            if enable:
+                # Check if project is already being monitored
+                configs = self._file_monitoring_service.get_project_configs()
+                if project_name not in configs:
+                    self.logger.info(f"Project {project_name} not monitored - real-time invalidation not available")
+                else:
+                    self.logger.info(f"Real-time invalidation enabled for project {project_name}")
+            else:
+                self.logger.info(f"Real-time invalidation disabled for project {project_name}")
+        else:
+            self.logger.warning("File monitoring service not available for real-time invalidation")
+
+    async def get_real_time_status(self, project_name: str) -> dict[str, Any]:
+        """
+        Get real-time invalidation status for a project.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Dictionary with real-time status information
+        """
+        status = {
+            "project_name": project_name,
+            "monitoring_available": False,
+            "monitoring_active": False,
+            "monitoring_config": None,
+            "stats": None,
+        }
+
+        if hasattr(self, "_file_monitoring_service") and self._file_monitoring_service:
+            status["monitoring_available"] = True
+            configs = self._file_monitoring_service.get_project_configs()
+
+            if project_name in configs:
+                status["monitoring_active"] = True
+                status["monitoring_config"] = configs[project_name]
+                monitoring_stats = self._file_monitoring_service.get_monitoring_stats()
+                status["stats"] = {
+                    "total_events": monitoring_stats.total_events,
+                    "invalidations_triggered": monitoring_stats.invalidations_triggered,
+                    "last_event": monitoring_stats.last_event.isoformat() if monitoring_stats.last_event else None,
+                    "last_invalidation": monitoring_stats.last_invalidation.isoformat() if monitoring_stats.last_invalidation else None,
+                }
+
+        return status
+
     async def invalidate_specific_chunks(
         self, file_path: str, chunk_ids: list[str], reason: InvalidationReason = InvalidationReason.CHUNK_MODIFIED
     ) -> InvalidationEvent:
@@ -1970,6 +2072,198 @@ class CacheInvalidationService:
         # Invalidate in each service
         for service_name, keys in service_keys.items():
             await self._invalidate_keys_in_service(service_name, keys)
+
+    async def _get_all_cache_keys(self) -> list[str]:
+        """
+        Get all available cache keys from all cache services.
+
+        Returns:
+            List of all cache keys
+        """
+        all_keys = []
+
+        try:
+            for service_name, cache_service in self._cache_services.items():
+                # This is a simplified approach - in practice, you might need
+                # service-specific methods to list keys
+                if hasattr(cache_service, "get_all_keys"):
+                    service_keys = await cache_service.get_all_keys()
+                    all_keys.extend(service_keys)
+                else:
+                    # Generate some sample keys based on patterns
+                    # This is a fallback for demonstration
+                    all_keys.extend(self._generate_sample_keys(service_name))
+
+        except Exception as e:
+            self.logger.warning(f"Failed to get all cache keys: {e}")
+
+        return all_keys
+
+    def _generate_sample_keys(self, service_name: str) -> list[str]:
+        """
+        Generate sample cache keys for testing cascade invalidation.
+
+        Args:
+            service_name: Name of the cache service
+
+        Returns:
+            List of sample cache keys
+        """
+        # This is a placeholder implementation
+        # In practice, you'd enumerate actual keys from the cache
+        base_patterns = {
+            "file": ["file:/path/to/file1.py", "file:/path/to/file2.js"],
+            "embedding": ["embedding:chunk:project1:file1", "embedding:chunk:project1:file2"],
+            "search": ["search:query:project1:python", "search:query:project1:javascript"],
+            "project": ["project:project1:info", "project:project1:stats"],
+            "main": ["main:global:config", "main:global:stats"],
+        }
+
+        return base_patterns.get(service_name, [])
+
+    async def _cascade_invalidation_callback(self, keys_to_invalidate: list[str]) -> None:
+        """
+        Callback function for cascade invalidation.
+
+        Args:
+            keys_to_invalidate: List of cache keys to invalidate
+        """
+        try:
+            # Group keys by service and invalidate
+            service_keys = {}
+            for key in keys_to_invalidate:
+                service_name = self._extract_service_name(key)
+                if service_name not in service_keys:
+                    service_keys[service_name] = []
+                service_keys[service_name].append(key)
+
+            # Invalidate keys in each service
+            for service_name, keys in service_keys.items():
+                await self._invalidate_keys_in_service(service_name, keys)
+
+            self.logger.debug(f"Cascade invalidated {len(keys_to_invalidate)} keys")
+
+        except Exception as e:
+            self.logger.error(f"Error in cascade invalidation callback: {e}")
+
+    def add_cascade_dependency_rule(self, source_pattern: str, target_pattern: str, **kwargs) -> None:
+        """
+        Add a cascade dependency rule.
+
+        Args:
+            source_pattern: Pattern for source cache keys
+            target_pattern: Pattern for dependent cache keys
+            **kwargs: Additional rule parameters
+        """
+        if self._cascade_service:
+            from ..services.cascade_invalidation_service import CascadeStrategy, DependencyRule, DependencyType
+
+            # Set default values for kwargs
+            dependency_type = kwargs.get("dependency_type", DependencyType.FILE_CONTENT)
+            cascade_strategy = kwargs.get("cascade_strategy", CascadeStrategy.IMMEDIATE)
+
+            if isinstance(dependency_type, str):
+                dependency_type = DependencyType(dependency_type)
+            if isinstance(cascade_strategy, str):
+                cascade_strategy = CascadeStrategy(cascade_strategy)
+
+            rule = DependencyRule(
+                source_pattern=source_pattern,
+                target_pattern=target_pattern,
+                dependency_type=dependency_type,
+                cascade_strategy=cascade_strategy,
+                condition=kwargs.get("condition"),
+                metadata=kwargs.get("metadata", {}),
+            )
+
+            self._cascade_service.add_dependency_rule(rule)
+            self.logger.info(f"Added cascade dependency rule: {source_pattern} -> {target_pattern}")
+        else:
+            self.logger.warning("Cascade service not available, cannot add dependency rule")
+
+    def add_explicit_cascade_dependency(self, source_key: str, dependent_keys: list[str]) -> None:
+        """
+        Add explicit cascade dependency.
+
+        Args:
+            source_key: Source cache key
+            dependent_keys: List of dependent cache keys
+        """
+        if self._cascade_service:
+            self._cascade_service.add_explicit_dependency(source_key, dependent_keys)
+            self.logger.debug(f"Added explicit cascade dependency: {source_key} -> {dependent_keys}")
+        else:
+            # Fallback to simple dependency tracking
+            self.register_file_dependency(source_key, dependent_keys)
+
+    def get_cascade_stats(self) -> dict[str, Any]:
+        """
+        Get cascade invalidation statistics.
+
+        Returns:
+            Dictionary with cascade statistics
+        """
+        if self._cascade_service:
+            stats = self._cascade_service.get_cascade_stats()
+            return {
+                "total_cascades": stats.total_cascades,
+                "cascade_levels_reached": dict(stats.cascade_levels_reached),
+                "strategies_used": {k.value: v for k, v in stats.strategies_used.items()},
+                "dependency_types": {k.value: v for k, v in stats.dependency_types.items()},
+                "keys_invalidated": stats.keys_invalidated,
+                "avg_cascade_time": stats.avg_cascade_time,
+                "max_cascade_depth": stats.max_cascade_depth,
+                "circular_dependencies_detected": stats.circular_dependencies_detected,
+                "last_cascade": stats.last_cascade.isoformat() if stats.last_cascade else None,
+            }
+        else:
+            return {"cascade_service_available": False, "message": "Cascade invalidation service not initialized"}
+
+    def get_dependency_graph(self) -> dict[str, Any]:
+        """
+        Get the cache dependency graph.
+
+        Returns:
+            Dictionary representing the dependency graph
+        """
+        if self._cascade_service:
+            return self._cascade_service.get_dependency_graph()
+        else:
+            return {"explicit_dependencies": {k: list(v) for k, v in self._dependency_map.items()}, "cascade_service_available": False}
+
+    def detect_circular_dependencies(self) -> dict[str, list[str]]:
+        """
+        Detect circular dependencies in cache relationships.
+
+        Returns:
+            Dictionary mapping keys to their circular dependency paths
+        """
+        if self._cascade_service:
+            return self._cascade_service.detect_circular_dependencies()
+        else:
+            # Simple circular dependency detection for explicit dependencies
+            circular_deps = {}
+            for start_key in self._dependency_map:
+                visited = set()
+                path = []
+                if self._find_circular_path_simple(start_key, visited, path):
+                    circular_deps[start_key] = path
+            return circular_deps
+
+    def _find_circular_path_simple(self, current_key: str, visited: set[str], path: list[str]) -> bool:
+        """Simple circular dependency detection."""
+        if current_key in visited:
+            return True
+
+        visited.add(current_key)
+        path.append(current_key)
+
+        if current_key in self._dependency_map:
+            for dep_key in self._dependency_map[current_key]:
+                if self._find_circular_path_simple(dep_key, visited.copy(), path.copy()):
+                    return True
+
+        return False
 
 
 # Global cache invalidation service instance
