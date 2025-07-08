@@ -183,7 +183,7 @@
   - [x] 9.1.2 Implement file change detection integration
   - [x] 9.1.3 Add project-specific invalidation strategies
   - [x] 9.1.4 Implement partial invalidation for incremental updates
-  - [ ] 9.1.5 Add manual cache invalidation tools
+  - [x] 9.1.5 Add manual cache invalidation tools
 - [ ] 9.2 Integrate with file monitoring
   - [ ] 9.2.1 Integrate with existing file modification tracking
   - [ ] 9.2.2 Add file system event handling for cache invalidation

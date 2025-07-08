@@ -194,4 +194,204 @@ def register_tools(mcp_app: FastMCP) -> None:
 
     register_file_tools(mcp_app)
 
+    # Register cache management tools
+    from .cache.cache_management import (
+        clear_all_caches,
+        get_cache_invalidation_stats,
+        get_project_invalidation_policy,
+        invalidate_chunks,
+        manual_invalidate_cache_keys,
+        manual_invalidate_cache_pattern,
+        manual_invalidate_file_cache,
+        manual_invalidate_project_cache,
+        set_project_invalidation_policy,
+    )
+
+    @mcp_app.tool()
+    async def manual_invalidate_file_cache_tool(
+        file_path: str,
+        reason: str = "manual_invalidation",
+        cascade: bool = True,
+        use_partial: bool = True,
+        old_content: str = None,
+        new_content: str = None,
+        project_name: str = None,
+    ):
+        """Manually invalidate cache entries for a specific file.
+
+        Args:
+            file_path: Path to the file to invalidate
+            reason: Reason for invalidation (manual_invalidation, file_modified, file_deleted, content_changed, metadata_changed)
+            cascade: Whether to cascade invalidation to dependent caches
+            use_partial: Whether to use partial invalidation if content is provided
+            old_content: Previous content of the file (for partial invalidation)
+            new_content: New content of the file (for partial invalidation)
+            project_name: Project name for scoped invalidation
+
+        Returns:
+            Dictionary with invalidation results and optimization statistics
+        """
+        return await manual_invalidate_file_cache(file_path, reason, cascade, use_partial, old_content, new_content, project_name)
+
+    @mcp_app.tool()
+    async def manual_invalidate_project_cache_tool(
+        project_name: str,
+        reason: str = "manual_invalidation",
+        invalidation_scope: str = "cascade",
+        strategy: str = "immediate",
+    ):
+        """Manually invalidate all cache entries for a project.
+
+        Args:
+            project_name: Name of the project to invalidate
+            reason: Reason for invalidation (manual_invalidation, project_changed, dependency_changed, system_upgrade)
+            invalidation_scope: Scope of invalidation (file_only, project_wide, cascade, conservative, aggressive)
+            strategy: Invalidation strategy (immediate, lazy, batch, scheduled)
+
+        Returns:
+            Dictionary with invalidation results and statistics
+        """
+        return await manual_invalidate_project_cache(project_name, reason, invalidation_scope, strategy)
+
+    @mcp_app.tool()
+    async def manual_invalidate_cache_keys_tool(
+        cache_keys: list[str],
+        reason: str = "manual_invalidation",
+        cascade: bool = False,
+    ):
+        """Manually invalidate specific cache keys.
+
+        Args:
+            cache_keys: List of cache keys to invalidate
+            reason: Reason for invalidation (manual_invalidation, dependency_changed, cache_corruption, ttl_expired)
+            cascade: Whether to cascade invalidation to dependent caches
+
+        Returns:
+            Dictionary with invalidation results and statistics
+        """
+        return await manual_invalidate_cache_keys(cache_keys, reason, cascade)
+
+    @mcp_app.tool()
+    async def manual_invalidate_cache_pattern_tool(
+        pattern: str,
+        reason: str = "manual_invalidation",
+    ):
+        """Manually invalidate cache keys matching a pattern.
+
+        Args:
+            pattern: Pattern to match cache keys (supports wildcards)
+            reason: Reason for invalidation (manual_invalidation, dependency_changed, cache_corruption, system_upgrade)
+
+        Returns:
+            Dictionary with invalidation results and statistics
+        """
+        return await manual_invalidate_cache_pattern(pattern, reason)
+
+    @mcp_app.tool()
+    async def clear_all_caches_tool(
+        reason: str = "manual_invalidation",
+        confirm: bool = False,
+    ):
+        """Clear all caches across all services (DESTRUCTIVE OPERATION).
+
+        Args:
+            reason: Reason for clearing all caches (manual_invalidation, system_upgrade, cache_corruption)
+            confirm: Must be True to confirm this destructive operation
+
+        Returns:
+            Dictionary with clearing results and statistics
+        """
+        return await clear_all_caches(reason, confirm)
+
+    @mcp_app.tool()
+    async def get_cache_invalidation_stats_tool():
+        """Get comprehensive cache invalidation statistics and metrics.
+
+        Returns:
+            Dictionary with detailed invalidation statistics, recent events, and monitoring info
+        """
+        return await get_cache_invalidation_stats()
+
+    @mcp_app.tool()
+    async def get_project_invalidation_policy_tool(project_name: str):
+        """Get invalidation policy for a specific project.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Dictionary with project invalidation policy details and monitoring status
+        """
+        return await get_project_invalidation_policy(project_name)
+
+    @mcp_app.tool()
+    async def set_project_invalidation_policy_tool(
+        project_name: str,
+        scope: str = "cascade",
+        strategy: str = "immediate",
+        batch_threshold: int = 5,
+        delay_seconds: float = 0.0,
+        file_patterns: list[str] = None,
+        exclude_patterns: list[str] = None,
+        invalidate_embeddings: bool = True,
+        invalidate_search: bool = True,
+        invalidate_project: bool = True,
+        invalidate_file: bool = True,
+        max_concurrent_invalidations: int = 10,
+        cascade_depth_limit: int = 3,
+    ):
+        """Set or update invalidation policy for a specific project.
+
+        Args:
+            project_name: Name of the project
+            scope: Invalidation scope (file_only, project_wide, cascade, conservative, aggressive)
+            strategy: Invalidation strategy (immediate, lazy, batch, scheduled)
+            batch_threshold: Number of changes to trigger batch processing
+            delay_seconds: Delay before processing invalidation
+            file_patterns: File patterns to monitor (default: common code files)
+            exclude_patterns: Patterns to exclude from monitoring (default: temp/cache files)
+            invalidate_embeddings: Whether to invalidate embedding caches
+            invalidate_search: Whether to invalidate search caches
+            invalidate_project: Whether to invalidate project caches
+            invalidate_file: Whether to invalidate file caches
+            max_concurrent_invalidations: Maximum concurrent invalidations
+            cascade_depth_limit: Maximum cascade depth
+
+        Returns:
+            Dictionary with policy creation/update results
+        """
+        return await set_project_invalidation_policy(
+            project_name,
+            scope,
+            strategy,
+            batch_threshold,
+            delay_seconds,
+            file_patterns,
+            exclude_patterns,
+            invalidate_embeddings,
+            invalidate_search,
+            invalidate_project,
+            invalidate_file,
+            max_concurrent_invalidations,
+            cascade_depth_limit,
+        )
+
+    @mcp_app.tool()
+    async def invalidate_chunks_tool(
+        file_path: str,
+        chunk_ids: list[str],
+        reason: str = "chunk_modified",
+    ):
+        """Invalidate specific chunks within a file.
+
+        Args:
+            file_path: Path to the file containing the chunks
+            chunk_ids: List of chunk IDs to invalidate
+            reason: Reason for chunk invalidation (chunk_modified, manual_invalidation, content_changed)
+
+        Returns:
+            Dictionary with chunk invalidation results and statistics
+        """
+        return await invalidate_chunks(file_path, chunk_ids, reason)
+
     logger.info("All MCP Tools registered successfully")
