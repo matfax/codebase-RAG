@@ -325,6 +325,132 @@ class CacheKeyGenerator:
             additional_params=additional_params,
         )
 
+    def generate_file_parsing_key(
+        self,
+        file_path: str,
+        content_hash: str,
+        language: str,
+        parser_version: str = "1.0.0",
+        additional_params: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Generate a cache key for file parsing results.
+
+        Args:
+            file_path: Path to the file
+            content_hash: SHA256 hash of file content
+            language: Detected programming language
+            parser_version: Version of the parser used
+            additional_params: Additional parameters
+
+        Returns:
+            str: Generated file parsing cache key
+        """
+        # Extract project ID from file path
+        import os
+
+        project_id = self._extract_project_id(os.path.dirname(file_path))
+
+        content = {
+            "file_path": file_path,
+            "content_hash": content_hash,
+            "language": language,
+            "parser_version": parser_version,
+            "additional": additional_params or {},
+        }
+
+        return self.generate_key(
+            key_type=KeyType.FILE,
+            namespace="file_parsing",
+            project_id=project_id,
+            content=content,
+            additional_params=additional_params,
+        )
+
+    def generate_chunking_key(
+        self,
+        file_path: str,
+        content_hash: str,
+        language: str,
+        chunking_strategy: str = "default",
+        additional_params: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Generate a cache key for chunking results.
+
+        Args:
+            file_path: Path to the file
+            content_hash: SHA256 hash of file content
+            language: Detected programming language
+            chunking_strategy: Strategy used for chunking
+            additional_params: Additional parameters
+
+        Returns:
+            str: Generated chunking cache key
+        """
+        # Extract project ID from file path
+        import os
+
+        project_id = self._extract_project_id(os.path.dirname(file_path))
+
+        content = {
+            "file_path": file_path,
+            "content_hash": content_hash,
+            "language": language,
+            "chunking_strategy": chunking_strategy,
+            "additional": additional_params or {},
+        }
+
+        return self.generate_key(
+            key_type=KeyType.FILE,
+            namespace="chunking",
+            project_id=project_id,
+            content=content,
+            additional_params=additional_params,
+        )
+
+    def generate_ast_parsing_key(
+        self,
+        file_path: str,
+        content_hash: str,
+        language: str,
+        tree_sitter_version: str = "0.20.0",
+        additional_params: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Generate a cache key for AST parsing results.
+
+        Args:
+            file_path: Path to the file
+            content_hash: SHA256 hash of file content
+            language: Detected programming language
+            tree_sitter_version: Version of Tree-sitter used
+            additional_params: Additional parameters
+
+        Returns:
+            str: Generated AST parsing cache key
+        """
+        # Extract project ID from file path
+        import os
+
+        project_id = self._extract_project_id(os.path.dirname(file_path))
+
+        content = {
+            "file_path": file_path,
+            "content_hash": content_hash,
+            "language": language,
+            "tree_sitter_version": tree_sitter_version,
+            "additional": additional_params or {},
+        }
+
+        return self.generate_key(
+            key_type=KeyType.FILE,
+            namespace="ast_parsing",
+            project_id=project_id,
+            content=content,
+            additional_params=additional_params,
+        )
+
     def validate_key(self, key: str) -> bool:
         """
         Validate a cache key format and structure.

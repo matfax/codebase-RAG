@@ -30,8 +30,9 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
     with log_tool_usage("get_project_info_async", {"directory": directory}):
         try:
             from pathlib import Path
-            from services.project_cache_service import get_project_cache_service
+
             from services.project_analysis_service import ProjectAnalysisService
+            from services.project_cache_service import get_project_cache_service
 
             dir_path = Path(directory).resolve()
             if not dir_path.exists():
@@ -41,17 +42,18 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
             try:
                 cache_service = await get_project_cache_service()
                 cached_metadata = await cache_service.get_project_metadata(str(dir_path))
-                
+
                 if cached_metadata:
                     # Get collection information (this needs to be fetched from Qdrant)
                     from tools.database.qdrant_utils import check_existing_index
+
                     project_info = {
                         "name": cached_metadata.project_name,
                         "root": cached_metadata.directory,
                         "collection_prefix": f"project_{cached_metadata.project_id}",
                     }
                     index_info = check_existing_index(project_info)
-                    
+
                     return {
                         "project_name": cached_metadata.project_name,
                         "project_root": cached_metadata.directory,
@@ -77,14 +79,14 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
                 # Try using ProjectAnalysisService for project detection
                 analysis_service = ProjectAnalysisService()
                 project_context = await analysis_service.get_project_context_async(str(dir_path))
-                
+
                 if project_context.get("error"):
                     return {
                         "error": "No project detected",
                         "directory": str(dir_path),
                         "message": "Could not detect project boundaries",
                     }
-                
+
                 # Create project_info from analysis
                 project_info = {
                     "name": project_context["project_name"],
@@ -94,6 +96,7 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
 
             # Get additional project statistics
             from tools.database.qdrant_utils import check_existing_index
+
             index_info = check_existing_index(project_info)
 
             result = {
@@ -112,7 +115,7 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
             try:
                 cache_service = await get_project_cache_service()
                 from services.project_cache_service import ProjectMetadata
-                
+
                 metadata = ProjectMetadata(
                     project_name=project_info["name"],
                     project_type="unknown",  # We don't detect this in the original flow
@@ -352,6 +355,7 @@ def get_project_info_sync(directory: str = ".") -> dict[str, Any]:
         if loop.is_running():
             # If we're already in an async context, run in a separate thread
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, get_project_info_async(directory))
                 return future.result()

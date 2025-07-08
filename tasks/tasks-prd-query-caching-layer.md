@@ -149,19 +149,19 @@
   - [x] 6.2.4 Add file pattern matching result caching
   - [x] 6.2.5 Handle project analysis failures with cache fallback
 
-### 7.0 File Processing Cache Service
-- [ ] 7.1 Implement file processing cache service
-  - [ ] 7.1.1 Create `src/services/file_cache_service.py` with file processing caching
-  - [ ] 7.1.2 Implement Tree-sitter parsing result caching
-  - [ ] 7.1.3 Add chunking result caching with content hashing
-  - [ ] 7.1.4 Implement incremental parsing for changed files
-  - [ ] 7.1.5 Integrate with existing FileMetadata system
-- [ ] 7.2 Integrate with code parser service
-  - [ ] 7.2.1 Modify `src/services/code_parser_service.py` to check cache before parsing
-  - [ ] 7.2.2 Add cache lookup before AST parsing operations
-  - [ ] 7.2.3 Implement language-specific parsing result caching
-  - [ ] 7.2.4 Handle parsing errors and syntax changes with cache
-  - [ ] 7.2.5 Optimize chunk generation caching for large files
+### [x] 7.0 File Processing Cache Service
+- [x] 7.1 Implement file processing cache service
+  - [x] 7.1.1 Create `src/services/file_cache_service.py` with file processing caching
+  - [x] 7.1.2 Implement Tree-sitter parsing result caching
+  - [x] 7.1.3 Add chunking result caching with content hashing
+  - [x] 7.1.4 Implement incremental parsing for changed files
+  - [x] 7.1.5 Integrate with existing FileMetadata system
+- [x] 7.2 Integrate with code parser service
+  - [x] 7.2.1 Modify `src/services/code_parser_service.py` to check cache before parsing
+  - [x] 7.2.2 Add cache lookup before AST parsing operations
+  - [x] 7.2.3 Implement language-specific parsing result caching
+  - [x] 7.2.4 Handle parsing errors and syntax changes with cache
+  - [x] 7.2.5 Optimize chunk generation caching for large files
 
 ### 8.0 QdrantService Cache Integration
 - [ ] 8.1 Implement QdrantService cache integration

@@ -1,124 +1,176 @@
 import os
-import pathspec
-import mimetypes
 from pathlib import Path
-from typing import List, Set, Dict, Any, Tuple
-from collections import defaultdict, Counter
-from git import Repo, InvalidGitRepositoryError
+from typing import Any
+
+import pathspec
 from dotenv import load_dotenv
+from git import InvalidGitRepositoryError, Repo
 
 # Load environment variables
 load_dotenv()
+
 
 class ProjectAnalysisService:
     """Service for analyzing project structure and identifying relevant files."""
 
     def __init__(self):
         # Load configuration from environment variables
-        self.max_file_size_mb = float(os.getenv('MAX_FILE_SIZE_MB', '5'))
-        self.detect_binary_files = os.getenv('DETECT_BINARY_FILES', 'true').lower() == 'true'
-        self.log_skipped_files = os.getenv('LOG_SKIPPED_FILES', 'true').lower() == 'true'
+        self.max_directory_depth = int(os.getenv("MAX_DIRECTORY_DEPTH", "20"))
+        self.follow_symlinks = os.getenv("FOLLOW_SYMLINKS", "false").lower() == "true"
 
-        # Convert MB to bytes for comparison
-        self.max_file_size_bytes = int(self.max_file_size_mb * 1024 * 1024)
         self.default_extensions = {
-            '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp',
-            '.php', '.rb', '.swift', '.kt', '.scala', '.clj', '.cs', '.vb', '.f90', '.r', '.m',
-            '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-            '.sql', '.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf',
-            '.md', '.rst', '.txt', '.adoc', '.tex',
-            '.html', '.css', '.scss', '.sass', '.less', '.vue', '.svelte',
-            '.dockerfile', '.dockerignore', '.gitignore', '.gitattributes',
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".go",
+            ".rs",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".php",
+            ".rb",
+            ".swift",
+            ".kt",
+            ".scala",
+            ".clj",
+            ".cs",
+            ".vb",
+            ".f90",
+            ".r",
+            ".m",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".fish",
+            ".ps1",
+            ".bat",
+            ".cmd",
+            ".sql",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".xml",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".conf",
+            ".md",
+            ".rst",
+            ".txt",
+            ".adoc",
+            ".tex",
+            ".html",
+            ".css",
+            ".scss",
+            ".sass",
+            ".less",
+            ".vue",
+            ".svelte",
+            ".dockerfile",
+            ".dockerignore",
+            ".gitignore",
+            ".gitattributes",
         }
 
-        # Default exclusion patterns for common large directories and build artifacts
-        self.default_exclude_dirs = {
-            'node_modules', '__pycache__', '.git', '.venv', 'venv', 'env', '.env',
-            'dist', 'build', 'target', '.pytest_cache', '.mypy_cache', '.coverage',
-            'htmlcov', '.tox', 'data', 'logs', 'tmp', 'temp', '.idea', '.vscode',
-            '.vs', 'qdrant_storage', 'models', '.cache', 'bin', 'obj', 'out',
-            # Additional common package manager and build directories
-            'vendor', '.bundle', 'bower_components', 'jspm_packages',
-            '.gradle', '.m2', '.cargo', '.stack-work', 'target',
-            # IDE and editor directories
-            '.atom', '.sublime-text-*', '*.xcworkspace', '*.xcodeproj',
-            # OS and system directories
-            '.Trashes', '.Spotlight-V100', '.fseventsd', 'Thumbs.db',
-            # Database and cache directories
-            '*.sqlite3', '*.db', '.mongodb', '.redis'
+        self.exclude_dirs = {
+            "node_modules",
+            "__pycache__",
+            ".git",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+            "dist",
+            "build",
+            "target",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".coverage",
+            "htmlcov",
+            ".tox",
+            "data",
+            "logs",
+            "tmp",
+            "temp",
+            ".idea",
+            ".vscode",
+            ".vs",
+            "qdrant_storage",
+            "models",
+            ".cache",
+            "bin",
+            "obj",
+            "out",
         }
 
-        # Default exclusion patterns for files
-        self.default_exclude_files = {
-            '*.pyc', '*.pyo', '*.pyd', '.DS_Store', '*.so', '*.dylib', '*.dll',
-            '*.class', '*.log', '*.lock', '*.swp', '*.swo', '*.bak', '*.tmp',
-            '*.temp', '*.old', '*.orig', '*.rej', '*.pid', '*.sqlite', '*.db',
-            # Additional binary and generated files
-            '*.exe', '*.bin', '*.dmg', '*.pkg', '*.deb', '*.rpm',
-            '*.zip', '*.tar.gz', '*.tar.bz2', '*.7z', '*.rar',
-            '*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.tiff', '*.ico',
-            '*.mp3', '*.mp4', '*.avi', '*.mov', '*.wmv', '*.flv',
-            '*.pdf', '*.doc', '*.docx', '*.xls', '*.xlsx', '*.ppt', '*.pptx'
+        self.exclude_files = {
+            "*.pyc",
+            "*.pyo",
+            "*.pyd",
+            ".DS_Store",
+            "*.so",
+            "*.dylib",
+            "*.dll",
+            "*.class",
+            "*.log",
+            "*.lock",
+            "*.swp",
+            "*.swo",
+            "*.bak",
+            "*.tmp",
+            "*.temp",
+            "*.old",
+            "*.orig",
+            "*.rej",
+            "*.pid",
+            "*.sqlite",
+            "*.db",
         }
 
-        # Binary file extensions for detection
-        self.binary_extensions = {
-            '.exe', '.bin', '.dmg', '.pkg', '.deb', '.rpm', '.msi',
-            '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar', '.tar.gz', '.tar.bz2',
-            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico', '.svg', '.webp',
-            '.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma',
-            '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.webm',
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods',
-            '.so', '.dylib', '.dll', '.a', '.lib',
-            '.pyc', '.pyo', '.pyd', '.class', '.jar', '.war',
-            '.db', '.sqlite', '.sqlite3', '.mdb'
-        }
-
-        # Binary file magic numbers for header detection
-        self.binary_signatures = {
-            b'\x7fELF': 'ELF executable',
-            b'MZ': 'Windows executable',
-            b'\x89PNG': 'PNG image',
-            b'\xff\xd8\xff': 'JPEG image',
-            b'GIF8': 'GIF image',
-            b'BM': 'Bitmap image',
-            b'\x00\x00\x01\x00': 'ICO image',
-            b'PK\x03\x04': 'ZIP archive',
-            b'\x1f\x8b': 'GZIP archive',
-            b'Rar!': 'RAR archive',
-            b'%PDF': 'PDF document'
-        }
-
-    def get_relevant_files(self, directory: str) -> List[str]:
+    def get_relevant_files(self, directory: str) -> list[str]:
         """Get list of relevant files to index from a directory."""
         directory_path = Path(directory).resolve()
 
         if not directory_path.exists():
-            print(f"Directory does not exist: {directory}")
             return []
 
-        # Load .ragignore and .gitignore patterns
-        ragignore_specs = self._load_ignore_patterns(directory_path)
+        # Load gitignore patterns if available
+        gitignore_spec = self._load_gitignore(directory_path)
 
         relevant_files = []
 
-        for root, dirs, files in os.walk(directory_path):
+        for root, dirs, files in os.walk(directory_path, followlinks=self.follow_symlinks):
             root_path = Path(root)
 
-            # Filter out excluded directories using default patterns
-            dirs[:] = [d for d in dirs if d not in self.default_exclude_dirs]
+            # Check directory depth
+            try:
+                relative_path = root_path.relative_to(directory_path)
+                depth = len(relative_path.parts)
+                if depth > self.max_directory_depth:
+                    dirs.clear()  # Don't recurse deeper
+                    continue
+            except ValueError:
+                # Handle cases where relative_to fails
+                continue
 
-            # Skip if directory is in .ragignore or .gitignore
-            if ragignore_specs:
+            # Filter out excluded directories
+            dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
+
+            # Skip if directory is in gitignore
+            if gitignore_spec:
                 relative_root = root_path.relative_to(directory_path)
-                if self._is_path_ignored(str(relative_root), ragignore_specs):
+                if gitignore_spec.match_file(str(relative_root)):
                     dirs.clear()  # Don't recurse into this directory
                     continue
 
             for file in files:
                 file_path = root_path / file
 
-                        # Check file extension
+                # Check file extension
                 if file_path.suffix.lower() not in self.default_extensions:
                     # Also check for files without extensions that might be important
                     if not self._is_important_file_without_extension(file):
@@ -128,86 +180,32 @@ class ProjectAnalysisService:
                 if self._should_exclude_file(file):
                     continue
 
-                # Check .ragignore and .gitignore
-                if ragignore_specs:
+                # Check gitignore
+                if gitignore_spec:
                     relative_file = file_path.relative_to(directory_path)
-                    if self._is_path_ignored(str(relative_file), ragignore_specs):
+                    if gitignore_spec.match_file(str(relative_file)):
                         continue
 
-                # Check file size and binary status
+                # Check file size (skip very large files)
                 try:
-                    file_size = file_path.stat().st_size
-                    skip_reason = self._should_skip_file(file_path, file_size)
-                    if skip_reason:
-                        if self.log_skipped_files:
-                            print(f"Skipping file ({skip_reason}): {file_path}")
+                    if file_path.stat().st_size > 1024 * 1024:  # 1MB limit
                         continue
                 except OSError:
-                    if self.log_skipped_files:
-                        print(f"Skipping file (access error): {file_path}")
                     continue
 
                 relevant_files.append(str(file_path))
 
-        print(f"Found {len(relevant_files)} relevant files in {directory}")
         return relevant_files
 
-    def _load_ignore_patterns(self, directory: Path) -> List[pathspec.PathSpec]:
-        """Load .ragignore and .gitignore patterns from the directory and parent directories."""
-        specs = []
-
-        # Load .ragignore patterns (recursive up the directory tree)
-        ragignore_specs = self._load_ragignore_recursive(directory)
-        specs.extend(ragignore_specs)
-
-        # Load .gitignore patterns
-        gitignore_spec = self._load_gitignore_patterns(directory)
-        if gitignore_spec:
-            specs.append(gitignore_spec)
-
-        return specs if specs else None
-
-    def _load_ragignore_recursive(self, directory: Path) -> List[pathspec.PathSpec]:
-        """Load .ragignore files recursively from current directory up to project root."""
-        specs = []
-        current_dir = directory.resolve()
-
-        # Walk up the directory tree to find all .ragignore files
-        while current_dir.parent != current_dir:  # Stop at filesystem root
-            ragignore_path = current_dir / '.ragignore'
-
-            if ragignore_path.exists():
-                try:
-                    with open(ragignore_path, 'r', encoding='utf-8') as f:
-                        patterns = f.readlines()
-
-                    # Filter out comments and empty lines
-                    patterns = [line.strip() for line in patterns if line.strip() and not line.startswith('#')]
-
-                    if patterns:
-                        spec = pathspec.PathSpec.from_lines('gitwildmatch', patterns)
-                        specs.append(spec)
-                        print(f"Loaded .ragignore from: {ragignore_path}")
-                except Exception as e:
-                    print(f"Error reading .ragignore at {ragignore_path}: {e}")
-
-            # Stop at project root markers
-            if any((current_dir / marker).exists() for marker in ['.git', 'pyproject.toml', 'package.json', 'Cargo.toml', 'go.mod']):
-                break
-
-            current_dir = current_dir.parent
-
-        return specs
-
-    def _load_gitignore_patterns(self, directory: Path) -> pathspec.PathSpec:
-        """Load .gitignore patterns from the directory."""
-        gitignore_path = directory / '.gitignore'
+    def _load_gitignore(self, directory: Path) -> pathspec.PathSpec:
+        """Load gitignore patterns from the directory."""
+        gitignore_path = directory / ".gitignore"
 
         if not gitignore_path.exists():
             # Try to find gitignore in parent directories (for git repositories)
             try:
                 repo = Repo(directory, search_parent_directories=True)
-                gitignore_path = Path(repo.working_dir) / '.gitignore'
+                gitignore_path = Path(repo.working_dir) / ".gitignore"
             except (InvalidGitRepositoryError, Exception):
                 return None
 
@@ -215,30 +213,34 @@ class ProjectAnalysisService:
             return None
 
         try:
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, encoding="utf-8") as f:
                 patterns = f.readlines()
 
             # Filter out comments and empty lines
-            patterns = [line.strip() for line in patterns if line.strip() and not line.startswith('#')]
+            patterns = [line.strip() for line in patterns if line.strip() and not line.startswith("#")]
 
-            return pathspec.PathSpec.from_lines('gitwildmatch', patterns)
-        except Exception as e:
-            print(f"Error reading .gitignore: {e}")
+            return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+        except Exception:
             return None
-
-    def _is_path_ignored(self, path: str, specs: List[pathspec.PathSpec]) -> bool:
-        """Check if a path matches any of the ignore patterns."""
-        for spec in specs:
-            if spec.match_file(path):
-                return True
-        return False
 
     def _is_important_file_without_extension(self, filename: str) -> bool:
         """Check if a file without extension is important (like Dockerfile, Makefile, etc.)."""
         important_files = {
-            'dockerfile', 'makefile', 'rakefile', 'gemfile', 'procfile',
-            'readme', 'license', 'changelog', 'authors', 'contributors',
-            'copyright', 'install', 'news', 'todo', 'manifest'
+            "dockerfile",
+            "makefile",
+            "rakefile",
+            "gemfile",
+            "procfile",
+            "readme",
+            "license",
+            "changelog",
+            "authors",
+            "contributors",
+            "copyright",
+            "install",
+            "news",
+            "todo",
+            "manifest",
         }
         return filename.lower() in important_files
 
@@ -246,303 +248,481 @@ class ProjectAnalysisService:
         """Check if file should be excluded based on patterns."""
         import fnmatch
 
-        for pattern in self.default_exclude_files:
+        for pattern in self.exclude_files:
             if fnmatch.fnmatch(filename, pattern):
                 return True
         return False
 
-    def _should_skip_file(self, file_path: Path, file_size: int) -> str:
-        \"\"\"Check if file should be skipped and return reason.\"\"\"\n        # Check file size limit\n        if file_size > self.max_file_size_bytes:\n            return f\"too large ({file_size / (1024*1024):.1f}MB > {self.max_file_size_mb}MB)\"\n        \n        # Check if binary file detection is enabled\n        if self.detect_binary_files:\n            # Check by extension first (faster)\n            if file_path.suffix.lower() in self.binary_extensions:\n                return \"binary file (extension)\"\n            \n            # Check by file header for files without clear extensions\n            if not file_path.suffix or file_path.suffix.lower() not in {'.txt', '.md', '.py', '.js', '.ts', '.json', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.sql'}:\n                if self._is_binary_by_header(file_path):\n                    return \"binary file (header)\"\n        \n        return None  # File should not be skipped\n    \n    def _is_binary_by_header(self, file_path: Path) -> bool:\n        \"\"\"Check if file is binary by reading its header.\"\"\"\n        try:\n            with open(file_path, 'rb') as f:\n                header = f.read(512)  # Read first 512 bytes\n            \n            # Check for binary signatures\n            for signature, description in self.binary_signatures.items():\n                if header.startswith(signature):\n                    return True\n            \n            # Check for null bytes (common in binary files)\n            if b'\\x00' in header[:256]:  # Check first 256 bytes for null bytes\n                return True\n            \n            # Check if file contains mostly non-printable characters\n            if len(header) > 0:\n                printable_chars = sum(1 for byte in header if 32 <= byte <= 126 or byte in [9, 10, 13])\n                if printable_chars / len(header) < 0.7:  # Less than 70% printable characters\n                    return True\n            \n            return False\n            \n        except (OSError, UnicodeDecodeError, PermissionError):\n            # If we can't read the file, assume it might be binary\n            return True\n    \n    def get_file_filtering_stats(self, directory: str) -> Dict[str, Any]:\n        \"\"\"Get statistics about file filtering for debugging.\"\"\"\n        directory_path = Path(directory).resolve()\n        \n        if not directory_path.exists():\n            return {\"error\": f\"Directory does not exist: {directory}\"}\n        \n        stats = {\n            \"total_examined\": 0,\n            \"included\": 0,\n            \"excluded_by_extension\": 0,\n            \"excluded_by_size\": 0,\n            \"excluded_by_binary_extension\": 0,\n            \"excluded_by_binary_header\": 0,\n            \"excluded_by_ragignore\": 0,\n            \"excluded_by_directory\": 0,\n            \"access_errors\": 0,\n            \"configuration\": {\n                \"max_file_size_mb\": self.max_file_size_mb,\n                \"detect_binary_files\": self.detect_binary_files,\n                \"log_skipped_files\": self.log_skipped_files\n            }\n        }\n        \n        # Load .ragignore and .gitignore patterns\n        ragignore_specs = self._load_ignore_patterns(directory_path)\n        \n        for root, dirs, files in os.walk(directory_path):\n            root_path = Path(root)\n            \n            # Filter out excluded directories\n            original_dirs = dirs[:]\n            dirs[:] = [d for d in dirs if d not in self.default_exclude_dirs]\n            stats[\"excluded_by_directory\"] += len(original_dirs) - len(dirs)\n            \n            # Skip if directory is in .ragignore or .gitignore\n            if ragignore_specs:\n                relative_root = root_path.relative_to(directory_path)\n                if self._is_path_ignored(str(relative_root), ragignore_specs):\n                    dirs.clear()  # Don't recurse into this directory\n                    stats[\"excluded_by_ragignore\"] += len(files)\n                    continue\n            \n            for file in files:\n                file_path = root_path / file\n                stats[\"total_examined\"] += 1\n                \n                try:\n                    # Check file extension\n                    if file_path.suffix.lower() not in self.default_extensions:\n                        if not self._is_important_file_without_extension(file):\n                            stats[\"excluded_by_extension\"] += 1\n                            continue\n                    \n                    # Check if file matches exclude patterns\n                    if self._should_exclude_file(file):\n                        stats[\"excluded_by_extension\"] += 1\n                        continue\n                    \n                    # Check .ragignore and .gitignore\n                    if ragignore_specs:\n                        relative_file = file_path.relative_to(directory_path)\n                        if self._is_path_ignored(str(relative_file), ragignore_specs):\n                            stats[\"excluded_by_ragignore\"] += 1\n                            continue\n                    \n                    # Check file size and binary status\n                    file_size = file_path.stat().st_size\n                    skip_reason = self._should_skip_file(file_path, file_size)\n                    if skip_reason:\n                        if \"too large\" in skip_reason:\n                            stats[\"excluded_by_size\"] += 1\n                        elif \"binary file (extension)\" in skip_reason:\n                            stats[\"excluded_by_binary_extension\"] += 1\n                        elif \"binary file (header)\" in skip_reason:\n                            stats[\"excluded_by_binary_header\"] += 1\n                        continue\n                    \n                    stats[\"included\"] += 1\n                    \n                except OSError:\n                    stats[\"access_errors\"] += 1\n                    continue\n        \n        return stats\n    \n    def detect_project_type(self, directory: str) -> str:
+    def detect_project_type(self, directory: str) -> str:
         """Detect the type of project based on files present."""
         directory_path = Path(directory)
 
         # Check for specific project files
-        if (directory_path / 'package.json').exists():
-            return 'javascript/nodejs'
-        elif (directory_path / 'requirements.txt').exists() or (directory_path / 'pyproject.toml').exists():
-            return 'python'
-        elif (directory_path / 'pom.xml').exists() or (directory_path / 'build.gradle').exists():
-            return 'java'
-        elif (directory_path / 'go.mod').exists():
-            return 'go'
-        elif (directory_path / 'Cargo.toml').exists():
-            return 'rust'
-        elif (directory_path / 'composer.json').exists():
-            return 'php'
-        elif (directory_path / 'Gemfile').exists():
-            return 'ruby'
+        if (directory_path / "package.json").exists():
+            return "javascript/nodejs"
+        elif (directory_path / "requirements.txt").exists() or (directory_path / "pyproject.toml").exists():
+            return "python"
+        elif (directory_path / "pom.xml").exists() or (directory_path / "build.gradle").exists():
+            return "java"
+        elif (directory_path / "go.mod").exists():
+            return "go"
+        elif (directory_path / "Cargo.toml").exists():
+            return "rust"
+        elif (directory_path / "composer.json").exists():
+            return "php"
+        elif (directory_path / "Gemfile").exists():
+            return "ruby"
         else:
-            return 'unknown'
+            return "unknown"
 
-    def analyze_repository(self, directory: str) -> Dict[str, Any]:
-        """Analyze repository structure and provide detailed statistics."""
-        directory_path = Path(directory).resolve()
+    def analyze_repository(self, directory: str = ".") -> dict[str, Any]:
+        """
+        Analyze repository structure and provide detailed statistics for indexing planning.
 
-        if not directory_path.exists():
-            return {"error": f"Directory does not exist: {directory}"}
+        Args:
+            directory: Path to the directory to analyze
 
-        print(f"Analyzing repository: {directory_path}")
-
-        # Get all files (including excluded ones for analysis)
-        all_files = self._get_all_files(directory_path)
-        relevant_files = self.get_relevant_files(directory)
-
-        # Analyze file sizes
-        size_stats = self._analyze_file_sizes(all_files)
-
-        # Analyze file types and languages
-        type_stats = self._analyze_file_types(all_files)
-        language_stats = self._analyze_languages(relevant_files)
-
-        # Calculate directory statistics
-        dir_stats = self._analyze_directories(directory_path)
-
-        # Estimate indexing complexity
-        complexity = self._estimate_indexing_complexity(relevant_files, size_stats)
-
-        analysis = {
-            "repository_path": str(directory_path),
-            "project_type": self.detect_project_type(directory),
-            "total_files": len(all_files),
-            "relevant_files": len(relevant_files),
-            "excluded_files": len(all_files) - len(relevant_files),
-            "exclusion_rate": round((len(all_files) - len(relevant_files)) / len(all_files) * 100, 1) if all_files else 0,
-            "size_analysis": size_stats,
-            "type_analysis": type_stats,
-            "language_analysis": language_stats,
-            "directory_analysis": dir_stats,
-            "indexing_complexity": complexity,
-            "recommendations": self._generate_recommendations(complexity, size_stats, len(relevant_files))
-        }
-
-        return analysis
-
-    def _get_all_files(self, directory_path: Path) -> List[Path]:
-        """Get all files in directory without exclusion filters (for analysis)."""
-        all_files = []
-
+        Returns:
+            Dictionary with comprehensive analysis including file counts, size distribution,
+            language breakdown, complexity assessment, and indexing recommendations.
+        """
         try:
-            for root, dirs, files in os.walk(directory_path):
-                # Skip .git directory to avoid excessive files
-                dirs[:] = [d for d in dirs if d != '.git']
+            directory_path = Path(directory).resolve()
 
+            if not directory_path.exists():
+                return {"error": f"Directory not found: {directory}"}
+
+            # Initialize analysis result
+            analysis = {
+                "directory": str(directory_path),
+                "project_type": self.detect_project_type(str(directory_path)),
+                "total_files": 0,
+                "relevant_files": 0,
+                "excluded_files": 0,
+                "exclusion_rate": 0.0,
+                "size_analysis": {},
+                "language_breakdown": {},
+                "indexing_complexity": {},
+                "recommendations": [],
+            }
+
+            # Track file statistics
+            total_files = 0
+            relevant_files_list = []
+            excluded_count = 0
+            size_stats = {
+                "total_size_mb": 0,
+                "small_files": 0,
+                "medium_files": 0,
+                "large_files": 0,
+                "binary_files": 0,
+            }
+            language_stats = {}
+
+            # Load gitignore patterns
+            gitignore_spec = self._load_gitignore(directory_path)
+
+            # Walk through directory structure
+            for root, dirs, files in os.walk(directory_path, followlinks=self.follow_symlinks):
                 root_path = Path(root)
+
+                # Filter out excluded directories early
+                dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
+
                 for file in files:
                     file_path = root_path / file
+                    total_files += 1
+
                     try:
-                        # Basic file validation
-                        if file_path.is_file() and file_path.stat().st_size >= 0:
-                            all_files.append(file_path)
+                        file_size = file_path.stat().st_size
+                        size_stats["total_size_mb"] += file_size / (1024 * 1024)
+
+                        # Categorize by size
+                        if file_size < 10 * 1024:  # < 10KB
+                            size_stats["small_files"] += 1
+                        elif file_size < 100 * 1024:  # 10KB - 100KB
+                            size_stats["medium_files"] += 1
+                        else:  # > 100KB
+                            size_stats["large_files"] += 1
+
+                        # Check if file would be included
+                        should_include = True
+
+                        # Check file extension
+                        if file_path.suffix.lower() not in self.default_extensions:
+                            if not self._is_important_file_without_extension(file):
+                                should_include = False
+
+                        # Check exclude patterns
+                        if should_include and self._should_exclude_file(file):
+                            should_include = False
+
+                        # Check gitignore
+                        if should_include and gitignore_spec:
+                            try:
+                                relative_file = file_path.relative_to(directory_path)
+                                if gitignore_spec.match_file(str(relative_file)):
+                                    should_include = False
+                            except ValueError:
+                                pass
+
+                        # Check file size limit
+                        if should_include and file_size > 5 * 1024 * 1024:  # 5MB limit
+                            should_include = False
+
+                        # Check if binary
+                        if self._is_binary_file(file_path):
+                            size_stats["binary_files"] += 1
+                            if should_include:
+                                should_include = False
+
+                        if should_include:
+                            relevant_files_list.append(str(file_path))
+
+                            # Track language statistics
+                            extension = file_path.suffix.lower()
+                            language = self._extension_to_language(extension)
+                            language_stats[language] = language_stats.get(language, 0) + 1
+                        else:
+                            excluded_count += 1
+
                     except (OSError, PermissionError):
+                        excluded_count += 1
                         continue
-        except (OSError, PermissionError) as e:
-            print(f"Warning: Could not access some files: {e}")
 
-        return all_files
+            # Update analysis with collected statistics
+            analysis["total_files"] = total_files
+            analysis["relevant_files"] = len(relevant_files_list)
+            analysis["excluded_files"] = excluded_count
+            analysis["exclusion_rate"] = round((excluded_count / total_files) * 100, 1) if total_files > 0 else 0
+            analysis["size_analysis"] = {
+                "total_size_mb": round(size_stats["total_size_mb"], 2),
+                "small_files": size_stats["small_files"],
+                "medium_files": size_stats["medium_files"],
+                "large_files": size_stats["large_files"],
+                "binary_files": size_stats["binary_files"],
+            }
+            analysis["language_breakdown"] = language_stats
 
-    def _analyze_file_sizes(self, files: List[Path]) -> Dict[str, Any]:
-        """Analyze file size distribution."""
-        sizes = []
-        size_categories = {
-            "tiny": 0,      # < 1KB
-            "small": 0,     # 1KB - 10KB
-            "medium": 0,    # 10KB - 100KB
-            "large": 0,     # 100KB - 1MB
-            "very_large": 0 # > 1MB
+            # Assess indexing complexity
+            complexity_level = "simple"
+            if len(relevant_files_list) > 10000:
+                complexity_level = "high"
+            elif len(relevant_files_list) > 1000:
+                complexity_level = "medium"
+
+            analysis["indexing_complexity"] = {
+                "level": complexity_level,
+                "estimated_indexing_time_minutes": self._estimate_indexing_time(len(relevant_files_list)),
+                "recommended_batch_size": self._recommend_batch_size(len(relevant_files_list)),
+                "memory_considerations": self._get_memory_recommendations(len(relevant_files_list)),
+            }
+
+            # Generate recommendations
+            recommendations = []
+            if analysis["exclusion_rate"] < 50:
+                recommendations.append("Consider adding more exclusion patterns to .ragignore for better performance")
+            if size_stats["large_files"] > 100:
+                recommendations.append("Many large files detected - consider reducing MAX_FILE_SIZE_MB")
+            if len(language_stats) > 10:
+                recommendations.append("Multi-language project detected - consider language-specific indexing strategies")
+
+            analysis["recommendations"] = recommendations
+
+            return analysis
+
+        except Exception as e:
+            return {
+                "error": f"Repository analysis failed: {str(e)}",
+                "directory": directory,
+            }
+
+    def get_file_filtering_stats(self, directory: str = ".") -> dict[str, Any]:
+        """
+        Get detailed statistics about file filtering for debugging and optimization.
+
+        Args:
+            directory: Path to the directory to analyze
+
+        Returns:
+            Dictionary with detailed breakdown of file filtering statistics
+        """
+        try:
+            directory_path = Path(directory).resolve()
+
+            if not directory_path.exists():
+                return {"error": f"Directory not found: {directory}"}
+
+            stats = {
+                "directory": str(directory_path),
+                "total_examined": 0,
+                "included": 0,
+                "excluded_by_extension": 0,
+                "excluded_by_pattern": 0,
+                "excluded_by_gitignore": 0,
+                "excluded_by_size": 0,
+                "excluded_by_binary_extension": 0,
+                "excluded_by_binary_header": 0,
+                "excluded_by_ragignore": 0,
+                "excluded_directories": 0,
+                "configuration": {
+                    "max_file_size_mb": int(os.getenv("MAX_FILE_SIZE_MB", "5")),
+                    "max_directory_depth": self.max_directory_depth,
+                    "follow_symlinks": self.follow_symlinks,
+                    "default_extensions_count": len(self.default_extensions),
+                    "exclude_dirs_count": len(self.exclude_dirs),
+                    "exclude_patterns_count": len(self.exclude_files),
+                },
+            }
+
+            # Load filtering specs
+            gitignore_spec = self._load_gitignore(directory_path)
+            max_file_size = int(os.getenv("MAX_FILE_SIZE_MB", "5")) * 1024 * 1024
+
+            # Walk through directory
+            for root, dirs, files in os.walk(directory_path, followlinks=self.follow_symlinks):
+                root_path = Path(root)
+
+                # Count excluded directories
+                original_dirs = dirs[:]
+                dirs[:] = [d for d in dirs if d not in self.exclude_dirs]
+                stats["excluded_directories"] += len(original_dirs) - len(dirs)
+
+                for file in files:
+                    file_path = root_path / file
+                    stats["total_examined"] += 1
+
+                    excluded = False
+
+                    try:
+                        file_size = file_path.stat().st_size
+
+                        # Check extension
+                        if file_path.suffix.lower() not in self.default_extensions:
+                            if not self._is_important_file_without_extension(file):
+                                stats["excluded_by_extension"] += 1
+                                excluded = True
+
+                        # Check exclude patterns
+                        if not excluded and self._should_exclude_file(file):
+                            stats["excluded_by_pattern"] += 1
+                            excluded = True
+
+                        # Check gitignore
+                        if not excluded and gitignore_spec:
+                            try:
+                                relative_file = file_path.relative_to(directory_path)
+                                if gitignore_spec.match_file(str(relative_file)):
+                                    stats["excluded_by_gitignore"] += 1
+                                    excluded = True
+                            except ValueError:
+                                pass
+
+                        # Check file size
+                        if not excluded and file_size > max_file_size:
+                            stats["excluded_by_size"] += 1
+                            excluded = True
+
+                        # Check binary by extension
+                        if not excluded and self._is_binary_extension(file_path):
+                            stats["excluded_by_binary_extension"] += 1
+                            excluded = True
+
+                        # Check binary by header (sample check)
+                        if not excluded and self._is_binary_file(file_path):
+                            stats["excluded_by_binary_header"] += 1
+                            excluded = True
+
+                        if not excluded:
+                            stats["included"] += 1
+
+                    except (OSError, PermissionError):
+                        stats["excluded_by_pattern"] += 1  # Treat as excluded due to access issues
+
+            return stats
+
+        except Exception as e:
+            return {
+                "error": f"File filtering analysis failed: {str(e)}",
+                "directory": directory,
+            }
+
+    def _extension_to_language(self, extension: str) -> str:
+        """Map file extension to programming language."""
+        mapping = {
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".jsx": "javascript",
+            ".tsx": "typescript",
+            ".java": "java",
+            ".go": "go",
+            ".rs": "rust",
+            ".c": "c",
+            ".cpp": "cpp",
+            ".h": "c",
+            ".hpp": "cpp",
+            ".php": "php",
+            ".rb": "ruby",
+            ".swift": "swift",
+            ".kt": "kotlin",
+            ".scala": "scala",
+            ".clj": "clojure",
+            ".cs": "csharp",
+            ".vb": "vb",
+            ".f90": "fortran",
+            ".r": "r",
+            ".m": "matlab",
+            ".sh": "shell",
+            ".bash": "shell",
+            ".zsh": "shell",
+            ".fish": "shell",
+            ".ps1": "powershell",
+            ".bat": "batch",
+            ".cmd": "batch",
+            ".sql": "sql",
+            ".json": "json",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".xml": "xml",
+            ".toml": "toml",
+            ".ini": "ini",
+            ".cfg": "config",
+            ".conf": "config",
+            ".md": "markdown",
+            ".rst": "rst",
+            ".txt": "text",
+            ".html": "html",
+            ".css": "css",
+            ".scss": "scss",
+            ".sass": "sass",
+            ".less": "less",
+            ".vue": "vue",
+            ".svelte": "svelte",
         }
+        return mapping.get(extension, "other")
 
-        for file_path in files:
-            try:
-                size = file_path.stat().st_size
-                sizes.append(size)
-
-                if size < 1024:  # < 1KB
-                    size_categories["tiny"] += 1
-                elif size < 10 * 1024:  # < 10KB
-                    size_categories["small"] += 1
-                elif size < 100 * 1024:  # < 100KB
-                    size_categories["medium"] += 1
-                elif size < 1024 * 1024:  # < 1MB
-                    size_categories["large"] += 1
-                else:  # >= 1MB
-                    size_categories["very_large"] += 1
-            except OSError:
-                continue
-
-        if not sizes:
-            return {"error": "No accessible files found"}
-
-        total_size = sum(sizes)
-
-        return {
-            "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "average_size_bytes": round(sum(sizes) / len(sizes)),
-            "largest_file_bytes": max(sizes),
-            "largest_file_mb": round(max(sizes) / (1024 * 1024), 2),
-            "size_distribution": size_categories
+    def _is_binary_extension(self, file_path: Path) -> bool:
+        """Check if file has a binary extension."""
+        binary_extensions = {
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".bin",
+            ".obj",
+            ".o",
+            ".a",
+            ".lib",
+            ".zip",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".rar",
+            ".7z",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".ico",
+            ".svg",
+            ".webp",
+            ".mp3",
+            ".mp4",
+            ".avi",
+            ".mov",
+            ".wmv",
+            ".flv",
+            ".wav",
+            ".ogg",
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".ttf",
+            ".otf",
+            ".woff",
+            ".woff2",
+            ".eot",
+            ".class",
+            ".jar",
+            ".war",
+            ".ear",
+            ".pyc",
+            ".pyo",
+            ".pyd",
         }
+        return file_path.suffix.lower() in binary_extensions
 
-    def _analyze_file_types(self, files: List[Path]) -> Dict[str, int]:
-        """Analyze file types by extension."""
-        extensions = Counter()
+    def _is_binary_file(self, file_path: Path) -> bool:
+        """Check if file is binary by reading first few bytes."""
+        try:
+            with open(file_path, "rb") as f:
+                chunk = f.read(1024)
+                if not chunk:
+                    return False
+                # Check for null bytes which are common in binary files
+                return b"\x00" in chunk
+        except (OSError, PermissionError):
+            return True  # Assume binary if can't read
 
-        for file_path in files:
-            ext = file_path.suffix.lower()
-            if not ext:
-                ext = "<no extension>"
-            extensions[ext] += 1
+    def _estimate_indexing_time(self, file_count: int) -> float:
+        """Estimate indexing time in minutes based on file count."""
+        # Rough estimate: ~0.1 seconds per file for processing + embedding
+        estimated_seconds = file_count * 0.1
+        return round(estimated_seconds / 60, 1)
 
-        return dict(extensions.most_common(20))  # Top 20 extensions
-
-    def _analyze_languages(self, file_paths: List[str]) -> Dict[str, int]:
-        """Analyze programming languages in relevant files."""
-        language_map = {
-            '.py': 'Python',
-            '.js': 'JavaScript',
-            '.ts': 'TypeScript',
-            '.jsx': 'React JSX',
-            '.tsx': 'React TSX',
-            '.java': 'Java',
-            '.go': 'Go',
-            '.rs': 'Rust',
-            '.c': 'C',
-            '.cpp': 'C++',
-            '.h': 'C Header',
-            '.hpp': 'C++ Header',
-            '.php': 'PHP',
-            '.rb': 'Ruby',
-            '.swift': 'Swift',
-            '.kt': 'Kotlin',
-            '.scala': 'Scala',
-            '.cs': 'C#',
-            '.sh': 'Shell',
-            '.bash': 'Bash',
-            '.sql': 'SQL',
-            '.json': 'JSON',
-            '.yaml': 'YAML',
-            '.yml': 'YAML',
-            '.xml': 'XML',
-            '.html': 'HTML',
-            '.css': 'CSS',
-            '.scss': 'SCSS',
-            '.md': 'Markdown'
-        }
-
-        languages = Counter()
-
-        for file_path in file_paths:
-            ext = Path(file_path).suffix.lower()
-            language = language_map.get(ext, f'Other ({ext})')
-            languages[language] += 1
-
-        return dict(languages.most_common(15))  # Top 15 languages
-
-    def _analyze_directories(self, directory_path: Path) -> Dict[str, Any]:
-        """Analyze directory structure."""
-        dir_counts = Counter()
-        max_depth = 0
-        total_dirs = 0
-
-        for root, dirs, files in os.walk(directory_path):
-            # Skip .git to avoid excessive counting
-            dirs[:] = [d for d in dirs if d != '.git']
-
-            root_path = Path(root)
-            depth = len(root_path.relative_to(directory_path).parts)
-            max_depth = max(max_depth, depth)
-
-            total_dirs += len(dirs)
-
-            # Count files per directory type
-            dir_name = root_path.name
-            if dir_name in self.default_exclude_dirs:
-                dir_counts[f"excluded: {dir_name}"] += len(files)
-            else:
-                dir_counts[dir_name] += len(files)
-
-        return {
-            "max_depth": max_depth,
-            "total_directories": total_dirs,
-            "files_per_directory": dict(dir_counts.most_common(10))
-        }
-
-    def _estimate_indexing_complexity(self, relevant_files: List[str], size_stats: Dict[str, Any]) -> Dict[str, Any]:
-        """Estimate indexing complexity and expected processing time."""
-        file_count = len(relevant_files)
-        total_size_mb = size_stats.get("total_size_mb", 0)
-        avg_size_bytes = size_stats.get("average_size_bytes", 0)
-        large_files = size_stats.get("size_distribution", {}).get("very_large", 0)
-
-        # Complexity scoring (0-100)
-        complexity_score = 0
-
-        # File count factor (0-40 points)
+    def _recommend_batch_size(self, file_count: int) -> int:
+        """Recommend optimal batch size based on file count."""
         if file_count < 100:
-            complexity_score += file_count * 0.2
+            return 10
         elif file_count < 1000:
-            complexity_score += 20 + (file_count - 100) * 0.02
+            return 20
+        elif file_count < 10000:
+            return 50
         else:
-            complexity_score += 38 + min((file_count - 1000) * 0.002, 2)
+            return 100
 
-        # Size factor (0-30 points)
-        if total_size_mb < 10:
-            complexity_score += total_size_mb * 2
-        elif total_size_mb < 100:
-            complexity_score += 20 + (total_size_mb - 10) * 0.1
-        else:
-            complexity_score += 29 + min((total_size_mb - 100) * 0.01, 1)
+    def analyze_directory_structure(self, directory: str) -> dict[str, Any]:
+        """Analyze directory structure - wrapper for analyze_repository for backward compatibility."""
+        return self.analyze_repository(directory)
 
-        # Large files penalty (0-30 points)
-        complexity_score += min(large_files * 5, 30)
+    def get_project_context(self, directory: str) -> dict[str, Any]:
+        """Get project context information including project name and type."""
+        try:
+            directory_path = Path(directory).resolve()
+            # Use same naming convention as MCP tools (replace spaces and hyphens with underscores)
+            project_name = directory_path.name.replace(" ", "_").replace("-", "_")
+            project_type = self.detect_project_type(directory)
 
-        complexity_score = min(complexity_score, 100)
+            return {
+                "project_name": project_name,
+                "project_type": project_type,
+                "directory": str(directory_path),
+            }
+        except Exception as e:
+            return {
+                "project_name": "unknown",
+                "project_type": "unknown",
+                "directory": directory,
+                "error": str(e),
+            }
 
-        # Estimate processing time (very rough)
-        estimated_minutes = max(1, int(file_count / 50 + total_size_mb / 10))
-
-        if complexity_score < 30:
-            level = "Low"
-            recommendation = "Should index quickly without issues"
-        elif complexity_score < 60:
-            level = "Medium"
-            recommendation = "May take some time, consider batch processing"
-        else:
-            level = "High"
-            recommendation = "Large repository - definitely use optimization features"
-
-        return {
-            "score": round(complexity_score),
-            "level": level,
-            "estimated_time_minutes": estimated_minutes,
-            "recommendation": recommendation,
-            "file_count_factor": round(file_count / 1000, 2),
-            "size_factor_mb": total_size_mb,
-            "large_files_count": large_files
-        }
-
-    def _generate_recommendations(self, complexity: Dict[str, Any], size_stats: Dict[str, Any], file_count: int) -> List[str]:
-        """Generate actionable recommendations based on analysis."""
+    def _get_memory_recommendations(self, file_count: int) -> list[str]:
+        """Get memory usage recommendations based on file count."""
         recommendations = []
 
-        complexity_level = complexity.get("level", "Unknown")
-        large_files = size_stats.get("size_distribution", {}).get("very_large", 0)
-        total_size_mb = size_stats.get("total_size_mb", 0)
-
-        if complexity_level == "High":
-            recommendations.append("🚨 Use parallel processing and batch optimization")
-            recommendations.append("📊 Consider indexing subdirectories separately")
-
-        if file_count > 2000:
-            recommendations.append(f"📁 Large file count ({file_count:,}) - enable progress tracking")
-
-        if large_files > 10:
-            recommendations.append(f"📄 {large_files} large files detected - verify .ragignore patterns")
-
-        if total_size_mb > 100:
-            recommendations.append(f"💾 Repository size ({total_size_mb:.1f}MB) - monitor memory usage")
-
-        if len(recommendations) == 0:
-            recommendations.append("✅ Repository size is manageable for standard indexing")
+        if file_count > 10000:
+            recommendations.append("Large repository detected - consider using streaming mode")
+            recommendations.append("Increase MEMORY_WARNING_THRESHOLD_MB to 2000+")
+        elif file_count > 1000:
+            recommendations.append("Medium repository - default settings should work well")
+        else:
+            recommendations.append("Small repository - can use larger batch sizes for faster processing")
 
         return recommendations
