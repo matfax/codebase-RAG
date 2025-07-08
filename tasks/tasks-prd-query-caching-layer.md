@@ -182,7 +182,7 @@
   - [x] 9.1.1 Create `src/services/cache_invalidation_service.py` with invalidation logic
   - [x] 9.1.2 Implement file change detection integration
   - [x] 9.1.3 Add project-specific invalidation strategies
-  - [ ] 9.1.4 Implement partial invalidation for incremental updates
+  - [x] 9.1.4 Implement partial invalidation for incremental updates
   - [ ] 9.1.5 Add manual cache invalidation tools
 - [ ] 9.2 Integrate with file monitoring
   - [ ] 9.2.1 Integrate with existing file modification tracking

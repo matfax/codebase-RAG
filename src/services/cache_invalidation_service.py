@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..config.cache_config import CacheConfig, get_global_cache_config
+from ..models.code_chunk import CodeChunk
 from ..models.file_metadata import FileMetadata
 from ..services.cache_service import BaseCacheService, get_cache_service
 from ..services.change_detector_service import ChangeDetectionResult, ChangeDetectorService, ChangeType
@@ -42,6 +43,19 @@ class InvalidationReason(Enum):
     SYSTEM_UPGRADE = "system_upgrade"
     CACHE_CORRUPTION = "cache_corruption"
     TTL_EXPIRED = "ttl_expired"
+    PARTIAL_CONTENT_CHANGE = "partial_content_change"
+    CHUNK_MODIFIED = "chunk_modified"
+    METADATA_ONLY_CHANGE = "metadata_only_change"
+
+
+class IncrementalInvalidationType(Enum):
+    """Types of incremental invalidation."""
+
+    CONTENT_BASED = "content_based"  # Based on actual content changes
+    CHUNK_BASED = "chunk_based"  # Based on specific chunk changes
+    METADATA_ONLY = "metadata_only"  # Only metadata changed
+    DEPENDENCY_BASED = "dependency_based"  # Based on dependency changes
+    HYBRID = "hybrid"  # Combination of multiple types
 
 
 class InvalidationStrategy(Enum):
@@ -125,6 +139,35 @@ class ProjectInvalidationPolicy:
 
 
 @dataclass
+class PartialInvalidationResult:
+    """Result of partial invalidation analysis."""
+
+    file_path: str
+    invalidation_type: IncrementalInvalidationType
+    affected_chunks: list[str] = field(default_factory=list)
+    affected_cache_keys: list[str] = field(default_factory=list)
+    content_changes: dict[str, Any] = field(default_factory=dict)
+    metadata_changes: dict[str, Any] = field(default_factory=dict)
+    dependency_changes: list[str] = field(default_factory=list)
+    preservation_keys: list[str] = field(default_factory=list)  # Keys that should be preserved
+    optimization_ratio: float = 0.0  # Ratio of keys preserved vs invalidated
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for logging/storage."""
+        return {
+            "file_path": self.file_path,
+            "invalidation_type": self.invalidation_type.value,
+            "affected_chunks": self.affected_chunks,
+            "affected_cache_keys": self.affected_cache_keys,
+            "content_changes": self.content_changes,
+            "metadata_changes": self.metadata_changes,
+            "dependency_changes": self.dependency_changes,
+            "preservation_keys": self.preservation_keys,
+            "optimization_ratio": self.optimization_ratio,
+        }
+
+
+@dataclass
 class InvalidationEvent:
     """Represents a cache invalidation event."""
 
@@ -136,6 +179,7 @@ class InvalidationEvent:
     project_name: str | None = None
     cascade_level: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
+    partial_result: PartialInvalidationResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging/storage."""
@@ -148,6 +192,7 @@ class InvalidationEvent:
             "project_name": self.project_name,
             "cascade_level": self.cascade_level,
             "metadata": self.metadata,
+            "partial_result": self.partial_result.to_dict() if self.partial_result else None,
         }
 
 
@@ -159,19 +204,28 @@ class InvalidationStats:
     file_based_invalidations: int = 0
     manual_invalidations: int = 0
     cascade_invalidations: int = 0
+    partial_invalidations: int = 0
     keys_invalidated: int = 0
+    keys_preserved: int = 0
     avg_invalidation_time: float = 0.0
+    avg_optimization_ratio: float = 0.0
     last_invalidation: datetime | None = None
 
-    def update(self, keys_count: int, duration: float, reason: InvalidationReason) -> None:
+    def update(
+        self, keys_count: int, duration: float, reason: InvalidationReason, preserved_keys: int = 0, optimization_ratio: float = 0.0
+    ) -> None:
         """Update statistics with new invalidation data."""
         self.total_invalidations += 1
         self.keys_invalidated += keys_count
+        self.keys_preserved += preserved_keys
         self.last_invalidation = datetime.now()
 
         # Update averages
         if self.total_invalidations > 0:
             self.avg_invalidation_time = (self.avg_invalidation_time * (self.total_invalidations - 1) + duration) / self.total_invalidations
+            self.avg_optimization_ratio = (
+                self.avg_optimization_ratio * (self.total_invalidations - 1) + optimization_ratio
+            ) / self.total_invalidations
 
         # Update reason-specific counts
         if reason == InvalidationReason.FILE_MODIFIED:
@@ -180,6 +234,12 @@ class InvalidationStats:
             self.manual_invalidations += 1
         elif reason == InvalidationReason.DEPENDENCY_CHANGED:
             self.cascade_invalidations += 1
+        elif reason in [
+            InvalidationReason.PARTIAL_CONTENT_CHANGE,
+            InvalidationReason.CHUNK_MODIFIED,
+            InvalidationReason.METADATA_ONLY_CHANGE,
+        ]:
+            self.partial_invalidations += 1
 
 
 class CacheInvalidationService:
@@ -229,6 +289,12 @@ class CacheInvalidationService:
         # Event logging
         self._event_log: list[InvalidationEvent] = []
         self._max_event_log_size = 1000
+
+        # Partial invalidation tracking
+        self._chunk_cache_map: dict[str, set[str]] = {}  # file_path -> set of chunk_ids
+        self._chunk_dependency_map: dict[str, set[str]] = {}  # chunk_id -> set of cache_keys
+        self._content_hashes: dict[str, dict[str, str]] = {}  # file_path -> {chunk_id: hash}
+        self._metadata_hashes: dict[str, str] = {}  # file_path -> metadata_hash
 
     async def initialize(self) -> None:
         """Initialize the cache invalidation service."""
@@ -356,6 +422,82 @@ class CacheInvalidationService:
         except Exception as e:
             self.logger.error(f"Failed to invalidate file caches for {file_path}: {e}")
             raise
+
+    async def partial_invalidate_file_caches(
+        self,
+        file_path: str,
+        old_content: str | None = None,
+        new_content: str | None = None,
+        project_name: str | None = None,
+        cascade: bool = True,
+    ) -> InvalidationEvent:
+        """
+        Perform partial invalidation for incremental updates based on content analysis.
+
+        Args:
+            file_path: Path to the file that changed
+            old_content: Previous content of the file (if available)
+            new_content: New content of the file (if available)
+            project_name: Project name for scoped invalidation
+            cascade: Whether to cascade invalidation to dependent caches
+
+        Returns:
+            InvalidationEvent: Details of the invalidation event with partial results
+        """
+        start_time = time.time()
+
+        try:
+            # Analyze changes and determine partial invalidation strategy
+            partial_result = await self._analyze_partial_invalidation(file_path, old_content, new_content, project_name)
+
+            # Perform targeted invalidation based on analysis
+            affected_keys = await self._perform_targeted_invalidation(partial_result, cascade)
+
+            # Determine appropriate reason based on invalidation type
+            reason = self._get_invalidation_reason(partial_result.invalidation_type)
+
+            # Create invalidation event with partial results
+            event = InvalidationEvent(
+                event_id=f"partial_{int(time.time() * 1000)}",
+                reason=reason,
+                timestamp=datetime.now(),
+                affected_keys=affected_keys,
+                affected_files=[file_path],
+                project_name=project_name,
+                metadata={
+                    "file_path": file_path,
+                    "cascade": cascade,
+                    "partial_invalidation": True,
+                    "optimization_ratio": partial_result.optimization_ratio,
+                },
+                partial_result=partial_result,
+            )
+
+            # Update statistics with optimization info
+            duration = time.time() - start_time
+            self._stats.update(
+                len(affected_keys),
+                duration,
+                reason,
+                preserved_keys=len(partial_result.preservation_keys),
+                optimization_ratio=partial_result.optimization_ratio,
+            )
+
+            # Log event
+            self._log_invalidation_event(event)
+
+            self.logger.info(
+                f"Partial invalidation for {file_path}: {len(affected_keys)} keys affected, "
+                f"{len(partial_result.preservation_keys)} keys preserved, "
+                f"optimization ratio: {partial_result.optimization_ratio:.2f}"
+            )
+
+            return event
+
+        except Exception as e:
+            self.logger.error(f"Failed to perform partial invalidation for {file_path}: {e}")
+            # Fall back to full invalidation
+            return await self.invalidate_file_caches(file_path, InvalidationReason.FILE_MODIFIED, cascade)
 
     async def invalidate_project_caches(
         self, project_name: str, reason: InvalidationReason = InvalidationReason.PROJECT_CHANGED
@@ -1309,6 +1451,90 @@ class CacheInvalidationService:
         """
         return self._event_log[-count:] if count > 0 else []
 
+    async def register_chunk_mapping(self, file_path: str, chunks: list[CodeChunk]) -> None:
+        """
+        Register chunk mapping for a file to enable partial invalidation.
+
+        Args:
+            file_path: Path to the file
+            chunks: List of code chunks in the file
+        """
+        abs_path = str(Path(file_path).resolve())
+        chunk_ids = set()
+        content_hashes = {}
+
+        for chunk in chunks:
+            chunk_id = chunk.chunk_id
+            chunk_ids.add(chunk_id)
+            content_hashes[chunk_id] = chunk.content_hash
+
+            # Register chunk dependencies (cache keys that depend on this chunk)
+            cache_keys = await self._generate_chunk_cache_keys(chunk)
+            self._chunk_dependency_map[chunk_id] = set(cache_keys)
+
+        self._chunk_cache_map[abs_path] = chunk_ids
+        self._content_hashes[abs_path] = content_hashes
+
+        # Update metadata hash
+        metadata_content = f"{abs_path}:{len(chunks)}:{time.time()}"
+        self._metadata_hashes[abs_path] = self._calculate_hash(metadata_content)
+
+    async def invalidate_specific_chunks(
+        self, file_path: str, chunk_ids: list[str], reason: InvalidationReason = InvalidationReason.CHUNK_MODIFIED
+    ) -> InvalidationEvent:
+        """
+        Invalidate specific chunks within a file.
+
+        Args:
+            file_path: Path to the file
+            chunk_ids: List of chunk IDs to invalidate
+            reason: Reason for invalidation
+
+        Returns:
+            InvalidationEvent: Details of the invalidation event
+        """
+        start_time = time.time()
+        affected_keys = []
+
+        try:
+            # Get cache keys for the specified chunks
+            for chunk_id in chunk_ids:
+                if chunk_id in self._chunk_dependency_map:
+                    chunk_keys = list(self._chunk_dependency_map[chunk_id])
+                    affected_keys.extend(chunk_keys)
+
+                    # Invalidate keys across services
+                    await self._invalidate_chunk_keys(chunk_keys)
+
+            # Create invalidation event
+            event = InvalidationEvent(
+                event_id=f"chunk_{int(time.time() * 1000)}",
+                reason=reason,
+                timestamp=datetime.now(),
+                affected_keys=affected_keys,
+                affected_files=[file_path],
+                metadata={
+                    "file_path": file_path,
+                    "chunk_ids": chunk_ids,
+                    "chunk_count": len(chunk_ids),
+                },
+            )
+
+            # Update statistics
+            duration = time.time() - start_time
+            self._stats.update(len(affected_keys), duration, reason)
+
+            # Log event
+            self._log_invalidation_event(event)
+
+            self.logger.info(f"Invalidated {len(chunk_ids)} chunks ({len(affected_keys)} keys) in file: {file_path}")
+
+            return event
+
+        except Exception as e:
+            self.logger.error(f"Failed to invalidate chunks in {file_path}: {e}")
+            raise
+
     async def _invalidation_worker(self) -> None:
         """Background worker for processing invalidation queue."""
         while True:
@@ -1495,6 +1721,255 @@ class CacheInvalidationService:
         # Log to file if configured
         if self.config.debug_mode:
             self.logger.debug(f"Invalidation event: {event.to_dict()}")
+
+    async def _analyze_partial_invalidation(
+        self, file_path: str, old_content: str | None, new_content: str | None, project_name: str | None
+    ) -> PartialInvalidationResult:
+        """
+        Analyze file changes to determine optimal partial invalidation strategy.
+
+        Args:
+            file_path: Path to the file
+            old_content: Previous content of the file
+            new_content: New content of the file
+            project_name: Project name for context
+
+        Returns:
+            PartialInvalidationResult: Analysis result with invalidation strategy
+        """
+        abs_path = str(Path(file_path).resolve())
+
+        # If no content provided, fall back to metadata-based analysis
+        if old_content is None or new_content is None:
+            return await self._analyze_metadata_based_invalidation(abs_path, project_name)
+
+        # Content-based analysis
+        if old_content == new_content:
+            # No content changes - only metadata might have changed
+            return PartialInvalidationResult(
+                file_path=abs_path,
+                invalidation_type=IncrementalInvalidationType.METADATA_ONLY,
+                optimization_ratio=1.0,  # Perfect optimization - no invalidation needed
+            )
+
+        # Check if we have chunk mapping for this file
+        if abs_path in self._chunk_cache_map:
+            return await self._analyze_chunk_based_invalidation(abs_path, old_content, new_content)
+        else:
+            return await self._analyze_content_based_invalidation(abs_path, old_content, new_content, project_name)
+
+    async def _analyze_metadata_based_invalidation(self, file_path: str, project_name: str | None) -> PartialInvalidationResult:
+        """Analyze changes based on file metadata only."""
+        all_keys = await self._generate_file_cache_keys(file_path)
+
+        # Conservative approach: invalidate file-level caches but preserve embeddings if possible
+        affected_keys = [key for key in all_keys if not key.startswith("embedding:")]
+        preservation_keys = [key for key in all_keys if key.startswith("embedding:")]
+
+        optimization_ratio = len(preservation_keys) / len(all_keys) if all_keys else 0.0
+
+        return PartialInvalidationResult(
+            file_path=file_path,
+            invalidation_type=IncrementalInvalidationType.METADATA_ONLY,
+            affected_cache_keys=affected_keys,
+            preservation_keys=preservation_keys,
+            optimization_ratio=optimization_ratio,
+        )
+
+    async def _analyze_chunk_based_invalidation(self, file_path: str, old_content: str, new_content: str) -> PartialInvalidationResult:
+        """Analyze changes at chunk level for optimal invalidation."""
+        try:
+            # Use the file cache service to parse chunks from both contents
+            if self._file_cache:
+                old_chunks = await self._file_cache._parse_content_to_chunks(file_path, old_content)
+                new_chunks = await self._file_cache._parse_content_to_chunks(file_path, new_content)
+            else:
+                # Fall back to simpler analysis
+                return await self._analyze_content_based_invalidation(file_path, old_content, new_content, None)
+
+            # Compare chunks to identify changes
+            changed_chunks = self._identify_changed_chunks(old_chunks, new_chunks)
+
+            # Get cache keys for changed chunks only
+            affected_keys = []
+            preservation_keys = []
+
+            for chunk in new_chunks:
+                chunk_keys = await self._generate_chunk_cache_keys(chunk)
+                if chunk.chunk_id in changed_chunks:
+                    affected_keys.extend(chunk_keys)
+                else:
+                    preservation_keys.extend(chunk_keys)
+
+            optimization_ratio = (
+                len(preservation_keys) / (len(affected_keys) + len(preservation_keys)) if (affected_keys or preservation_keys) else 0.0
+            )
+
+            return PartialInvalidationResult(
+                file_path=file_path,
+                invalidation_type=IncrementalInvalidationType.CHUNK_BASED,
+                affected_chunks=list(changed_chunks),
+                affected_cache_keys=affected_keys,
+                preservation_keys=preservation_keys,
+                optimization_ratio=optimization_ratio,
+                content_changes={"changed_chunks": len(changed_chunks), "total_chunks": len(new_chunks)},
+            )
+
+        except Exception as e:
+            self.logger.warning(f"Chunk-based analysis failed for {file_path}: {e}")
+            return await self._analyze_content_based_invalidation(file_path, old_content, new_content, None)
+
+    async def _analyze_content_based_invalidation(
+        self, file_path: str, old_content: str, new_content: str, project_name: str | None
+    ) -> PartialInvalidationResult:
+        """Analyze changes based on content comparison."""
+        # Calculate content similarity
+        similarity = self._calculate_content_similarity(old_content, new_content)
+
+        all_keys = await self._generate_file_cache_keys(file_path)
+
+        if similarity > 0.8:
+            # High similarity - conservative invalidation
+            # Preserve embeddings and search results, invalidate file processing
+            affected_keys = [key for key in all_keys if key.startswith(("file:", "parsing:"))]
+            preservation_keys = [key for key in all_keys if key.startswith(("embedding:", "search:"))]
+        elif similarity > 0.5:
+            # Medium similarity - moderate invalidation
+            # Invalidate file processing and embeddings, preserve some search results
+            affected_keys = [key for key in all_keys if not key.startswith("search:query:")]
+            preservation_keys = [key for key in all_keys if key.startswith("search:query:")]
+        else:
+            # Low similarity - aggressive invalidation
+            affected_keys = all_keys
+            preservation_keys = []
+
+        optimization_ratio = len(preservation_keys) / len(all_keys) if all_keys else 0.0
+
+        return PartialInvalidationResult(
+            file_path=file_path,
+            invalidation_type=IncrementalInvalidationType.CONTENT_BASED,
+            affected_cache_keys=affected_keys,
+            preservation_keys=preservation_keys,
+            optimization_ratio=optimization_ratio,
+            content_changes={"similarity": similarity},
+        )
+
+    def _identify_changed_chunks(self, old_chunks: list[CodeChunk], new_chunks: list[CodeChunk]) -> set[str]:
+        """Identify which chunks have changed between old and new versions."""
+        changed_chunks = set()
+
+        # Create mappings by chunk content/signature for comparison
+        old_chunk_map = {self._get_chunk_signature(chunk): chunk for chunk in old_chunks}
+        new_chunk_map = {self._get_chunk_signature(chunk): chunk for chunk in new_chunks}
+
+        # Find changed chunks
+        for signature, new_chunk in new_chunk_map.items():
+            if signature in old_chunk_map:
+                old_chunk = old_chunk_map[signature]
+                if old_chunk.content_hash != new_chunk.content_hash:
+                    changed_chunks.add(new_chunk.chunk_id)
+            else:
+                # New chunk
+                changed_chunks.add(new_chunk.chunk_id)
+
+        # Find deleted chunks (exist in old but not in new)
+        for signature, old_chunk in old_chunk_map.items():
+            if signature not in new_chunk_map:
+                changed_chunks.add(old_chunk.chunk_id)
+
+        return changed_chunks
+
+    def _get_chunk_signature(self, chunk: CodeChunk) -> str:
+        """Generate a signature for chunk comparison."""
+        return f"{chunk.chunk_type}:{chunk.name}:{chunk.start_line}:{chunk.end_line}"
+
+    def _calculate_content_similarity(self, old_content: str, new_content: str) -> float:
+        """Calculate content similarity ratio between two strings."""
+        if not old_content or not new_content:
+            return 0.0
+
+        # Simple similarity based on common lines
+        old_lines = set(old_content.splitlines())
+        new_lines = set(new_content.splitlines())
+
+        if not old_lines and not new_lines:
+            return 1.0
+
+        common_lines = old_lines.intersection(new_lines)
+        total_lines = old_lines.union(new_lines)
+
+        return len(common_lines) / len(total_lines) if total_lines else 0.0
+
+    def _calculate_hash(self, content: str) -> str:
+        """Calculate hash for content."""
+        import hashlib
+
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def _get_invalidation_reason(self, invalidation_type: IncrementalInvalidationType) -> InvalidationReason:
+        """Map invalidation type to reason."""
+        type_mapping = {
+            IncrementalInvalidationType.CONTENT_BASED: InvalidationReason.PARTIAL_CONTENT_CHANGE,
+            IncrementalInvalidationType.CHUNK_BASED: InvalidationReason.CHUNK_MODIFIED,
+            IncrementalInvalidationType.METADATA_ONLY: InvalidationReason.METADATA_ONLY_CHANGE,
+            IncrementalInvalidationType.DEPENDENCY_BASED: InvalidationReason.DEPENDENCY_CHANGED,
+            IncrementalInvalidationType.HYBRID: InvalidationReason.PARTIAL_CONTENT_CHANGE,
+        }
+        return type_mapping.get(invalidation_type, InvalidationReason.FILE_MODIFIED)
+
+    async def _perform_targeted_invalidation(self, partial_result: PartialInvalidationResult, cascade: bool) -> list[str]:
+        """Perform invalidation based on partial analysis results."""
+        affected_keys = partial_result.affected_cache_keys.copy()
+
+        # Group keys by service type and invalidate
+        service_keys = {}
+        for key in affected_keys:
+            service_name = self._extract_service_name(key)
+            if service_name not in service_keys:
+                service_keys[service_name] = []
+            service_keys[service_name].append(key)
+
+        # Perform invalidation
+        for service_name, keys in service_keys.items():
+            await self._invalidate_keys_in_service(service_name, keys)
+
+        # Handle cascade invalidation if requested
+        if cascade and partial_result.dependency_changes:
+            dependent_keys = await self._get_dependent_keys(affected_keys)
+            affected_keys.extend(dependent_keys)
+            await self._invalidate_dependent_keys(dependent_keys)
+
+        return affected_keys
+
+    async def _generate_chunk_cache_keys(self, chunk: CodeChunk) -> list[str]:
+        """Generate cache keys for a specific chunk."""
+        keys = []
+
+        # Chunk-specific keys
+        keys.append(f"chunk:{chunk.chunk_id}")
+        keys.append(f"embedding:chunk:{chunk.chunk_id}")
+        keys.append(f"file:chunk:{chunk.file_path}:{chunk.chunk_id}")
+
+        # Function/class specific keys
+        if chunk.name:
+            keys.append(f"function:{chunk.name}:{chunk.file_path}")
+            keys.append(f"embedding:function:{chunk.name}:{chunk.file_path}")
+
+        return keys
+
+    async def _invalidate_chunk_keys(self, chunk_keys: list[str]) -> None:
+        """Invalidate keys specific to chunks."""
+        # Group keys by service
+        service_keys = {}
+        for key in chunk_keys:
+            service_name = self._extract_service_name(key)
+            if service_name not in service_keys:
+                service_keys[service_name] = []
+            service_keys[service_name].append(key)
+
+        # Invalidate in each service
+        for service_name, keys in service_keys.items():
+            await self._invalidate_keys_in_service(service_name, keys)
 
 
 # Global cache invalidation service instance
