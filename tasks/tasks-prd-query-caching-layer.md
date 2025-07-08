@@ -121,19 +121,19 @@
   - [x] 4.2.4 Add cache hit/miss tracking and metrics
   - [x] 4.2.5 Handle embedding generation failures with cache fallback
 
-### 5.0 Search Results Cache Service
-- [ ] 5.1 Implement search results cache service
-  - [ ] 5.1.1 Create `src/services/search_cache_service.py` with search result caching
-  - [ ] 5.1.2 Implement composite cache keys for search parameters
-  - [ ] 5.1.3 Add search result storage with ranking preservation
-  - [ ] 5.1.4 Implement contextual search result caching
-  - [ ] 5.1.5 Add search cache invalidation on content changes
-- [ ] 5.2 Integrate with search tools
-  - [ ] 5.2.1 Modify `src/tools/search/search.py` to leverage result cache
-  - [ ] 5.2.2 Add cache lookup in `_perform_hybrid_search` method
-  - [ ] 5.2.3 Implement search parameter variation caching
-  - [ ] 5.2.4 Add search result ranking consistency checks
-  - [ ] 5.2.5 Handle search failures with cache fallback
+### [x] 5.0 Search Results Cache Service
+- [x] 5.1 Implement search results cache service
+  - [x] 5.1.1 Create `src/services/search_cache_service.py` with search result caching
+  - [x] 5.1.2 Implement composite cache keys for search parameters
+  - [x] 5.1.3 Add search result storage with ranking preservation
+  - [x] 5.1.4 Implement contextual search result caching
+  - [x] 5.1.5 Add search cache invalidation on content changes
+- [x] 5.2 Integrate with search tools
+  - [x] 5.2.1 Modify `src/tools/search/search.py` to leverage result cache
+  - [x] 5.2.2 Add cache lookup in `_perform_hybrid_search` method
+  - [x] 5.2.3 Implement search parameter variation caching
+  - [x] 5.2.4 Add search result ranking consistency checks
+  - [x] 5.2.5 Handle search failures with cache fallback
 
 ### 6.0 Project Context Cache Service
 - [ ] 6.1 Implement project context cache service
