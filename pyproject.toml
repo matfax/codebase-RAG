@@ -24,6 +24,8 @@ dependencies = [
     "tree-sitter-rust==0.21.2",
     "tree-sitter-java",
     "tree-sitter-cpp",
+    "redis>=5.0.0,<6",
+    "cryptography>=42.0.0,<43",
 ]
 
 [dependency-groups]
@@ -92,6 +94,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "demo_*.py" = ["T201", "BLE001"]  # Allow print and bare except in demos
 "test_*.py" = ["T201", "BLE001", "N806"]  # Allow print, bare except, and variable naming in test files
 "manual_indexing.py" = ["T201", "BLE001"]  # Allow print and bare except in manual tool
+"validate_cache_config.py" = ["T201", "BLE001"]  # Allow print and bare except in validation script
 "src/**/*.test.py" = ["T201", "BLE001", "N806", "N999"]  # Allow print, bare except, variable naming, and module naming in test files
 "src/utils/workflow_orchestrator.py" = ["BLE001"]  # Allow bare except for error handling
 "src/mcp_prompts.py" = ["BLE001", "E501"]  # Allow bare except and long lines in template prompts
