@@ -21,8 +21,10 @@ from typing import Any, Optional
 from ..config.cache_config import CacheConfig, get_global_cache_config
 from ..models.file_metadata import FileMetadata
 from ..services.cache_service import BaseCacheService, get_cache_service
+from ..services.change_detector_service import ChangeDetectionResult, ChangeDetectorService, ChangeType
 from ..services.embedding_cache_service import EmbeddingCacheService
 from ..services.file_cache_service import FileCacheService
+from ..services.file_metadata_service import FileMetadataService
 from ..services.project_cache_service import ProjectCacheService
 from ..services.search_cache_service import SearchCacheService
 from ..utils.cache_key_generator import CacheKeyGenerator
@@ -134,6 +136,10 @@ class CacheInvalidationService:
         self._project_cache: ProjectCacheService | None = None
         self._file_cache: FileCacheService | None = None
 
+        # File change detection integration
+        self._change_detector: ChangeDetectorService | None = None
+        self._file_metadata_service: FileMetadataService | None = None
+
         # Invalidation management
         self._invalidation_queue: asyncio.Queue = asyncio.Queue()
         self._invalidation_task: asyncio.Task | None = None
@@ -143,6 +149,7 @@ class CacheInvalidationService:
         # File monitoring
         self._file_metadata_cache: dict[str, FileMetadata] = {}
         self._monitored_files: set[str] = set()
+        self._project_files: dict[str, set[str]] = {}  # Track files per project
 
         # Event logging
         self._event_log: list[InvalidationEvent] = []
@@ -187,6 +194,10 @@ class CacheInvalidationService:
         # Get main cache service
         main_cache = await get_cache_service()
         self._cache_services["main"] = main_cache
+
+        # Initialize file change detection services
+        self._file_metadata_service = FileMetadataService()
+        self._change_detector = ChangeDetectorService(self._file_metadata_service)
 
         # Initialize specialized cache services
         self._embedding_cache = EmbeddingCacheService(self.config)
@@ -488,6 +499,195 @@ class CacheInvalidationService:
         """Get cache invalidation statistics."""
         return self._stats
 
+    async def detect_and_invalidate_changes(
+        self, project_name: str, current_files: list[str], project_root: str | None = None
+    ) -> tuple[ChangeDetectionResult, list[InvalidationEvent]]:
+        """
+        Detect file changes and automatically invalidate affected caches.
+
+        Args:
+            project_name: Name of the project
+            current_files: List of current file paths
+            project_root: Optional project root for relative path calculation
+
+        Returns:
+            Tuple of (ChangeDetectionResult, list of InvalidationEvents)
+        """
+        if not self._change_detector:
+            raise RuntimeError("Change detector not initialized")
+
+        try:
+            # Detect changes
+            changes = self._change_detector.detect_changes(project_name, current_files, project_root)
+            invalidation_events = []
+
+            # Process changes and invalidate caches
+            if changes.has_changes:
+                self.logger.info(f"Detected {changes.total_changes} changes for project {project_name}")
+
+                # Handle added files
+                for file_change in changes.added_files:
+                    event = await self.invalidate_file_caches(file_change.file_path, InvalidationReason.FILE_ADDED, cascade=True)
+                    invalidation_events.append(event)
+
+                # Handle modified files
+                for file_change in changes.modified_files:
+                    event = await self.invalidate_file_caches(file_change.file_path, InvalidationReason.FILE_MODIFIED, cascade=True)
+                    invalidation_events.append(event)
+
+                # Handle deleted files
+                for file_change in changes.deleted_files:
+                    event = await self.invalidate_file_caches(file_change.file_path, InvalidationReason.FILE_DELETED, cascade=True)
+                    invalidation_events.append(event)
+
+                # Handle moved files
+                for file_change in changes.moved_files:
+                    # Invalidate both old and new paths
+                    if file_change.old_path:
+                        old_event = await self.invalidate_file_caches(file_change.old_path, InvalidationReason.FILE_DELETED, cascade=True)
+                        invalidation_events.append(old_event)
+
+                    new_event = await self.invalidate_file_caches(file_change.file_path, InvalidationReason.FILE_ADDED, cascade=True)
+                    invalidation_events.append(new_event)
+
+                # Update project file tracking
+                self._project_files[project_name] = set(current_files)
+
+            return changes, invalidation_events
+
+        except Exception as e:
+            self.logger.error(f"Failed to detect and invalidate changes for project {project_name}: {e}")
+            raise
+
+    async def incremental_invalidation_check(
+        self, project_name: str, file_paths: list[str], project_root: str | None = None
+    ) -> list[InvalidationEvent]:
+        """
+        Perform incremental invalidation check for specific files.
+
+        Args:
+            project_name: Name of the project
+            file_paths: List of file paths to check
+            project_root: Optional project root
+
+        Returns:
+            List of invalidation events
+        """
+        if not self._file_metadata_service:
+            raise RuntimeError("File metadata service not initialized")
+
+        invalidation_events = []
+
+        try:
+            # Get stored metadata for these files
+            stored_metadata = self._file_metadata_service.get_project_file_metadata(project_name)
+
+            for file_path in file_paths:
+                abs_path = str(Path(file_path).resolve())
+
+                # Check if file exists
+                if not Path(abs_path).exists():
+                    # File was deleted
+                    if abs_path in stored_metadata:
+                        event = await self.invalidate_file_caches(abs_path, InvalidationReason.FILE_DELETED, cascade=True)
+                        invalidation_events.append(event)
+                    continue
+
+                # Create current metadata
+                try:
+                    current_metadata = FileMetadata.from_file_path(abs_path, project_root)
+                except Exception as e:
+                    self.logger.warning(f"Failed to create metadata for {abs_path}: {e}")
+                    continue
+
+                # Check if file has changed
+                if abs_path in stored_metadata:
+                    stored_meta = stored_metadata[abs_path]
+                    if self._has_file_changed(stored_meta, current_metadata):
+                        event = await self.invalidate_file_caches(abs_path, InvalidationReason.FILE_MODIFIED, cascade=True)
+                        invalidation_events.append(event)
+                else:
+                    # New file
+                    event = await self.invalidate_file_caches(abs_path, InvalidationReason.FILE_ADDED, cascade=True)
+                    invalidation_events.append(event)
+
+            return invalidation_events
+
+        except Exception as e:
+            self.logger.error(f"Failed incremental invalidation check for project {project_name}: {e}")
+            raise
+
+    def register_project_files(self, project_name: str, file_paths: list[str]) -> None:
+        """
+        Register files for a project for change tracking.
+
+        Args:
+            project_name: Name of the project
+            file_paths: List of file paths in the project
+        """
+        self._project_files[project_name] = set(file_paths)
+        self.logger.debug(f"Registered {len(file_paths)} files for project {project_name}")
+
+    def get_monitored_projects(self) -> list[str]:
+        """Get list of projects being monitored for changes."""
+        return list(self._project_files.keys())
+
+    def get_project_files(self, project_name: str) -> set[str]:
+        """
+        Get files being monitored for a project.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Set of file paths for the project
+        """
+        return self._project_files.get(project_name, set())
+
+    def _has_file_changed(self, stored_metadata: FileMetadata, current_metadata: FileMetadata) -> bool:
+        """
+        Determine if a file has changed based on metadata comparison.
+
+        Args:
+            stored_metadata: Previously stored metadata
+            current_metadata: Current file metadata
+
+        Returns:
+            True if file has changed
+        """
+        # Primary check: modification time and size
+        if stored_metadata.has_changed(current_metadata.mtime, current_metadata.file_size):
+            # Secondary verification: content hash
+            return stored_metadata.content_hash != current_metadata.content_hash
+        return False
+
+    async def schedule_project_invalidation_check(self, project_name: str, delay_seconds: float = 0.0) -> None:
+        """
+        Schedule a project-wide invalidation check.
+
+        Args:
+            project_name: Name of the project
+            delay_seconds: Delay before performing the check
+        """
+        task = {
+            "type": "project_check",
+            "project_name": project_name,
+            "delay": delay_seconds,
+            "reason": InvalidationReason.PROJECT_CHANGED,
+        }
+
+        if delay_seconds > 0:
+            # Schedule for later
+            asyncio.create_task(self._schedule_delayed_task(task, delay_seconds))
+        else:
+            # Add to immediate queue
+            await self._invalidation_queue.put(task)
+
+    async def _schedule_delayed_task(self, task: dict[str, Any], delay_seconds: float) -> None:
+        """Schedule a task to be executed after a delay."""
+        await asyncio.sleep(delay_seconds)
+        await self._invalidation_queue.put(task)
+
     def get_recent_events(self, count: int = 10) -> list[InvalidationEvent]:
         """
         Get recent invalidation events.
@@ -530,6 +730,17 @@ class CacheInvalidationService:
             await self.invalidate_keys(task["keys"], task.get("reason", InvalidationReason.MANUAL_INVALIDATION))
         elif task_type == "pattern":
             await self.invalidate_pattern(task["pattern"], task.get("reason", InvalidationReason.MANUAL_INVALIDATION))
+        elif task_type == "project_check":
+            # Perform project-wide change detection and invalidation
+            project_name = task["project_name"]
+            if project_name in self._project_files:
+                current_files = list(self._project_files[project_name])
+                try:
+                    changes, events = await self.detect_and_invalidate_changes(project_name, current_files)
+                    if changes.has_changes:
+                        self.logger.info(f"Processed {len(events)} invalidation events for project {project_name}")
+                except Exception as e:
+                    self.logger.error(f"Failed to process project check for {project_name}: {e}")
         else:
             self.logger.warning(f"Unknown invalidation task type: {task_type}")
 
