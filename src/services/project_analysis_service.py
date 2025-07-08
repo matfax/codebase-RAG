@@ -1,10 +1,19 @@
 import os
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pathspec
 from dotenv import load_dotenv
 from git import InvalidGitRepositoryError, Repo
+
+from .project_cache_service import (
+    FileFilteringResult,
+    ProjectCacheService,
+    ProjectDetectionResult,
+    ProjectMetadata,
+    get_project_cache_service,
+)
 
 # Load environment variables
 load_dotenv()
@@ -13,10 +22,14 @@ load_dotenv()
 class ProjectAnalysisService:
     """Service for analyzing project structure and identifying relevant files."""
 
-    def __init__(self):
+    def __init__(self, enable_cache: bool = True):
         # Load configuration from environment variables
         self.max_directory_depth = int(os.getenv("MAX_DIRECTORY_DEPTH", "20"))
         self.follow_symlinks = os.getenv("FOLLOW_SYMLINKS", "false").lower() == "true"
+        
+        # Cache configuration
+        self.enable_cache = enable_cache
+        self._cache_service: Optional[ProjectCacheService] = None
 
         self.default_extensions = {
             ".py",
@@ -130,6 +143,48 @@ class ProjectAnalysisService:
             "*.sqlite",
             "*.db",
         }
+
+    async def _get_cache_service(self) -> Optional[ProjectCacheService]:
+        """Get the cache service instance if caching is enabled."""
+        if not self.enable_cache:
+            return None
+        
+        if self._cache_service is None:
+            try:
+                self._cache_service = await get_project_cache_service()
+            except Exception:
+                # If cache initialization fails, continue without caching
+                self._cache_service = None
+        
+        return self._cache_service
+
+    async def get_relevant_files_async(self, directory: str) -> list[str]:
+        """Get list of relevant files to index from a directory (async version with caching)."""
+        cache_service = await self._get_cache_service()
+        
+        # Try to get from cache first
+        if cache_service:
+            cached_result = await cache_service.get_file_filtering_result(directory)
+            if cached_result:
+                return cached_result.relevant_files
+        
+        # If not in cache, compute the result
+        start_time = time.time()
+        relevant_files = self.get_relevant_files(directory)
+        processing_time_ms = (time.time() - start_time) * 1000
+        
+        # Cache the result if cache service is available
+        if cache_service and relevant_files:
+            filtering_result = FileFilteringResult(
+                directory=directory,
+                relevant_files=relevant_files,
+                included=len(relevant_files),
+                processed_at=time.time(),
+                processing_time_ms=processing_time_ms,
+            )
+            await cache_service.cache_file_filtering_result(directory, filtering_result)
+        
+        return relevant_files
 
     def get_relevant_files(self, directory: str) -> list[str]:
         """Get list of relevant files to index from a directory."""
@@ -253,6 +308,37 @@ class ProjectAnalysisService:
                 return True
         return False
 
+    async def detect_project_type_async(self, directory: str) -> str:
+        """Detect the type of project based on files present (async version with caching)."""
+        cache_service = await self._get_cache_service()
+        
+        # Try to get from cache first
+        if cache_service:
+            cached_detection = await cache_service.get_project_detection(directory)
+            if cached_detection:
+                return cached_detection.project_type
+        
+        # If not in cache, compute the result
+        project_type = self.detect_project_type(directory)
+        
+        # Cache the result if cache service is available
+        if cache_service:
+            directory_path = Path(directory).resolve()
+            project_name = directory_path.name.replace(" ", "_").replace("-", "_")
+            project_id = project_name
+            
+            detection_result = ProjectDetectionResult(
+                directory=str(directory_path),
+                project_id=project_id,
+                project_name=project_name,
+                project_type=project_type,
+                confidence=1.0,
+                detection_method="file_based",
+            )
+            await cache_service.cache_project_detection(directory, detection_result)
+        
+        return project_type
+
     def detect_project_type(self, directory: str) -> str:
         """Detect the type of project based on files present."""
         directory_path = Path(directory)
@@ -274,6 +360,118 @@ class ProjectAnalysisService:
             return "ruby"
         else:
             return "unknown"
+
+    async def analyze_repository_async(self, directory: str = ".") -> dict[str, Any]:
+        """
+        Analyze repository structure and provide detailed statistics for indexing planning (async version with caching).
+
+        Args:
+            directory: Path to the directory to analyze
+
+        Returns:
+            Dictionary with comprehensive analysis including file counts, size distribution,
+            language breakdown, complexity assessment, and indexing recommendations.
+        """
+        cache_service = await self._get_cache_service()
+        
+        # Try to get from cache first
+        if cache_service:
+            try:
+                cached_metadata = await cache_service.get_project_metadata(directory)
+                if cached_metadata:
+                    # Convert ProjectMetadata back to dictionary format
+                    return {
+                        "directory": cached_metadata.directory,
+                        "project_type": cached_metadata.project_type,
+                        "total_files": cached_metadata.file_count,
+                        "relevant_files": len(cached_metadata.relevant_files),
+                        "excluded_files": cached_metadata.excluded_files,
+                        "exclusion_rate": cached_metadata.exclusion_rate,
+                        "size_analysis": {
+                            "total_size_mb": cached_metadata.total_size_mb,
+                        },
+                        "language_breakdown": cached_metadata.language_breakdown,
+                        "indexing_complexity": cached_metadata.indexing_complexity,
+                        "recommendations": cached_metadata.recommendations,
+                        "error": cached_metadata.error,
+                        "cached": True,
+                    }
+            except Exception as e:
+                # Log cache error but continue with fresh analysis
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to retrieve from cache, proceeding with fresh analysis: {e}")
+        
+        # If not in cache or cache failed, compute the result
+        start_time = time.time()
+        try:
+            analysis = self.analyze_repository(directory)
+            processing_time_ms = (time.time() - start_time) * 1000
+            
+            # Cache the result if cache service is available and analysis was successful
+            if cache_service and not analysis.get("error"):
+                try:
+                    directory_path = Path(directory).resolve()
+                    project_name = directory_path.name.replace(" ", "_").replace("-", "_")
+                    
+                    metadata = ProjectMetadata(
+                        project_name=project_name,
+                        project_type=analysis.get("project_type", "unknown"),
+                        directory=str(directory_path),
+                        project_id=project_name,
+                        file_count=analysis.get("total_files", 0),
+                        total_size_mb=analysis.get("size_analysis", {}).get("total_size_mb", 0.0),
+                        language_breakdown=analysis.get("language_breakdown", {}),
+                        relevant_files=[],  # We don't store the full file list in metadata to save space
+                        excluded_files=analysis.get("excluded_files", 0),
+                        exclusion_rate=analysis.get("exclusion_rate", 0.0),
+                        indexing_complexity=analysis.get("indexing_complexity", {}),
+                        recommendations=analysis.get("recommendations", []),
+                        error=analysis.get("error"),
+                    )
+                    await cache_service.cache_project_metadata(directory, metadata)
+                except Exception as e:
+                    # Log cache storage error but don't fail the operation
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to cache analysis result: {e}")
+            
+            analysis["cached"] = False
+            return analysis
+            
+        except Exception as e:
+            # If analysis fails, try to return any cached data as fallback
+            if cache_service:
+                try:
+                    cached_metadata = await cache_service.get_project_metadata(directory)
+                    if cached_metadata:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Analysis failed, returning cached data as fallback: {e}")
+                        
+                        return {
+                            "directory": cached_metadata.directory,
+                            "project_type": cached_metadata.project_type,
+                            "total_files": cached_metadata.file_count,
+                            "relevant_files": len(cached_metadata.relevant_files),
+                            "excluded_files": cached_metadata.excluded_files,
+                            "exclusion_rate": cached_metadata.exclusion_rate,
+                            "size_analysis": {
+                                "total_size_mb": cached_metadata.total_size_mb,
+                            },
+                            "language_breakdown": cached_metadata.language_breakdown,
+                            "indexing_complexity": cached_metadata.indexing_complexity,
+                            "recommendations": cached_metadata.recommendations,
+                            "error": cached_metadata.error,
+                            "cached": True,
+                            "fallback": True,
+                            "analysis_error": str(e),
+                        }
+                except Exception:
+                    pass  # Cache fallback also failed
+            
+            # If all else fails, re-raise the original error
+            raise
 
     def analyze_repository(self, directory: str = ".") -> dict[str, Any]:
         """
@@ -436,6 +634,62 @@ class ProjectAnalysisService:
                 "error": f"Repository analysis failed: {str(e)}",
                 "directory": directory,
             }
+
+    async def get_file_filtering_stats_async(self, directory: str = ".") -> dict[str, Any]:
+        """
+        Get detailed statistics about file filtering for debugging and optimization (async version with caching).
+
+        Args:
+            directory: Path to the directory to analyze
+
+        Returns:
+            Dictionary with detailed breakdown of file filtering statistics
+        """
+        cache_service = await self._get_cache_service()
+        
+        # Try to get from cache first
+        if cache_service:
+            cached_result = await cache_service.get_file_filtering_result(directory)
+            if cached_result:
+                # Convert FileFilteringResult back to dictionary format
+                return {
+                    "directory": cached_result.directory,
+                    "total_examined": cached_result.total_examined,
+                    "included": cached_result.included,
+                    "excluded_by_extension": cached_result.excluded_by_extension,
+                    "excluded_by_pattern": cached_result.excluded_by_pattern,
+                    "excluded_by_gitignore": cached_result.excluded_by_gitignore,
+                    "excluded_by_size": cached_result.excluded_by_size,
+                    "excluded_by_binary_extension": cached_result.excluded_by_binary,
+                    "excluded_by_binary_header": 0,  # This wasn't tracked separately
+                    "excluded_by_ragignore": 0,  # This wasn't implemented
+                    "excluded_directories": cached_result.excluded_directories,
+                    "configuration": cached_result.configuration,
+                }
+        
+        # If not in cache, compute the result
+        start_time = time.time()
+        stats = self.get_file_filtering_stats(directory)
+        processing_time_ms = (time.time() - start_time) * 1000
+        
+        # Cache the result if cache service is available and stats were successful
+        if cache_service and not stats.get("error"):
+            filtering_result = FileFilteringResult(
+                directory=stats["directory"],
+                total_examined=stats.get("total_examined", 0),
+                included=stats.get("included", 0),
+                excluded_by_extension=stats.get("excluded_by_extension", 0),
+                excluded_by_pattern=stats.get("excluded_by_pattern", 0),
+                excluded_by_gitignore=stats.get("excluded_by_gitignore", 0),
+                excluded_by_size=stats.get("excluded_by_size", 0),
+                excluded_by_binary=stats.get("excluded_by_binary_extension", 0),
+                excluded_directories=stats.get("excluded_directories", 0),
+                configuration=stats.get("configuration", {}),
+                processing_time_ms=processing_time_ms,
+            )
+            await cache_service.cache_file_filtering_result(directory, filtering_result)
+        
+        return stats
 
     def get_file_filtering_stats(self, directory: str = ".") -> dict[str, Any]:
         """
@@ -691,6 +945,78 @@ class ProjectAnalysisService:
     def analyze_directory_structure(self, directory: str) -> dict[str, Any]:
         """Analyze directory structure - wrapper for analyze_repository for backward compatibility."""
         return self.analyze_repository(directory)
+
+    async def get_project_context_async(self, directory: str) -> dict[str, Any]:
+        """Get project context information including project name and type (async version with caching)."""
+        cache_service = await self._get_cache_service()
+        
+        # Try to get from cache first
+        if cache_service:
+            try:
+                cached_detection = await cache_service.get_project_detection(directory)
+                if cached_detection:
+                    return {
+                        "project_name": cached_detection.project_name,
+                        "project_type": cached_detection.project_type,
+                        "directory": cached_detection.directory,
+                        "project_id": cached_detection.project_id,
+                        "cached": True,
+                    }
+            except Exception as e:
+                # Log cache error but continue with fresh analysis
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to retrieve project context from cache: {e}")
+        
+        # If not in cache or cache failed, compute the result
+        try:
+            context = self.get_project_context(directory)
+            
+            # Cache the result if cache service is available and context was successful
+            if cache_service and not context.get("error"):
+                try:
+                    detection_result = ProjectDetectionResult(
+                        directory=context["directory"],
+                        project_id=context["project_name"],
+                        project_name=context["project_name"],
+                        project_type=context["project_type"],
+                        confidence=1.0,
+                        detection_method="context_analysis",
+                    )
+                    await cache_service.cache_project_detection(directory, detection_result)
+                except Exception as e:
+                    # Log cache storage error but don't fail the operation
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to cache project context: {e}")
+            
+            context["cached"] = False
+            return context
+            
+        except Exception as e:
+            # If context analysis fails, try to return any cached data as fallback
+            if cache_service:
+                try:
+                    cached_detection = await cache_service.get_project_detection(directory)
+                    if cached_detection:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Project context analysis failed, returning cached data as fallback: {e}")
+                        
+                        return {
+                            "project_name": cached_detection.project_name,
+                            "project_type": cached_detection.project_type,
+                            "directory": cached_detection.directory,
+                            "project_id": cached_detection.project_id,
+                            "cached": True,
+                            "fallback": True,
+                            "analysis_error": str(e),
+                        }
+                except Exception:
+                    pass  # Cache fallback also failed
+            
+            # If all else fails, re-raise the original error
+            raise
 
     def get_project_context(self, directory: str) -> dict[str, Any]:
         """Get project context information including project name and type."""
