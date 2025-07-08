@@ -107,19 +107,19 @@
   - [x] 3.2.4 Implement cache entry serialization methods
   - [x] 3.2.5 Add cache validation and integrity checking
 
-### 4.0 Embedding Cache Service
-- [ ] 4.1 Implement embedding cache service
-  - [ ] 4.1.1 Create `src/services/embedding_cache_service.py` with embedding cache logic
-  - [ ] 4.1.2 Implement query embedding caching with content-based keys
-  - [ ] 4.1.3 Add embedding versioning for model updates
-  - [ ] 4.1.4 Implement embedding compression for storage efficiency
-  - [ ] 4.1.5 Add embedding cache metrics and monitoring
-- [ ] 4.2 Integrate with EmbeddingService
-  - [ ] 4.2.1 Modify `src/services/embedding_service.py` to check cache before Ollama calls
-  - [ ] 4.2.2 Add cache lookup in `generate_embeddings` method
-  - [ ] 4.2.3 Implement batch embedding cache operations
-  - [ ] 4.2.4 Add cache hit/miss tracking and metrics
-  - [ ] 4.2.5 Handle embedding generation failures with cache fallback
+### [x] 4.0 Embedding Cache Service
+- [x] 4.1 Implement embedding cache service
+  - [x] 4.1.1 Create `src/services/embedding_cache_service.py` with embedding cache logic
+  - [x] 4.1.2 Implement query embedding caching with content-based keys
+  - [x] 4.1.3 Add embedding versioning for model updates
+  - [x] 4.1.4 Implement embedding compression for storage efficiency
+  - [x] 4.1.5 Add embedding cache metrics and monitoring
+- [x] 4.2 Integrate with EmbeddingService
+  - [x] 4.2.1 Modify `src/services/embedding_service.py` to check cache before Ollama calls
+  - [x] 4.2.2 Add cache lookup in `generate_embeddings` method
+  - [x] 4.2.3 Implement batch embedding cache operations
+  - [x] 4.2.4 Add cache hit/miss tracking and metrics
+  - [x] 4.2.5 Handle embedding generation failures with cache fallback
 
 ### 5.0 Search Results Cache Service
 - [ ] 5.1 Implement search results cache service
