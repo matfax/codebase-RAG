@@ -93,19 +93,19 @@
   - [x] 2.3.4 Implement cache size estimation and monitoring
   - [x] 2.3.5 Add cache debugging and inspection utilities
 
-### 3.0 Cache Key Generation and Management
-- [ ] 3.1 Implement cache key generation system
-  - [ ] 3.1.1 Create `src/utils/cache_key_generator.py` with key generation logic
-  - [ ] 3.1.2 Implement hierarchical key structure with namespacing
-  - [ ] 3.1.3 Add content-based key generation with SHA-256 hashing
-  - [ ] 3.1.4 Implement key versioning for cache invalidation
-  - [ ] 3.1.5 Add key collision detection and resolution
-- [ ] 3.2 Create cache data models
-  - [ ] 3.2.1 Create `src/models/cache_models.py` with cache entry models
-  - [ ] 3.2.2 Define cache metadata structures (TTL, size, timestamps)
-  - [ ] 3.2.3 Add cache statistics and metrics models
-  - [ ] 3.2.4 Implement cache entry serialization methods
-  - [ ] 3.2.5 Add cache validation and integrity checking
+### [x] 3.0 Cache Key Generation and Management
+- [x] 3.1 Implement cache key generation system
+  - [x] 3.1.1 Create `src/utils/cache_key_generator.py` with key generation logic
+  - [x] 3.1.2 Implement hierarchical key structure with namespacing
+  - [x] 3.1.3 Add content-based key generation with SHA-256 hashing
+  - [x] 3.1.4 Implement key versioning for cache invalidation
+  - [x] 3.1.5 Add key collision detection and resolution
+- [x] 3.2 Create cache data models
+  - [x] 3.2.1 Create `src/models/cache_models.py` with cache entry models
+  - [x] 3.2.2 Define cache metadata structures (TTL, size, timestamps)
+  - [x] 3.2.3 Add cache statistics and metrics models
+  - [x] 3.2.4 Implement cache entry serialization methods
+  - [x] 3.2.5 Add cache validation and integrity checking
 
 ### 4.0 Embedding Cache Service
 - [ ] 4.1 Implement embedding cache service
