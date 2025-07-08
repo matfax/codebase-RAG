@@ -53,6 +53,77 @@ class InvalidationStrategy(Enum):
     SCHEDULED = "scheduled"  # Schedule for later invalidation
 
 
+class ProjectInvalidationScope(Enum):
+    """Scope of project-specific invalidation."""
+
+    FILE_ONLY = "file_only"  # Only invalidate file-specific caches
+    PROJECT_WIDE = "project_wide"  # Invalidate all project-related caches
+    CASCADE = "cascade"  # Invalidate with full cascade to dependent caches
+    CONSERVATIVE = "conservative"  # Minimal invalidation to preserve performance
+    AGGRESSIVE = "aggressive"  # Broad invalidation to ensure consistency
+
+
+class ProjectInvalidationTrigger(Enum):
+    """Triggers for project-specific invalidation."""
+
+    FILE_CHANGE = "file_change"  # Individual file changes
+    BATCH_CHANGES = "batch_changes"  # Multiple file changes
+    CONFIG_CHANGE = "config_change"  # Project configuration changes
+    DEPENDENCY_CHANGE = "dependency_change"  # Dependency file changes
+    MANUAL = "manual"  # Manual user-triggered invalidation
+    SCHEDULED = "scheduled"  # Scheduled maintenance invalidation
+
+
+@dataclass
+class ProjectInvalidationPolicy:
+    """Project-specific invalidation policy configuration."""
+
+    project_name: str
+    scope: ProjectInvalidationScope = ProjectInvalidationScope.CASCADE
+    strategy: InvalidationStrategy = InvalidationStrategy.IMMEDIATE
+    batch_threshold: int = 5  # Number of changes to trigger batch processing
+    delay_seconds: float = 0.0  # Delay before processing invalidation
+    file_patterns: list[str] = field(default_factory=list)  # File patterns to monitor
+    exclude_patterns: list[str] = field(default_factory=list)  # Patterns to exclude
+
+    # Performance settings
+    max_concurrent_invalidations: int = 10
+    cascade_depth_limit: int = 3
+
+    # Cache type specific settings
+    invalidate_embeddings: bool = True
+    invalidate_search: bool = True
+    invalidate_project: bool = True
+    invalidate_file: bool = True
+
+    # Trigger-specific configurations
+    trigger_configs: dict[ProjectInvalidationTrigger, dict[str, Any]] = field(default_factory=dict)
+
+    def should_invalidate_file(self, file_path: str) -> bool:
+        """Check if a file should trigger invalidation based on patterns."""
+        from fnmatch import fnmatch
+
+        # Check exclude patterns first
+        for pattern in self.exclude_patterns:
+            if fnmatch(file_path, pattern):
+                return False
+
+        # If no include patterns, include all
+        if not self.file_patterns:
+            return True
+
+        # Check include patterns
+        for pattern in self.file_patterns:
+            if fnmatch(file_path, pattern):
+                return True
+
+        return False
+
+    def get_trigger_config(self, trigger: ProjectInvalidationTrigger) -> dict[str, Any]:
+        """Get configuration for a specific trigger."""
+        return self.trigger_configs.get(trigger, {})
+
+
 @dataclass
 class InvalidationEvent:
     """Represents a cache invalidation event."""
@@ -150,6 +221,10 @@ class CacheInvalidationService:
         self._file_metadata_cache: dict[str, FileMetadata] = {}
         self._monitored_files: set[str] = set()
         self._project_files: dict[str, set[str]] = {}  # Track files per project
+
+        # Project-specific invalidation policies
+        self._project_policies: dict[str, ProjectInvalidationPolicy] = {}
+        self._default_policy = self._create_default_policy()
 
         # Event logging
         self._event_log: list[InvalidationEvent] = []
@@ -688,6 +763,540 @@ class CacheInvalidationService:
         await asyncio.sleep(delay_seconds)
         await self._invalidation_queue.put(task)
 
+    def _create_default_policy(self) -> ProjectInvalidationPolicy:
+        """Create default invalidation policy."""
+        return ProjectInvalidationPolicy(
+            project_name="__default__",
+            scope=ProjectInvalidationScope.CASCADE,
+            strategy=InvalidationStrategy.IMMEDIATE,
+            batch_threshold=5,
+            delay_seconds=0.0,
+            file_patterns=["*.py", "*.js", "*.ts", "*.java", "*.cpp", "*.c", "*.h", "*.hpp"],
+            exclude_patterns=["*.pyc", "*.log", "*.tmp", "__pycache__/*", ".git/*", "node_modules/*"],
+        )
+
+    def set_project_invalidation_policy(self, policy: ProjectInvalidationPolicy) -> None:
+        """
+        Set invalidation policy for a specific project.
+
+        Args:
+            policy: Project invalidation policy
+        """
+        self._project_policies[policy.project_name] = policy
+        self.logger.info(f"Set invalidation policy for project: {policy.project_name}")
+
+    def get_project_invalidation_policy(self, project_name: str) -> ProjectInvalidationPolicy:
+        """
+        Get invalidation policy for a project.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Project invalidation policy
+        """
+        return self._project_policies.get(project_name, self._default_policy)
+
+    def create_project_policy(
+        self,
+        project_name: str,
+        scope: ProjectInvalidationScope = ProjectInvalidationScope.CASCADE,
+        strategy: InvalidationStrategy = InvalidationStrategy.IMMEDIATE,
+        **kwargs,
+    ) -> ProjectInvalidationPolicy:
+        """
+        Create and register a new project invalidation policy.
+
+        Args:
+            project_name: Name of the project
+            scope: Invalidation scope
+            strategy: Invalidation strategy
+            **kwargs: Additional policy parameters
+
+        Returns:
+            Created project invalidation policy
+        """
+        policy = ProjectInvalidationPolicy(
+            project_name=project_name,
+            scope=scope,
+            strategy=strategy,
+            **kwargs,
+        )
+        self.set_project_invalidation_policy(policy)
+        return policy
+
+    async def invalidate_file_with_policy(
+        self,
+        file_path: str,
+        project_name: str,
+        reason: InvalidationReason = InvalidationReason.FILE_MODIFIED,
+        trigger: ProjectInvalidationTrigger = ProjectInvalidationTrigger.FILE_CHANGE,
+    ) -> InvalidationEvent | None:
+        """
+        Invalidate file caches using project-specific policy.
+
+        Args:
+            file_path: Path to the file
+            project_name: Name of the project
+            reason: Reason for invalidation
+            trigger: Trigger type for invalidation
+
+        Returns:
+            InvalidationEvent if invalidation was performed, None if skipped
+        """
+        policy = self.get_project_invalidation_policy(project_name)
+
+        # Check if file should be invalidated based on policy
+        if not policy.should_invalidate_file(file_path):
+            self.logger.debug(f"Skipping invalidation for {file_path} based on policy patterns")
+            return None
+
+        start_time = time.time()
+        affected_keys = []
+
+        try:
+            # Apply strategy-specific logic
+            if policy.strategy == InvalidationStrategy.SCHEDULED:
+                # Schedule for later processing
+                await self._schedule_file_invalidation(file_path, project_name, reason, policy)
+                return None
+
+            elif policy.strategy == InvalidationStrategy.LAZY:
+                # Mark for lazy invalidation (would be handled on next access)
+                self._mark_for_lazy_invalidation(file_path, project_name, reason)
+                return None
+
+            # Handle immediate or batch strategies
+            cascade = policy.scope in [ProjectInvalidationScope.CASCADE, ProjectInvalidationScope.AGGRESSIVE]
+
+            # Generate cache keys based on policy scope
+            if policy.scope == ProjectInvalidationScope.FILE_ONLY:
+                affected_keys = await self._generate_file_cache_keys(file_path)
+            elif policy.scope in [
+                ProjectInvalidationScope.PROJECT_WIDE,
+                ProjectInvalidationScope.CASCADE,
+                ProjectInvalidationScope.AGGRESSIVE,
+            ]:
+                affected_keys = await self._generate_comprehensive_cache_keys(file_path, project_name, policy)
+            elif policy.scope == ProjectInvalidationScope.CONSERVATIVE:
+                affected_keys = await self._generate_minimal_cache_keys(file_path, policy)
+
+            # Perform invalidation based on cache type settings
+            await self._invalidate_by_policy(affected_keys, policy, cascade)
+
+            # Create invalidation event
+            event = InvalidationEvent(
+                event_id=f"policy_{trigger.value}_{int(time.time() * 1000)}",
+                reason=reason,
+                timestamp=datetime.now(),
+                affected_keys=affected_keys,
+                affected_files=[file_path],
+                project_name=project_name,
+                metadata={
+                    "policy_scope": policy.scope.value,
+                    "policy_strategy": policy.strategy.value,
+                    "trigger": trigger.value,
+                    "cascade": cascade,
+                },
+            )
+
+            # Update statistics
+            duration = time.time() - start_time
+            self._stats.update(len(affected_keys), duration, reason)
+
+            # Log event
+            self._log_invalidation_event(event)
+
+            self.logger.info(
+                f"Policy-based invalidation for {file_path}: {len(affected_keys)} keys, "
+                f"scope={policy.scope.value}, strategy={policy.strategy.value}"
+            )
+
+            return event
+
+        except Exception as e:
+            self.logger.error(f"Failed policy-based invalidation for {file_path}: {e}")
+            raise
+
+    async def invalidate_project_with_policy(
+        self,
+        project_name: str,
+        reason: InvalidationReason = InvalidationReason.PROJECT_CHANGED,
+        trigger: ProjectInvalidationTrigger = ProjectInvalidationTrigger.MANUAL,
+    ) -> InvalidationEvent:
+        """
+        Invalidate project caches using project-specific policy.
+
+        Args:
+            project_name: Name of the project
+            reason: Reason for invalidation
+            trigger: Trigger type for invalidation
+
+        Returns:
+            InvalidationEvent with invalidation details
+        """
+        policy = self.get_project_invalidation_policy(project_name)
+        start_time = time.time()
+
+        try:
+            # Get trigger-specific configuration
+            trigger_config = policy.get_trigger_config(trigger)
+
+            # Apply strategy
+            if policy.strategy == InvalidationStrategy.SCHEDULED:
+                delay = trigger_config.get("delay_seconds", policy.delay_seconds)
+                await self.schedule_project_invalidation_check(project_name, delay)
+
+                # Create scheduled event
+                event = InvalidationEvent(
+                    event_id=f"scheduled_{project_name}_{int(time.time() * 1000)}",
+                    reason=reason,
+                    timestamp=datetime.now(),
+                    affected_keys=["scheduled"],
+                    project_name=project_name,
+                    metadata={
+                        "scheduled": True,
+                        "delay_seconds": delay,
+                        "trigger": trigger.value,
+                    },
+                )
+                self._log_invalidation_event(event)
+                return event
+
+            # Generate keys based on policy scope
+            if policy.scope == ProjectInvalidationScope.CONSERVATIVE:
+                affected_keys = await self._generate_conservative_project_keys(project_name, policy)
+            elif policy.scope == ProjectInvalidationScope.AGGRESSIVE:
+                affected_keys = await self._generate_aggressive_project_keys(project_name, policy)
+            else:
+                affected_keys = await self._generate_project_cache_keys(project_name)
+
+            # Perform invalidation
+            await self._invalidate_by_policy(affected_keys, policy, cascade=True)
+
+            # Create event
+            event = InvalidationEvent(
+                event_id=f"project_policy_{trigger.value}_{int(time.time() * 1000)}",
+                reason=reason,
+                timestamp=datetime.now(),
+                affected_keys=affected_keys,
+                project_name=project_name,
+                metadata={
+                    "policy_scope": policy.scope.value,
+                    "policy_strategy": policy.strategy.value,
+                    "trigger": trigger.value,
+                },
+            )
+
+            # Update statistics
+            duration = time.time() - start_time
+            self._stats.update(len(affected_keys), duration, reason)
+
+            # Log event
+            self._log_invalidation_event(event)
+
+            self.logger.info(
+                f"Project policy invalidation for {project_name}: {len(affected_keys)} keys, "
+                f"scope={policy.scope.value}, trigger={trigger.value}"
+            )
+
+            return event
+
+        except Exception as e:
+            self.logger.error(f"Failed project policy invalidation for {project_name}: {e}")
+            raise
+
+    async def batch_invalidate_with_policy(
+        self,
+        file_changes: list[tuple[str, InvalidationReason]],
+        project_name: str,
+        trigger: ProjectInvalidationTrigger = ProjectInvalidationTrigger.BATCH_CHANGES,
+    ) -> list[InvalidationEvent]:
+        """
+        Perform batch invalidation using project policy.
+
+        Args:
+            file_changes: List of (file_path, reason) tuples
+            project_name: Name of the project
+            trigger: Trigger type for invalidation
+
+        Returns:
+            List of invalidation events
+        """
+        policy = self.get_project_invalidation_policy(project_name)
+        events = []
+
+        # Filter files based on policy patterns
+        filtered_changes = [(file_path, reason) for file_path, reason in file_changes if policy.should_invalidate_file(file_path)]
+
+        if not filtered_changes:
+            self.logger.debug(f"No files to invalidate after policy filtering for project {project_name}")
+            return events
+
+        try:
+            # Handle batch strategy
+            if policy.strategy == InvalidationStrategy.BATCH and len(filtered_changes) >= policy.batch_threshold:
+                # Process as single batch
+                event = await self._process_batch_invalidation(filtered_changes, project_name, policy, trigger)
+                events.append(event)
+            else:
+                # Process individually
+                for file_path, reason in filtered_changes:
+                    event = await self.invalidate_file_with_policy(file_path, project_name, reason, trigger)
+                    if event:
+                        events.append(event)
+
+            return events
+
+        except Exception as e:
+            self.logger.error(f"Failed batch invalidation for project {project_name}: {e}")
+            raise
+
+    async def _process_batch_invalidation(
+        self,
+        file_changes: list[tuple[str, InvalidationReason]],
+        project_name: str,
+        policy: ProjectInvalidationPolicy,
+        trigger: ProjectInvalidationTrigger,
+    ) -> InvalidationEvent:
+        """Process a batch of file changes as a single invalidation event."""
+        start_time = time.time()
+        all_affected_keys = []
+        all_files = [file_path for file_path, _ in file_changes]
+
+        # Collect all cache keys for batch processing
+        for file_path, _ in file_changes:
+            if policy.scope == ProjectInvalidationScope.FILE_ONLY:
+                keys = await self._generate_file_cache_keys(file_path)
+            else:
+                keys = await self._generate_comprehensive_cache_keys(file_path, project_name, policy)
+            all_affected_keys.extend(keys)
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_keys = []
+        for key in all_affected_keys:
+            if key not in seen:
+                seen.add(key)
+                unique_keys.append(key)
+
+        # Perform batch invalidation
+        cascade = policy.scope in [ProjectInvalidationScope.CASCADE, ProjectInvalidationScope.AGGRESSIVE]
+        await self._invalidate_by_policy(unique_keys, policy, cascade)
+
+        # Create batch event
+        event = InvalidationEvent(
+            event_id=f"batch_{trigger.value}_{int(time.time() * 1000)}",
+            reason=InvalidationReason.PROJECT_CHANGED,  # Use project change for batch
+            timestamp=datetime.now(),
+            affected_keys=unique_keys,
+            affected_files=all_files,
+            project_name=project_name,
+            metadata={
+                "batch_size": len(file_changes),
+                "policy_scope": policy.scope.value,
+                "policy_strategy": policy.strategy.value,
+                "trigger": trigger.value,
+                "unique_keys": len(unique_keys),
+            },
+        )
+
+        # Update statistics
+        duration = time.time() - start_time
+        self._stats.update(len(unique_keys), duration, InvalidationReason.PROJECT_CHANGED)
+
+        # Log event
+        self._log_invalidation_event(event)
+
+        self.logger.info(
+            f"Batch invalidation for {project_name}: {len(file_changes)} files, "
+            f"{len(unique_keys)} unique keys, scope={policy.scope.value}"
+        )
+
+        return event
+
+    async def _generate_comprehensive_cache_keys(self, file_path: str, project_name: str, policy: ProjectInvalidationPolicy) -> list[str]:
+        """Generate comprehensive cache keys based on policy settings."""
+        keys = []
+
+        # File-specific keys
+        if policy.invalidate_file:
+            file_keys = await self._generate_file_cache_keys(file_path)
+            keys.extend(file_keys)
+
+        # Embedding keys
+        if policy.invalidate_embeddings:
+            embedding_keys = await self._generate_embedding_cache_keys(file_path)
+            keys.extend(embedding_keys)
+
+        # Search keys
+        if policy.invalidate_search:
+            search_keys = await self._generate_search_cache_keys(file_path)
+            keys.extend(search_keys)
+
+        # Project keys (if scope is project-wide)
+        if policy.invalidate_project and policy.scope in [
+            ProjectInvalidationScope.PROJECT_WIDE,
+            ProjectInvalidationScope.CASCADE,
+            ProjectInvalidationScope.AGGRESSIVE,
+        ]:
+            project_keys = await self._generate_project_cache_keys(project_name)
+            keys.extend(project_keys)
+
+        return keys
+
+    async def _generate_minimal_cache_keys(self, file_path: str, policy: ProjectInvalidationPolicy) -> list[str]:
+        """Generate minimal cache keys for conservative invalidation."""
+        keys = []
+
+        # Only file parsing and chunking keys
+        if policy.invalidate_file:
+            keys.append(self.key_generator.generate_file_key(file_path))
+            keys.append(self.key_generator.generate_parsing_key(file_path))
+
+        return keys
+
+    async def _generate_conservative_project_keys(self, project_name: str, policy: ProjectInvalidationPolicy) -> list[str]:
+        """Generate conservative set of project cache keys."""
+        keys = []
+
+        # Only core project info
+        if policy.invalidate_project:
+            keys.append(f"project_info:{project_name}")
+
+        return keys
+
+    async def _generate_aggressive_project_keys(self, project_name: str, policy: ProjectInvalidationPolicy) -> list[str]:
+        """Generate aggressive set of project cache keys."""
+        keys = await self._generate_project_cache_keys(project_name)
+
+        # Add additional broad patterns for aggressive invalidation
+        keys.extend(
+            [
+                f"*:{project_name}:*",
+                "search:*",  # Invalidate all search results
+                "embedding:*",  # Invalidate all embeddings (aggressive)
+            ]
+        )
+
+        return keys
+
+    async def _invalidate_by_policy(self, keys: list[str], policy: ProjectInvalidationPolicy, cascade: bool = False) -> None:
+        """Invalidate keys according to policy settings."""
+        if not keys:
+            return
+
+        # Group keys by service type
+        service_keys = {}
+        for key in keys:
+            service_name = self._extract_service_name(key)
+
+            # Check if this service type should be invalidated
+            if service_name == "embedding" and not policy.invalidate_embeddings:
+                continue
+            if service_name == "search" and not policy.invalidate_search:
+                continue
+            if service_name == "project" and not policy.invalidate_project:
+                continue
+            if service_name == "file" and not policy.invalidate_file:
+                continue
+
+            if service_name not in service_keys:
+                service_keys[service_name] = []
+            service_keys[service_name].append(key)
+
+        # Invalidate keys with concurrency limit
+        semaphore = asyncio.Semaphore(policy.max_concurrent_invalidations)
+
+        async def invalidate_service_keys(service_name: str, service_key_list: list[str]):
+            async with semaphore:
+                await self._invalidate_keys_in_service(service_name, service_key_list)
+
+        # Execute invalidations concurrently
+        tasks = [invalidate_service_keys(service_name, service_key_list) for service_name, service_key_list in service_keys.items()]
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Handle cascade invalidation with depth limit
+        if cascade and policy.cascade_depth_limit > 0:
+            await self._cascade_invalidate_with_limit(keys, policy, depth=1)
+
+    async def _cascade_invalidate_with_limit(self, keys: list[str], policy: ProjectInvalidationPolicy, depth: int) -> None:
+        """Perform cascade invalidation with depth limit."""
+        if depth >= policy.cascade_depth_limit:
+            return
+
+        dependent_keys = await self._get_dependent_keys(keys)
+        if dependent_keys:
+            await self._invalidate_by_policy(dependent_keys, policy, cascade=False)
+
+            # Continue cascade if within depth limit
+            if depth + 1 < policy.cascade_depth_limit:
+                await self._cascade_invalidate_with_limit(dependent_keys, policy, depth + 1)
+
+    async def _schedule_file_invalidation(
+        self,
+        file_path: str,
+        project_name: str,
+        reason: InvalidationReason,
+        policy: ProjectInvalidationPolicy,
+    ) -> None:
+        """Schedule file invalidation based on policy delay."""
+        task = {
+            "type": "file_policy",
+            "file_path": file_path,
+            "project_name": project_name,
+            "reason": reason,
+            "policy": policy,
+        }
+
+        if policy.delay_seconds > 0:
+            asyncio.create_task(self._schedule_delayed_task(task, policy.delay_seconds))
+        else:
+            await self._invalidation_queue.put(task)
+
+    def _mark_for_lazy_invalidation(self, file_path: str, project_name: str, reason: InvalidationReason) -> None:
+        """Mark file for lazy invalidation (implementation would depend on cache service support)."""
+        # This would typically set a flag in the cache service
+        # For now, we'll just log it
+        self.logger.debug(f"Marked {file_path} for lazy invalidation in project {project_name}")
+
+    def get_project_policy_summary(self, project_name: str) -> dict[str, Any]:
+        """
+        Get summary of project invalidation policy.
+
+        Args:
+            project_name: Name of the project
+
+        Returns:
+            Dictionary with policy summary
+        """
+        policy = self.get_project_invalidation_policy(project_name)
+        return {
+            "project_name": policy.project_name,
+            "scope": policy.scope.value,
+            "strategy": policy.strategy.value,
+            "batch_threshold": policy.batch_threshold,
+            "delay_seconds": policy.delay_seconds,
+            "file_patterns": policy.file_patterns,
+            "exclude_patterns": policy.exclude_patterns,
+            "cache_types": {
+                "embeddings": policy.invalidate_embeddings,
+                "search": policy.invalidate_search,
+                "project": policy.invalidate_project,
+                "file": policy.invalidate_file,
+            },
+            "performance_limits": {
+                "max_concurrent_invalidations": policy.max_concurrent_invalidations,
+                "cascade_depth_limit": policy.cascade_depth_limit,
+            },
+        }
+
+    def list_project_policies(self) -> list[str]:
+        """Get list of projects with custom invalidation policies."""
+        return list(self._project_policies.keys())
+
     def get_recent_events(self, count: int = 10) -> list[InvalidationEvent]:
         """
         Get recent invalidation events.
@@ -741,6 +1350,17 @@ class CacheInvalidationService:
                         self.logger.info(f"Processed {len(events)} invalidation events for project {project_name}")
                 except Exception as e:
                     self.logger.error(f"Failed to process project check for {project_name}: {e}")
+        elif task_type == "file_policy":
+            # Process file invalidation with policy
+            try:
+                await self.invalidate_file_with_policy(
+                    task["file_path"],
+                    task["project_name"],
+                    task.get("reason", InvalidationReason.FILE_MODIFIED),
+                    ProjectInvalidationTrigger.SCHEDULED,
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to process policy file invalidation: {e}")
         else:
             self.logger.warning(f"Unknown invalidation task type: {task_type}")
 
