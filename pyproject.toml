@@ -27,6 +27,15 @@ dependencies = [
     "redis>=5.0.0,<6",
     "cryptography>=42.0.0,<43",
     "watchdog>=3.0.0,<4",
+    # OpenTelemetry dependencies for distributed tracing
+    "opentelemetry-api>=1.20.0,<2",
+    "opentelemetry-sdk>=1.20.0,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0,<2",
+    "opentelemetry-exporter-jaeger-thrift>=1.20.0,<2",
+    "opentelemetry-exporter-zipkin-json>=1.20.0,<2",
+    "opentelemetry-instrumentation-requests>=0.41b0,<1",
+    "opentelemetry-instrumentation-urllib3>=0.41b0,<1",
+    "opentelemetry-instrumentation-redis>=0.41b0,<1",
 ]
 
 [dependency-groups]

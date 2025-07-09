@@ -17,13 +17,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
 
 from ..config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
+from ..utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
 
 
 class CacheError(Exception):
@@ -391,50 +392,87 @@ class RedisCacheService(BaseCacheService):
 
     async def get(self, key: str) -> Any | None:
         """Get a value from Redis cache."""
-        try:
-            redis_client = await self.redis_manager.get_redis()
+        telemetry = get_telemetry_manager()
 
-            # Add key prefix
-            prefixed_key = f"{self.config.key_prefix}:{key}"
+        with trace_cache_operation(
+            operation="get",
+            cache_name=self.config.key_prefix,
+            cache_key=key,
+            additional_attributes={"cache.type": "redis", "cache.level": "l2"},
+        ):
+            try:
+                redis_client = await self.redis_manager.get_redis()
 
-            # Get value from Redis
-            value = await redis_client.get(prefixed_key)
+                # Add key prefix
+                prefixed_key = f"{self.config.key_prefix}:{key}"
 
-            if value is not None:
-                self._update_stats("get", success=True)
-                # Note: Deserialization will be handled by cache_utils
-                return value
-            else:
+                # Get value from Redis
+                value = await redis_client.get(prefixed_key)
+
+                if value is not None:
+                    self._update_stats("get", success=True)
+                    # Record telemetry hit
+                    telemetry.record_cache_operation(
+                        operation="get",
+                        cache_name=self.config.key_prefix,
+                        hit=True,
+                        cache_size=len(value) if isinstance(value, str | bytes) else None,
+                    )
+                    return value
+                else:
+                    self._update_stats("get", success=False)
+                    # Record telemetry miss
+                    telemetry.record_cache_operation(operation="get", cache_name=self.config.key_prefix, hit=False)
+                    return None
+
+            except Exception as e:
                 self._update_stats("get", success=False)
-                return None
-
-        except Exception as e:
-            self._update_stats("get", success=False)
-            self.logger.error(f"Failed to get key '{key}': {e}")
-            raise CacheOperationError(f"Failed to get key '{key}': {e}")
+                # Record telemetry error
+                telemetry.record_cache_operation(operation="get", cache_name=self.config.key_prefix, error=True)
+                self.logger.error(f"Failed to get key '{key}': {e}")
+                raise CacheOperationError(f"Failed to get key '{key}': {e}")
 
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set a value in Redis cache."""
-        try:
-            redis_client = await self.redis_manager.get_redis()
+        telemetry = get_telemetry_manager()
 
-            # Add key prefix
-            prefixed_key = f"{self.config.key_prefix}:{key}"
+        with trace_cache_operation(
+            operation="set",
+            cache_name=self.config.key_prefix,
+            cache_key=key,
+            additional_attributes={"cache.type": "redis", "cache.level": "l2"},
+        ):
+            try:
+                redis_client = await self.redis_manager.get_redis()
 
-            # Use provided TTL or default
-            cache_ttl = ttl or self.config.default_ttl
+                # Add key prefix
+                prefixed_key = f"{self.config.key_prefix}:{key}"
 
-            # Set value in Redis
-            # Note: Serialization will be handled by cache_utils
-            result = await redis_client.setex(prefixed_key, cache_ttl, value)
+                # Use provided TTL or default
+                cache_ttl = ttl or self.config.default_ttl
 
-            self._update_stats("set", success=bool(result))
-            return bool(result)
+                # Set value in Redis
+                # Note: Serialization will be handled by cache_utils
+                result = await redis_client.setex(prefixed_key, cache_ttl, value)
 
-        except Exception as e:
-            self._update_stats("set", success=False)
-            self.logger.error(f"Failed to set key '{key}': {e}")
-            raise CacheOperationError(f"Failed to set key '{key}': {e}")
+                self._update_stats("set", success=bool(result))
+
+                # Record telemetry
+                telemetry.record_cache_operation(
+                    operation="set",
+                    cache_name=self.config.key_prefix,
+                    cache_size=len(value) if isinstance(value, str | bytes) else None,
+                    additional_attributes={"cache.ttl": cache_ttl},
+                )
+
+                return bool(result)
+
+            except Exception as e:
+                self._update_stats("set", success=False)
+                # Record telemetry error
+                telemetry.record_cache_operation(operation="set", cache_name=self.config.key_prefix, error=True)
+                self.logger.error(f"Failed to set key '{key}': {e}")
+                raise CacheOperationError(f"Failed to set key '{key}': {e}")
 
     async def delete(self, key: str) -> bool:
         """Delete a value from Redis cache."""
@@ -637,28 +675,39 @@ class LRUMemoryCache:
 
     def get(self, key: str) -> Any | None:
         """Get a value from the cache."""
-        with self._lock:
-            if key not in self._cache:
-                self._stats.miss_count += 1
+        telemetry = get_telemetry_manager()
+
+        with trace_cache_operation(
+            operation="get", cache_name="memory_cache", cache_key=key, additional_attributes={"cache.type": "memory", "cache.level": "l1"}
+        ):
+            with self._lock:
+                if key not in self._cache:
+                    self._stats.miss_count += 1
+                    self._stats.total_operations += 1
+                    # Record telemetry miss
+                    telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
+                    return None
+
+                entry = self._cache[key]
+
+                # Check if expired
+                if entry.is_expired():
+                    self._remove_entry(key)
+                    self._stats.miss_count += 1
+                    self._stats.total_operations += 1
+                    # Record telemetry miss
+                    telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
+                    return None
+
+                # Update access and move to end (most recently used)
+                entry.touch()
+                self._cache.move_to_end(key)
+
+                self._stats.hit_count += 1
                 self._stats.total_operations += 1
-                return None
-
-            entry = self._cache[key]
-
-            # Check if expired
-            if entry.is_expired():
-                self._remove_entry(key)
-                self._stats.miss_count += 1
-                self._stats.total_operations += 1
-                return None
-
-            # Update access and move to end (most recently used)
-            entry.touch()
-            self._cache.move_to_end(key)
-
-            self._stats.hit_count += 1
-            self._stats.total_operations += 1
-            return entry.value
+                # Record telemetry hit
+                telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=True, cache_size=entry.size)
+                return entry.value
 
     def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set a value in the cache."""
@@ -778,9 +827,9 @@ class LRUMemoryCache:
             # Fallback estimation
             if isinstance(value, str):
                 return len(value.encode("utf-8"))
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 return 8
-            elif isinstance(value, (list, tuple)):
+            elif isinstance(value, list | tuple):
                 return sum(self._estimate_size(item) for item in value)
             elif isinstance(value, dict):
                 return sum(self._estimate_size(k) + self._estimate_size(v) for k, v in value.items())
