@@ -584,6 +584,197 @@ class EmbeddingCacheService:
             "avg_decompression_time_ms": self.metrics.avg_decompression_time_ms,
         }
 
+    # ============================================================================
+    # Cache Warmup Support
+    # ============================================================================
+
+    async def get_warmup_candidates(self, historical_data: dict[str, Any]) -> list[Any]:
+        """
+        Get warmup candidates for embedding cache.
+
+        Args:
+            historical_data: Historical usage data for generating candidates
+
+        Returns:
+            List of WarmupItem objects for cache preloading
+        """
+        from ..utils.cache_warmup_utils import get_embedding_cache_warmup_candidates
+
+        try:
+            candidates = await get_embedding_cache_warmup_candidates(self, historical_data)
+            self.logger.info(f"Generated {len(candidates)} embedding cache warmup candidates")
+            return candidates
+        except Exception as e:
+            self.logger.error(f"Failed to get embedding cache warmup candidates: {e}")
+            return []
+
+    async def warmup_item(self, item_key: str, item_data: Any) -> float:
+        """
+        Warm up a specific cache item.
+
+        Args:
+            item_key: Cache key for the item
+            item_data: Data to warm up (query text or embedding data)
+
+        Returns:
+            Memory used in MB for the warmed up item
+        """
+        try:
+            memory_used = 0.0
+
+            if isinstance(item_data, str):
+                # Direct query text - create a mock embedding for warmup
+                query_text = item_data
+                model_name = "default"  # Use default model for warmup
+
+                # Generate mock embedding (zeros) for warmup
+                embedding = torch.zeros(384)  # Common embedding dimension
+
+                # Cache the mock embedding
+                await self.cache_embedding(
+                    text=query_text, model_name=model_name, embedding=embedding, embedding_type=EmbeddingType.QUERY_TEXT
+                )
+
+                # Estimate memory usage
+                memory_used = self.estimate_item_size(item_key, item_data)
+
+            elif isinstance(item_data, dict):
+                # Structured data with query, model, etc.
+                query_text = item_data.get("query", "")
+                model_name = item_data.get("model", "default")
+                embedding_type = EmbeddingType.QUERY_TEXT
+
+                # Check if we have cached embedding data
+                if "embedding" in item_data:
+                    embedding_data = item_data["embedding"]
+                    if isinstance(embedding_data, list):
+                        embedding = torch.tensor(embedding_data, dtype=torch.float32)
+                    else:
+                        embedding = torch.zeros(384)
+                else:
+                    embedding = torch.zeros(384)
+
+                # Cache the embedding
+                await self.cache_embedding(text=query_text, model_name=model_name, embedding=embedding, embedding_type=embedding_type)
+
+                memory_used = self.estimate_item_size(item_key, item_data)
+
+            self.logger.debug(f"Warmed up embedding cache item: {item_key} ({memory_used:.2f}MB)")
+            return memory_used
+
+        except Exception as e:
+            self.logger.error(f"Failed to warm up embedding cache item {item_key}: {e}")
+            return 0.0
+
+    def estimate_item_size(self, item_key: str, item_data: Any) -> float:
+        """
+        Estimate memory size for a cache item.
+
+        Args:
+            item_key: Cache key for the item
+            item_data: Data to estimate size for
+
+        Returns:
+            Estimated size in MB
+        """
+        try:
+            base_size = 0.0
+
+            if isinstance(item_data, str):
+                # String data - estimate based on text length
+                text_size = len(item_data.encode("utf-8"))
+                # Add embedding size (assume 384 dimensions * 4 bytes per float)
+                embedding_size = 384 * 4
+                base_size = (text_size + embedding_size) / (1024 * 1024)
+
+            elif isinstance(item_data, dict):
+                # Dictionary data - estimate based on serialized size
+                text_size = len(str(item_data).encode("utf-8"))
+                embedding_size = 384 * 4  # Default embedding size
+
+                # If embedding data is present, calculate actual size
+                if "embedding" in item_data:
+                    embedding_data = item_data["embedding"]
+                    if isinstance(embedding_data, list):
+                        embedding_size = len(embedding_data) * 4  # 4 bytes per float
+
+                base_size = (text_size + embedding_size) / (1024 * 1024)
+
+            elif isinstance(item_data, torch.Tensor):
+                # Tensor data - calculate actual size
+                base_size = item_data.numel() * item_data.element_size() / (1024 * 1024)
+
+            else:
+                # Default estimation
+                base_size = 0.01  # 10KB default
+
+            # Add overhead for cache metadata
+            overhead_factor = 1.2  # 20% overhead
+            total_size = base_size * overhead_factor
+
+            return max(total_size, 0.001)  # Minimum 1KB
+
+        except Exception as e:
+            self.logger.warning(f"Failed to estimate size for {item_key}: {e}")
+            return 0.01  # Default 10KB
+
+    async def get_warmup_statistics(self) -> dict[str, Any]:
+        """
+        Get statistics relevant for warmup planning.
+
+        Returns:
+            Dictionary with warmup-relevant statistics
+        """
+        try:
+            stats = self.get_cache_stats()
+
+            # Add warmup-specific information
+            warmup_stats = {
+                "cache_type": "embedding_cache",
+                "current_items": stats.get("total_cached", 0),
+                "hit_rate": stats.get("hit_rate", 0.0),
+                "average_item_size_mb": 0.0,
+                "most_accessed_models": [],
+                "frequent_query_patterns": [],
+                "storage_efficiency": stats.get("compression_ratio", 1.0),
+                "warmup_priority_score": 0.0,
+            }
+
+            # Calculate average item size
+            if stats.get("total_cached", 0) > 0:
+                total_storage = stats.get("storage_bytes", 0)
+                warmup_stats["average_item_size_mb"] = total_storage / (1024 * 1024) / stats["total_cached"]
+
+            # Calculate warmup priority score (higher = more important to warm up)
+            hit_rate = stats.get("hit_rate", 0.0)
+            total_items = stats.get("total_cached", 0)
+
+            if hit_rate > 0.7 and total_items > 10:
+                warmup_stats["warmup_priority_score"] = 8.0  # High priority
+            elif hit_rate > 0.5 and total_items > 5:
+                warmup_stats["warmup_priority_score"] = 6.0  # Medium priority
+            elif hit_rate > 0.3:
+                warmup_stats["warmup_priority_score"] = 4.0  # Low priority
+            else:
+                warmup_stats["warmup_priority_score"] = 2.0  # Very low priority
+
+            # Add model version information
+            model_versions = stats.get("model_versions", {})
+            warmup_stats["most_accessed_models"] = [{"model": model, "version": version} for model, version in model_versions.items()]
+
+            return warmup_stats
+
+        except Exception as e:
+            self.logger.error(f"Failed to get warmup statistics: {e}")
+            return {
+                "cache_type": "embedding_cache",
+                "current_items": 0,
+                "hit_rate": 0.0,
+                "average_item_size_mb": 0.0,
+                "warmup_priority_score": 1.0,
+                "error": str(e),
+            }
+
 
 # Global embedding cache service instance
 _embedding_cache_service: EmbeddingCacheService | None = None
