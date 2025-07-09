@@ -14,7 +14,7 @@ import time
 import zlib
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 try:
     import lz4.frame
@@ -59,13 +59,13 @@ class CompressionError(CacheUtilsError):
     pass
 
 
-def serialize_data(data: Any, format: SerializationFormat = SerializationFormat.PICKLE, ensure_ascii: bool = False) -> bytes:
+def serialize_data(data: Any, format_: SerializationFormat = SerializationFormat.PICKLE, ensure_ascii: bool = False) -> bytes:
     """
     Serialize data to bytes using the specified format.
 
     Args:
         data: Data to serialize
-        format: Serialization format to use
+        format_: Serialization format to use
         ensure_ascii: For JSON, ensure ASCII output
 
     Returns:
@@ -75,16 +75,16 @@ def serialize_data(data: Any, format: SerializationFormat = SerializationFormat.
         SerializationError: If serialization fails
     """
     try:
-        if format == SerializationFormat.JSON:
+        if format_ == SerializationFormat.JSON:
             # Convert dataclasses and enums for JSON compatibility
             json_data = _make_json_serializable(data)
             json_str = json.dumps(json_data, ensure_ascii=ensure_ascii, separators=(",", ":"))
             return json_str.encode("utf-8")
 
-        elif format == SerializationFormat.PICKLE:
+        elif format_ == SerializationFormat.PICKLE:
             return pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
 
-        elif format == SerializationFormat.MSGPACK:
+        elif format_ == SerializationFormat.MSGPACK:
             try:
                 import msgpack
 
@@ -93,19 +93,19 @@ def serialize_data(data: Any, format: SerializationFormat = SerializationFormat.
                 raise SerializationError("msgpack library not installed")
 
         else:
-            raise SerializationError(f"Unsupported serialization format: {format}")
+            raise SerializationError(f"Unsupported serialization format: {format_}")
 
     except Exception as e:
         raise SerializationError(f"Failed to serialize data: {e}")
 
 
-def deserialize_data(data: bytes, format: SerializationFormat = SerializationFormat.PICKLE) -> Any:
+def deserialize_data(data: bytes, format_: SerializationFormat = SerializationFormat.PICKLE) -> Any:
     """
     Deserialize bytes to data using the specified format.
 
     Args:
         data: Serialized data bytes
-        format: Serialization format used
+        format_: Serialization format used
 
     Returns:
         Any: Deserialized data
@@ -114,14 +114,14 @@ def deserialize_data(data: bytes, format: SerializationFormat = SerializationFor
         SerializationError: If deserialization fails
     """
     try:
-        if format == SerializationFormat.JSON:
+        if format_ == SerializationFormat.JSON:
             json_str = data.decode("utf-8")
             return json.loads(json_str)
 
-        elif format == SerializationFormat.PICKLE:
+        elif format_ == SerializationFormat.PICKLE:
             return pickle.loads(data)
 
-        elif format == SerializationFormat.MSGPACK:
+        elif format_ == SerializationFormat.MSGPACK:
             try:
                 import msgpack
 
@@ -130,19 +130,19 @@ def deserialize_data(data: bytes, format: SerializationFormat = SerializationFor
                 raise SerializationError("msgpack library not installed")
 
         else:
-            raise SerializationError(f"Unsupported serialization format: {format}")
+            raise SerializationError(f"Unsupported serialization format: {format_}")
 
     except Exception as e:
         raise SerializationError(f"Failed to deserialize data: {e}")
 
 
-def compress_data(data: bytes, format: CompressionFormat = CompressionFormat.GZIP, level: int = 6) -> bytes:
+def compress_data(data: bytes, format_: CompressionFormat = CompressionFormat.GZIP, level: int = 6) -> bytes:
     """
     Compress data using the specified format.
 
     Args:
         data: Data to compress
-        format: Compression format to use
+        format_: Compression format to use
         level: Compression level (1-9 for gzip/zlib, 0-16 for lz4)
 
     Returns:
@@ -152,34 +152,34 @@ def compress_data(data: bytes, format: CompressionFormat = CompressionFormat.GZI
         CompressionError: If compression fails
     """
     try:
-        if format == CompressionFormat.NONE:
+        if format_ == CompressionFormat.NONE:
             return data
 
-        elif format == CompressionFormat.GZIP:
+        elif format_ == CompressionFormat.GZIP:
             return gzip.compress(data, compresslevel=level)
 
-        elif format == CompressionFormat.ZLIB:
+        elif format_ == CompressionFormat.ZLIB:
             return zlib.compress(data, level=level)
 
-        elif format == CompressionFormat.LZ4:
+        elif format_ == CompressionFormat.LZ4:
             if not HAS_LZ4:
                 raise CompressionError("lz4 library not installed")
             return lz4.frame.compress(data, compression_level=level)
 
         else:
-            raise CompressionError(f"Unsupported compression format: {format}")
+            raise CompressionError(f"Unsupported compression format: {format_}")
 
     except Exception as e:
         raise CompressionError(f"Failed to compress data: {e}")
 
 
-def decompress_data(data: bytes, format: CompressionFormat = CompressionFormat.GZIP) -> bytes:
+def decompress_data(data: bytes, format_: CompressionFormat = CompressionFormat.GZIP) -> bytes:
     """
     Decompress data using the specified format.
 
     Args:
         data: Compressed data
-        format: Compression format used
+        format_: Compression format used
 
     Returns:
         bytes: Decompressed data
@@ -188,22 +188,22 @@ def decompress_data(data: bytes, format: CompressionFormat = CompressionFormat.G
         CompressionError: If decompression fails
     """
     try:
-        if format == CompressionFormat.NONE:
+        if format_ == CompressionFormat.NONE:
             return data
 
-        elif format == CompressionFormat.GZIP:
+        elif format_ == CompressionFormat.GZIP:
             return gzip.decompress(data)
 
-        elif format == CompressionFormat.ZLIB:
+        elif format_ == CompressionFormat.ZLIB:
             return zlib.decompress(data)
 
-        elif format == CompressionFormat.LZ4:
+        elif format_ == CompressionFormat.LZ4:
             if not HAS_LZ4:
                 raise CompressionError("lz4 library not installed")
             return lz4.frame.decompress(data)
 
         else:
-            raise CompressionError(f"Unsupported compression format: {format}")
+            raise CompressionError(f"Unsupported compression format: {format_}")
 
     except Exception as e:
         raise CompressionError(f"Failed to decompress data: {e}")
@@ -315,7 +315,7 @@ def estimate_size(obj: Any) -> int:
             items_size = sum(estimate_size(k) + estimate_size(v) for k, v in obj.items())
             return base_size + items_size
 
-        elif isinstance(obj, (list, tuple, set)):
+        elif isinstance(obj, list | tuple | set):
             # Add size of elements
             items_size = sum(estimate_size(item) for item in obj)
             return base_size + items_size
@@ -469,7 +469,7 @@ def debug_cache_entry(key: str, value: Any, metadata: dict[str, Any] | None = No
     # Add value summary based on type
     if isinstance(value, str):
         debug_info["value_preview"] = value[:100] + "..." if len(value) > 100 else value
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list | tuple):
         debug_info["value_length"] = len(value)
         debug_info["value_preview"] = f"[{type(value).__name__} with {len(value)} items]"
     elif isinstance(value, dict):
@@ -583,9 +583,9 @@ def _make_json_serializable(obj: Any) -> Any:
     Returns:
         Any: JSON-serializable object
     """
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    if obj is None or isinstance(obj, bool | int | float | str):
         return obj
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list | tuple):
         return [_make_json_serializable(item) for item in obj]
     elif isinstance(obj, dict):
         return {str(k): _make_json_serializable(v) for k, v in obj.items()}
