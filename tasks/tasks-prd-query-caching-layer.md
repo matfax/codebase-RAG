@@ -206,12 +206,12 @@
   - [x] 10.2.5 Add cache access logging for security auditing
 
 ### 11.0 Performance Monitoring and Metrics
-- [ ] 11.1 Implement cache metrics collection
-  - [ ] 11.1.1 Modify `src/utils/performance_monitor.py` to include cache metrics
-  - [ ] 11.1.2 Add cache hit/miss ratio tracking per cache type
-  - [ ] 11.1.3 Implement cache memory usage monitoring
-  - [ ] 11.1.4 Add cache size and cleanup frequency tracking
-  - [ ] 11.1.5 Implement real-time cache statistics reporting
+- [x] 11.1 Implement cache metrics collection
+  - [x] 11.1.1 Modify `src/utils/performance_monitor.py` to include cache metrics
+  - [x] 11.1.2 Add cache hit/miss ratio tracking per cache type
+  - [x] 11.1.3 Implement cache memory usage monitoring
+  - [x] 11.1.4 Add cache size and cleanup frequency tracking
+  - [x] 11.1.5 Implement real-time cache statistics reporting
 - [ ] 11.2 Integrate with existing monitoring
   - [ ] 11.2.1 Add cache metrics to existing health check system
   - [ ] 11.2.2 Implement cache-specific health checks
