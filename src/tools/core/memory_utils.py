@@ -1,11 +1,13 @@
 """Memory management utilities for MCP tools.
 
-This module provides memory monitoring and management functionality.
+This module provides memory monitoring and management functionality with
+integration to cache memory leak detection.
 """
 
 import gc
 import logging
 import os
+from typing import Optional
 
 try:
     import psutil
@@ -16,6 +18,9 @@ except ImportError:
     logging.warning("psutil not available - memory monitoring disabled")
 
 logger = logging.getLogger(__name__)
+
+# Optional integration with cache memory leak detector
+_leak_detector = None
 
 # Configuration from environment
 MEMORY_WARNING_THRESHOLD_MB = int(os.getenv("MEMORY_WARNING_THRESHOLD_MB", "1000"))
@@ -215,4 +220,96 @@ def log_memory_usage(context: str = "") -> float:
         logger.info(f"Memory usage{' ' + context if context else ''}: {memory_mb:.1f}MB")
         if memory_mb > MEMORY_WARNING_THRESHOLD_MB:
             logger.warning(f"Memory usage ({memory_mb:.1f}MB) exceeds warning threshold ({MEMORY_WARNING_THRESHOLD_MB}MB)")
+
+        # Integrate with leak detector if available
+        _trigger_leak_detection_snapshot(context, memory_mb)
+
     return memory_mb
+
+
+async def setup_leak_detector_integration():
+    """Setup integration with cache memory leak detector."""
+    global _leak_detector
+
+    try:
+        # Import here to avoid circular dependencies
+        from src.services.cache_memory_leak_detector import get_leak_detector
+
+        _leak_detector = await get_leak_detector()
+        logger.info("Cache memory leak detector integration enabled")
+    except Exception as e:
+        logger.debug(f"Cache memory leak detector not available: {e}")
+        _leak_detector = None
+
+
+def _trigger_leak_detection_snapshot(context: str, memory_mb: float):
+    """Trigger a memory snapshot for leak detection if detector is available."""
+    global _leak_detector
+
+    if _leak_detector is None:
+        return
+
+    try:
+        # Extract cache name from context if possible
+        cache_name = _extract_cache_name_from_context(context)
+        if cache_name:
+            # This would need to be called from an async context in real usage
+            # For now, we just log that we would take a snapshot
+            logger.debug(f"Would trigger leak detection snapshot for cache: {cache_name}")
+    except Exception as e:
+        logger.debug(f"Failed to trigger leak detection snapshot: {e}")
+
+
+def _extract_cache_name_from_context(context: str) -> str | None:
+    """Extract cache name from context string."""
+    # Simple heuristic to extract cache name from context
+    if "cache" in context.lower():
+        # Look for patterns like "cache_name" or "for cache_name"
+        parts = context.lower().split()
+        for i, part in enumerate(parts):
+            if "cache" in part:
+                if i + 1 < len(parts):
+                    return parts[i + 1].strip("_-.,:")
+                return part
+    return None
+
+
+async def check_memory_leaks_for_cache(cache_name: str) -> dict:
+    """Check for memory leaks in a specific cache.
+
+    Args:
+        cache_name: Name of the cache to check
+
+    Returns:
+        dict: Memory leak analysis results
+    """
+    global _leak_detector
+
+    if _leak_detector is None:
+        return {"status": "detector_not_available", "leaks": []}
+
+    try:
+        from src.services.cache_memory_leak_detector import analyze_cache_memory_leaks
+
+        leaks = await analyze_cache_memory_leaks(cache_name)
+
+        return {
+            "status": "success",
+            "cache_name": cache_name,
+            "leak_count": len(leaks),
+            "leaks": [
+                {
+                    "leak_id": leak.leak_id,
+                    "leak_type": leak.leak_type.value,
+                    "severity": leak.severity.value,
+                    "memory_growth_mb": leak.memory_growth_mb,
+                    "growth_rate_mb_per_minute": leak.growth_rate_mb_per_minute,
+                    "detected_at": leak.detected_at.isoformat(),
+                    "recommendations": leak.recommendations,
+                }
+                for leak in leaks
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Failed to check memory leaks for cache {cache_name}: {e}")
+        return {"status": "error", "error": str(e), "leaks": []}

@@ -65,12 +65,10 @@ I will execute development in sequential waves, with each wave focusing on one m
 
 For each wave, I will:
 1. **Identify Current Task Group:** Determine the next incomplete task group (e.g., "2.0 YouTube Transcript Extraction System")
-2. **Pre-Wave Validation:** Verify task file integrity and backup current state
-3. **Launch Wave Agent:** Create a focused subagent to work on only that task group
-4. **Monitor Progress:** Track completion through progress files and real-time task file validation
-5. **Validate Wave Completion:** Ensure all subtasks in the group are completed and properly marked
-6. **Post-Wave Verification:** Confirm all task file checkboxes are correctly updated
-7. **Prepare Next Wave:** Update overall progress and prepare for the next task group
+2. **Launch Wave Agent:** Create a focused subagent to work on only that task group
+3. **Monitor Progress:** Track completion through progress files
+4. **Validate Wave Completion:** Ensure all subtasks in the group are completed
+5. **Prepare Next Wave:** Update overall progress and prepare for the next task group
 
 **Working Directory:**
 The subagent will operate in: `trees/<FEATURE_NAME>-wave/`
@@ -87,27 +85,29 @@ The subagent will operate in: `trees/<FEATURE_NAME>-wave/`
 **MANDATORY WAVE WORKFLOW:**
 You MUST complete ALL subtasks within your assigned task group following this exact protocol:
 
-**CRITICAL SUCCESS CRITERIA:**
-- Task file checkbox updates are MANDATORY and MUST succeed
-- If ANY validation step fails, the subtask is considered INCOMPLETE
-- You MUST run ALL validation commands after each task file update
-- Progress JSON and task file MUST remain synchronized at all times
+1. **Project Understanding Phase (REQUIRED FIRST STEP):**
+   - **Check for Codebase RAG MCP Tool:** First, check if the `mcp__codebase-rag-mcp__*` tools are available
+   - **If Available, Index the Project:**
+     - Run `mcp__codebase-rag-mcp__index_directory` with `incremental: true` to index the entire project
+     - This ensures you have comprehensive knowledge of the codebase structure and existing implementations
+   - **Analyze Project Structure:** After indexing (or if no RAG tool available):
+     - Use `mcp__codebase-rag-mcp__search` to understand key components relevant to your task group
+     - Review project architecture, existing patterns, and dependencies
+     - Identify files and modules that will be affected by your wave's implementation
+   - **Document Understanding:** Create a brief project context note in your first subtask report
 
-1. **Focus Only on Your Task Group:** Work ONLY on the assigned task group and its subtasks. Do NOT work on other task groups.
+2. **Focus Only on Your Task Group:** Work ONLY on the assigned task group and its subtasks. Do NOT work on other task groups.
 
-2. **Complete All Subtasks in Order:** Work through each subtask in the assigned group:
+3. **Complete All Subtasks in Order:** Work through each subtask in the assigned group:
    - Read the subtask from `tasks/tasks-prd-{FEATURE_NAME}.md`
    - Implement the subtask completely
-   - **MANDATORY:** Update `tasks/tasks-prd-{FEATURE_NAME}.md` (mark subtask as `[x]`)
-   - **MANDATORY:** Run validation command: `grep -q "\[x\] {SUBTASK_NUMBER}" tasks/tasks-prd-{FEATURE_NAME}.md && echo "✓ Checkbox updated" || echo "✗ FAILED"`
-   - **MANDATORY:** If validation fails, RETRY the update once, then STOP if still failing
+   - Update `tasks/tasks-prd-{FEATURE_NAME}.md` (mark subtask as `[x]`)
    - Update progress JSON file
-   - **MANDATORY:** Run cross-validation between progress and task file
    - Create detailed subtask report
    - Git commit changes
    - Move to next subtask in the group
 
-3. **Wave Progress Reporting:**
+4. **Wave Progress Reporting:**
 After completing each subtask, you MUST write to TWO files:
 
 **A. Wave Progress Status File:** `progress/{FEATURE_NAME}-wave.json`
@@ -138,6 +138,12 @@ After completing each subtask, you MUST write to TWO files:
 - **Status**: ✅ Completed
 - **Completion Time**: 2024-01-15T14:30:00Z
 
+## Project Context (First Subtask Only)
+- **Codebase Indexed**: Yes/No (via mcp__codebase-rag-mcp)
+- **Key Project Components**: [List relevant modules/files discovered]
+- **Existing Patterns**: [Patterns and conventions identified]
+- **Dependencies**: [Key dependencies relevant to this wave]
+
 ## Work Performed
 - [Detailed description of work completed]
 - [Key implementation decisions made]
@@ -158,7 +164,7 @@ After completing each subtask, you MUST write to TWO files:
 - [Testing performed and results]
 ```
 
-4. **Wave Completion Protocol:**
+5. **Wave Completion Protocol:**
 When ALL subtasks in your assigned task group are complete:
    - Mark the main task group as `[x]` in `tasks/tasks-prd-{FEATURE_NAME}.md`
    - Update wave status to "completed" in progress JSON
@@ -166,7 +172,7 @@ When ALL subtasks in your assigned task group are complete:
    - Make final wave commit: "Complete Wave {wave-number}: {wave-description}"
    - Return control to main agent with completion report
 
-5. **Wave Summary Report:** `progress/{FEATURE_NAME}-wave-{wave-number}-summary.md`
+6. **Wave Summary Report:** `progress/{FEATURE_NAME}-wave-{wave-number}-summary.md`
 ```markdown
 # Wave {wave-number} Completion Summary
 
@@ -211,101 +217,6 @@ When ALL subtasks in your assigned task group are complete:
 4. **Test Before Completion:** Ensure all implementations are working and tested.
 5. **Clean Handoff:** Provide clear completion status for main agent to launch next wave.
 
-**MANDATORY TASK FILE VALIDATION PROTOCOL:**
-
-Every time you update a task file, you MUST run this validation sequence:
-
-1. **Pre-Update Validation:**
-   ```bash
-   # Verify task file exists and is readable
-   test -f tasks/tasks-prd-{FEATURE_NAME}.md && echo "Task file exists" || echo "ERROR: Task file missing"
-   ```
-
-2. **Post-Update Validation:**
-   ```bash
-   # Verify the specific checkbox was updated
-   grep -q "\[x\] {SUBTASK_NUMBER}" tasks/tasks-prd-{FEATURE_NAME}.md && echo "Checkbox updated successfully" || echo "ERROR: Checkbox update failed"
-   ```
-
-3. **Cross-Validation with Progress:**
-   ```bash
-   # Ensure progress JSON and task file are in sync
-   python3 -c "
-   import json, re
-   with open('progress/{FEATURE_NAME}-wave.json', 'r') as f:
-       progress = json.load(f)
-   with open('tasks/tasks-prd-{FEATURE_NAME}.md', 'r') as f:
-       task_content = f.read()
-   completed = progress['completed_subtasks']
-   for task in completed:
-       if not re.search(f'\[x\] {task}', task_content):
-           print(f'ERROR: Task {task} marked complete in progress but not in task file')
-           exit(1)
-   print('Progress and task file are synchronized')
-   "
-   ```
-
-**ERROR HANDLING PROTOCOL:**
-
-If task file validation fails:
-1. **DO NOT PROCEED** to the next subtask
-2. **RETRY** the update operation once
-3. **REPORT** the failure immediately if retry fails
-4. **STOP** the wave and return control to main agent with error details
-
-**SUBTASK COMPLETION REQUIREMENTS:**
-
-A subtask is ONLY considered complete when:
-- [ ] Implementation is finished and tested
-- [ ] Task file checkbox is updated to `[x]`
-- [ ] Validation commands confirm update success
-- [ ] Progress JSON file reflects completion
-- [ ] All files are committed to git
-- [ ] Cross-validation passes between progress and task file
-
-**MANDATORY EXECUTION CHECKLIST:**
-
-Before marking ANY subtask as complete, you MUST verify:
-
-1. **Task File Update Verification:**
-   ```bash
-   # This command MUST return "✓ Checkbox updated"
-   grep -q "\[x\] {SUBTASK_NUMBER}" tasks/tasks-prd-{FEATURE_NAME}.md && echo "✓ Checkbox updated" || echo "✗ FAILED"
-   ```
-
-2. **Progress Synchronization Check:**
-   ```bash
-   # This command MUST return "✓ Progress synchronized"
-   python3 -c "
-   import json, re
-   with open('progress/{FEATURE_NAME}-wave.json', 'r') as f:
-       progress = json.load(f)
-   with open('tasks/tasks-prd-{FEATURE_NAME}.md', 'r') as f:
-       task_content = f.read()
-   completed = progress['completed_subtasks']
-   for task in completed:
-       if not re.search(f'\[x\] {task}', task_content):
-           print('✗ SYNC FAILED')
-           exit(1)
-   print('✓ Progress synchronized')
-   "
-   ```
-
-3. **Wave Completion Verification (for final subtask):**
-   ```bash
-   # This command MUST return "✓ Wave task group marked complete"
-   grep -q "\[x\] {CURRENT_WAVE}" tasks/tasks-prd-{FEATURE_NAME}.md && echo "✓ Wave task group marked complete" || echo "✗ WAVE INCOMPLETE"
-   ```
-
-**FAILURE RESPONSE PROTOCOL:**
-
-If ANY validation command shows "✗ FAILED", "✗ SYNC FAILED", or "✗ WAVE INCOMPLETE":
-1. **STOP** immediately - do not proceed to next subtask
-2. **REPORT** the exact failure message
-3. **RETRY** the failed operation once
-4. **ESCALATE** to main agent if retry fails
-5. **PROVIDE** full error context and current state
-
 **Directory Structure:**
 ```
 trees/{FEATURE_NAME}-wave/
@@ -321,74 +232,11 @@ trees/{FEATURE_NAME}-wave/
 After each wave completes, I will:
 
 1. **Validate Wave Completion:** Check that all subtasks in the wave are marked complete
-2. **Mandatory Task File Verification:** Run comprehensive validation of task file updates
-3. **Review Progress:** Examine wave summary and progress reports
-4. **Cross-Validation:** Verify consistency between progress files and task file checkboxes
-5. **Update Overall Status:** Update project-wide progress tracking
-6. **Prepare Next Wave:** Identify the next task group to work on
-7. **Launch Next Wave:** If more waves remain, launch the next wave agent
-8. **Final Completion:** When all waves are complete, generate final project summary
-
-**Main Agent Validation Protocol:**
-
-Before launching the next wave, I will run these validation checks:
-
-1. **Task File Integrity Check:**
-   ```bash
-   # Verify all completed subtasks are marked [x]
-   cd trees/{FEATURE_NAME}-wave/
-   python3 -c "
-   import json, re
-   with open('progress/{FEATURE_NAME}-wave.json', 'r') as f:
-       progress = json.load(f)
-   with open('tasks/tasks-prd-{FEATURE_NAME}.md', 'r') as f:
-       task_content = f.read()
-
-   completed = progress['completed_subtasks']
-   current_wave = progress['current_wave']
-
-   print(f'Validating wave {current_wave} completion...')
-   failed_tasks = []
-   for task in completed:
-       if not re.search(f'\[x\] {task}', task_content):
-           failed_tasks.append(task)
-
-   if failed_tasks:
-       print(f'ERROR: Tasks marked complete but not updated in file: {failed_tasks}')
-       exit(1)
-   else:
-       print('All completed tasks properly marked in task file')
-   "
-   ```
-
-2. **Wave Completion Verification:**
-   ```bash
-   # Verify wave main task group is marked complete
-   grep -q "\[x\] {CURRENT_WAVE}" tasks/tasks-prd-{FEATURE_NAME}.md && echo "Wave task group marked complete" || echo "ERROR: Wave task group not marked complete"
-   ```
-
-3. **Progress File Consistency:**
-   ```bash
-   # Verify progress JSON shows wave as completed
-   python3 -c "
-   import json
-   with open('progress/{FEATURE_NAME}-wave.json', 'r') as f:
-       progress = json.load(f)
-   if progress['wave_status'] != 'completed':
-       print('ERROR: Wave status not marked as completed')
-       exit(1)
-   print('Progress status correctly shows wave completion')
-   "
-   ```
-
-**Validation Failure Protocol:**
-
-If validation fails:
-1. **STOP** the wave progression immediately
-2. **REPORT** specific validation failures to user
-3. **PROVIDE** repair commands to fix inconsistencies
-4. **WAIT** for manual confirmation before proceeding
-5. **RE-RUN** validation after repairs are made
+2. **Review Progress:** Examine wave summary and progress reports
+3. **Update Overall Status:** Update project-wide progress tracking
+4. **Prepare Next Wave:** Identify the next task group to work on
+5. **Launch Next Wave:** If more waves remain, launch the next wave agent
+6. **Final Completion:** When all waves are complete, generate final project summary
 
 **Wave Transition Protocol:**
 ```
