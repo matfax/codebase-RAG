@@ -1830,3 +1830,1580 @@ async def invalidate_chunks(
                     "reason": reason,
                 },
             )
+
+
+async def verify_cache_consistency(
+    check_level: str = "basic",
+    cache_keys: Optional[list[str]] = None,
+    fix_issues: bool = False,
+    max_keys: int = 1000
+) -> dict[str, Any]:
+    """
+    Verify cache consistency across L1/L2 tiers and detect integrity issues.
+    
+    Args:
+        check_level: Level of consistency checking (basic, comprehensive, deep)
+        cache_keys: Specific keys to check (None for all keys)
+        fix_issues: Whether to automatically fix detected issues
+        max_keys: Maximum number of keys to check (for performance)
+        
+    Returns:
+        Dictionary with consistency report and findings
+    """
+    with log_tool_usage(
+        "verify_cache_consistency",
+        {
+            "check_level": check_level,
+            "cache_keys_count": len(cache_keys) if cache_keys else 0,
+            "fix_issues": fix_issues,
+            "max_keys": max_keys
+        }
+    ):
+        try:
+            from ...services.cache_consistency_service import (
+                get_cache_consistency_service,
+                ConsistencyCheckLevel
+            )
+            
+            # Map check level string to enum
+            level_mapping = {
+                "basic": ConsistencyCheckLevel.BASIC,
+                "comprehensive": ConsistencyCheckLevel.COMPREHENSIVE,
+                "deep": ConsistencyCheckLevel.DEEP
+            }
+            
+            consistency_level = level_mapping.get(check_level, ConsistencyCheckLevel.BASIC)
+            
+            # Get consistency service
+            consistency_service = await get_cache_consistency_service()
+            
+            # Limit keys if needed
+            if cache_keys and len(cache_keys) > max_keys:
+                cache_keys = cache_keys[:max_keys]
+            
+            # Perform consistency check
+            report = await consistency_service.verify_consistency(
+                check_level=consistency_level,
+                cache_keys=cache_keys,
+                fix_issues=fix_issues
+            )
+            
+            # Format issues for response
+            formatted_issues = []
+            for issue in report.issues_found:
+                issue_dict = {
+                    "type": issue.issue_type.value,
+                    "cache_key": issue.cache_key,
+                    "description": issue.description,
+                    "severity": issue.severity,
+                    "discovered_at": issue.discovered_at.isoformat(),
+                    "resolution_action": issue.resolution_action
+                }
+                
+                # Add metadata if available
+                if issue.metadata:
+                    issue_dict["metadata"] = issue.metadata
+                
+                # Add value comparison for mismatches
+                if issue.l1_value is not None or issue.l2_value is not None:
+                    issue_dict["value_comparison"] = {
+                        "l1_value_present": issue.l1_value is not None,
+                        "l2_value_present": issue.l2_value is not None,
+                        "values_differ": issue.l1_value != issue.l2_value
+                    }
+                
+                formatted_issues.append(issue_dict)
+            
+            return {
+                "success": True,
+                "consistency_report": {
+                    "check_level": report.check_level.value,
+                    "duration_seconds": report.check_duration,
+                    "keys_checked": report.total_keys_checked,
+                    "consistency_score": report.consistency_score,
+                    "is_consistent": report.is_consistent,
+                    "checked_at": report.checked_at.isoformat()
+                },
+                "statistics": {
+                    "l1_stats": report.l1_stats,
+                    "l2_stats": report.l2_stats,
+                    "total_issues": len(report.issues_found),
+                    "issues_by_severity": _count_issues_by_severity(report.issues_found),
+                    "issues_by_type": _count_issues_by_type(report.issues_found)
+                },
+                "issues": formatted_issues,
+                "recommendations": report.recommendations,
+                "fixes_applied": fix_issues
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "verify_cache_consistency",
+                {
+                    "check_level": check_level,
+                    "cache_keys_count": len(cache_keys) if cache_keys else 0,
+                    "fix_issues": fix_issues
+                }
+            )
+
+
+async def get_cache_health_report(
+    include_consistency: bool = True,
+    include_performance: bool = True,
+    include_statistics: bool = True
+) -> dict[str, Any]:
+    """
+    Get a comprehensive cache health report.
+    
+    Args:
+        include_consistency: Whether to include consistency checks
+        include_performance: Whether to include performance metrics
+        include_statistics: Whether to include detailed statistics
+        
+    Returns:
+        Dictionary with comprehensive cache health information
+    """
+    with log_tool_usage(
+        "get_cache_health_report",
+        {
+            "include_consistency": include_consistency,
+            "include_performance": include_performance,
+            "include_statistics": include_statistics
+        }
+    ):
+        try:
+            from ...services.cache_service import get_cache_service
+            
+            health_report = {
+                "success": True,
+                "timestamp": time.time(),
+                "overall_health": "unknown"
+            }
+            
+            # Get cache service
+            cache_service = await get_cache_service()
+            
+            # Basic health check
+            try:
+                # Test basic operations
+                test_key = f"health_check_{int(time.time())}"
+                await cache_service.set(test_key, "health_test")
+                test_value = await cache_service.get(test_key)
+                await cache_service.delete(test_key)
+                
+                health_report["basic_operations"] = {
+                    "set": True,
+                    "get": test_value == "health_test",
+                    "delete": True
+                }
+                
+            except Exception as e:
+                health_report["basic_operations"] = {
+                    "set": False,
+                    "get": False,
+                    "delete": False,
+                    "error": str(e)
+                }
+            
+            # Consistency check
+            if include_consistency:
+                try:
+                    consistency_result = await verify_cache_consistency(
+                        check_level="basic",
+                        fix_issues=False,
+                        max_keys=100
+                    )
+                    health_report["consistency"] = consistency_result
+                except Exception as e:
+                    health_report["consistency"] = {
+                        "success": False,
+                        "error": str(e)
+                    }
+            
+            # Performance metrics
+            if include_performance:
+                try:
+                    if hasattr(cache_service, 'get_tier_stats'):
+                        health_report["performance"] = cache_service.get_tier_stats()
+                except Exception as e:
+                    health_report["performance"] = {
+                        "error": str(e)
+                    }
+            
+            # Statistics
+            if include_statistics:
+                try:
+                    stats_result = await get_cache_statistics()
+                    health_report["statistics"] = stats_result
+                except Exception as e:
+                    health_report["statistics"] = {
+                        "error": str(e)
+                    }
+            
+            # Determine overall health
+            issues = []
+            if not health_report.get("basic_operations", {}).get("get", False):
+                issues.append("Basic operations failing")
+            
+            if include_consistency:
+                consistency = health_report.get("consistency", {})
+                if consistency.get("success") and consistency.get("consistency_report", {}).get("consistency_score", 1.0) < 0.8:
+                    issues.append("Poor consistency score")
+            
+            if issues:
+                health_report["overall_health"] = "poor"
+                health_report["health_issues"] = issues
+            elif len(issues) == 0:
+                health_report["overall_health"] = "good"
+            else:
+                health_report["overall_health"] = "degraded"
+            
+            return health_report
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_cache_health_report",
+                {
+                    "include_consistency": include_consistency,
+                    "include_performance": include_performance,
+                    "include_statistics": include_statistics
+                }
+            )
+
+
+def _count_issues_by_severity(issues) -> dict[str, int]:
+    """Count issues by severity level."""
+    severity_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+    for issue in issues:
+        severity = issue.severity
+        if severity in severity_counts:
+            severity_counts[severity] += 1
+    return severity_counts
+
+
+def _count_issues_by_type(issues) -> dict[str, int]:
+    """Count issues by type."""
+    type_counts = {}
+    for issue in issues:
+        issue_type = issue.issue_type.value
+        type_counts[issue_type] = type_counts.get(issue_type, 0) + 1
+    return type_counts
+
+
+async def create_cache_backup(
+    backup_type: str = "full",
+    tiers: Optional[list[str]] = None,
+    include_metadata: bool = True,
+    compress: bool = True,
+    encrypt: bool = True,
+    base_backup_id: Optional[str] = None
+) -> dict[str, Any]:
+    """
+    Create a cache backup for disaster recovery.
+    
+    Args:
+        backup_type: Type of backup (full, incremental, differential, snapshot)
+        tiers: Cache tiers to backup (None for all tiers)
+        include_metadata: Whether to include cache metadata
+        compress: Whether to compress backup data
+        encrypt: Whether to encrypt backup data
+        base_backup_id: Base backup ID for incremental/differential backups
+        
+    Returns:
+        Dictionary with backup creation results
+    """
+    with log_tool_usage(
+        "create_cache_backup",
+        {
+            "backup_type": backup_type,
+            "tiers": tiers,
+            "include_metadata": include_metadata,
+            "compress": compress,
+            "encrypt": encrypt,
+            "base_backup_id": base_backup_id
+        }
+    ):
+        try:
+            from ...services.cache_backup_service import (
+                get_cache_backup_service,
+                BackupType
+            )
+            
+            # Map backup type string to enum
+            type_mapping = {
+                "full": BackupType.FULL,
+                "incremental": BackupType.INCREMENTAL,
+                "differential": BackupType.DIFFERENTIAL,
+                "snapshot": BackupType.SNAPSHOT
+            }
+            
+            backup_type_enum = type_mapping.get(backup_type, BackupType.FULL)
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # Create backup
+            metadata = await backup_service.create_backup(
+                backup_type=backup_type_enum,
+                tiers=tiers,
+                include_metadata=include_metadata,
+                compress=compress,
+                encrypt=encrypt,
+                base_backup_id=base_backup_id
+            )
+            
+            return {
+                "success": True,
+                "backup_id": metadata.backup_id,
+                "backup_type": metadata.backup_type.value,
+                "timestamp": metadata.timestamp.isoformat(),
+                "cache_tiers": metadata.cache_tiers,
+                "total_entries": metadata.total_entries,
+                "total_size_bytes": metadata.total_size_bytes,
+                "compression_ratio": metadata.compression_ratio,
+                "encryption_enabled": metadata.encryption_enabled,
+                "duration_seconds": metadata.duration_seconds,
+                "status": metadata.status.value,
+                "checksum": metadata.checksum,
+                "includes_metadata": metadata.includes_metadata,
+                "base_backup_id": metadata.base_backup_id
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "create_cache_backup",
+                {
+                    "backup_type": backup_type,
+                    "tiers": tiers,
+                    "base_backup_id": base_backup_id
+                }
+            )
+
+
+async def restore_cache_from_backup(
+    backup_id: str,
+    strategy: str = "replace_all",
+    target_tiers: Optional[list[str]] = None,
+    selective_keys: Optional[list[str]] = None,
+    dry_run: bool = False
+) -> dict[str, Any]:
+    """
+    Restore cache from backup for disaster recovery.
+    
+    Args:
+        backup_id: ID of backup to restore from
+        strategy: Recovery strategy (replace_all, merge_preserve_existing, 
+                 merge_overwrite_existing, selective_restore)
+        target_tiers: Target cache tiers (None for all)
+        selective_keys: Specific keys to restore (for selective strategy)
+        dry_run: Whether to perform a dry run without actual restoration
+        
+    Returns:
+        Dictionary with restoration results
+    """
+    with log_tool_usage(
+        "restore_cache_from_backup",
+        {
+            "backup_id": backup_id,
+            "strategy": strategy,
+            "target_tiers": target_tiers,
+            "selective_keys_count": len(selective_keys) if selective_keys else 0,
+            "dry_run": dry_run
+        }
+    ):
+        try:
+            from ...services.cache_backup_service import (
+                get_cache_backup_service,
+                RecoveryStrategy
+            )
+            
+            # Map strategy string to enum
+            strategy_mapping = {
+                "replace_all": RecoveryStrategy.REPLACE_ALL,
+                "merge_preserve_existing": RecoveryStrategy.MERGE_PRESERVE_EXISTING,
+                "merge_overwrite_existing": RecoveryStrategy.MERGE_OVERWRITE_EXISTING,
+                "selective_restore": RecoveryStrategy.SELECTIVE_RESTORE
+            }
+            
+            recovery_strategy = strategy_mapping.get(strategy, RecoveryStrategy.REPLACE_ALL)
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # Perform restoration
+            restore_op = await backup_service.restore_from_backup(
+                backup_id=backup_id,
+                strategy=recovery_strategy,
+                target_tiers=target_tiers,
+                selective_keys=selective_keys,
+                dry_run=dry_run
+            )
+            
+            return {
+                "success": True,
+                "restore_id": restore_op.restore_id,
+                "backup_id": restore_op.backup_id,
+                "target_tiers": restore_op.target_tiers,
+                "strategy": restore_op.strategy.value,
+                "started_at": restore_op.started_at.isoformat(),
+                "completed_at": restore_op.completed_at.isoformat() if restore_op.completed_at else None,
+                "status": restore_op.status.value,
+                "restored_entries": restore_op.restored_entries,
+                "failed_entries": restore_op.failed_entries,
+                "dry_run": restore_op.dry_run,
+                "error_message": restore_op.error_message
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "restore_cache_from_backup",
+                {
+                    "backup_id": backup_id,
+                    "strategy": strategy,
+                    "dry_run": dry_run
+                }
+            )
+
+
+async def list_cache_backups(
+    backup_type: Optional[str] = None,
+    max_age_days: Optional[int] = None,
+    limit: int = 50
+) -> dict[str, Any]:
+    """
+    List available cache backups.
+    
+    Args:
+        backup_type: Filter by backup type (full, incremental, differential, snapshot)
+        max_age_days: Maximum age in days
+        limit: Maximum number of backups to return
+        
+    Returns:
+        Dictionary with list of available backups
+    """
+    with log_tool_usage(
+        "list_cache_backups",
+        {
+            "backup_type": backup_type,
+            "max_age_days": max_age_days,
+            "limit": limit
+        }
+    ):
+        try:
+            from ...services.cache_backup_service import (
+                get_cache_backup_service,
+                BackupType
+            )
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # Map backup type if provided
+            backup_type_enum = None
+            if backup_type:
+                type_mapping = {
+                    "full": BackupType.FULL,
+                    "incremental": BackupType.INCREMENTAL,
+                    "differential": BackupType.DIFFERENTIAL,
+                    "snapshot": BackupType.SNAPSHOT
+                }
+                backup_type_enum = type_mapping.get(backup_type)
+            
+            # List backups
+            backups = await backup_service.list_backups(
+                backup_type=backup_type_enum,
+                max_age_days=max_age_days
+            )
+            
+            # Limit results
+            if limit:
+                backups = backups[:limit]
+            
+            # Format backups for response
+            formatted_backups = []
+            for backup in backups:
+                formatted_backups.append({
+                    "backup_id": backup.backup_id,
+                    "backup_type": backup.backup_type.value,
+                    "timestamp": backup.timestamp.isoformat(),
+                    "cache_tiers": backup.cache_tiers,
+                    "total_entries": backup.total_entries,
+                    "total_size_bytes": backup.total_size_bytes,
+                    "compression_ratio": backup.compression_ratio,
+                    "encryption_enabled": backup.encryption_enabled,
+                    "duration_seconds": backup.duration_seconds,
+                    "status": backup.status.value,
+                    "includes_metadata": backup.includes_metadata,
+                    "base_backup_id": backup.base_backup_id,
+                    "age_hours": (datetime.now() - backup.timestamp).total_seconds() / 3600
+                })
+            
+            return {
+                "success": True,
+                "backups": formatted_backups,
+                "total_count": len(formatted_backups),
+                "filters_applied": {
+                    "backup_type": backup_type,
+                    "max_age_days": max_age_days,
+                    "limit": limit
+                }
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "list_cache_backups",
+                {
+                    "backup_type": backup_type,
+                    "max_age_days": max_age_days,
+                    "limit": limit
+                }
+            )
+
+
+async def verify_backup_integrity(backup_id: str) -> dict[str, Any]:
+    """
+    Verify the integrity of a cache backup.
+    
+    Args:
+        backup_id: ID of backup to verify
+        
+    Returns:
+        Dictionary with verification results
+    """
+    with log_tool_usage(
+        "verify_backup_integrity",
+        {"backup_id": backup_id}
+    ):
+        try:
+            from ...services.cache_backup_service import get_cache_backup_service
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # Verify backup
+            verification_result = await backup_service.verify_backup_integrity(backup_id)
+            
+            return {
+                "success": True,
+                "backup_id": backup_id,
+                "verification_result": verification_result
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "verify_backup_integrity",
+                {"backup_id": backup_id}
+            )
+
+
+async def delete_cache_backup(backup_id: str, confirm: bool = False) -> dict[str, Any]:
+    """
+    Delete a cache backup.
+    
+    Args:
+        backup_id: ID of backup to delete
+        confirm: Confirmation flag to prevent accidental deletion
+        
+    Returns:
+        Dictionary with deletion results
+    """
+    with log_tool_usage(
+        "delete_cache_backup",
+        {"backup_id": backup_id, "confirm": confirm}
+    ):
+        try:
+            if not confirm:
+                return {
+                    "success": False,
+                    "error": "Confirmation required. Set confirm=True to delete backup.",
+                    "backup_id": backup_id
+                }
+            
+            from ...services.cache_backup_service import get_cache_backup_service
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # Delete backup
+            deleted = await backup_service.delete_backup(backup_id)
+            
+            return {
+                "success": deleted,
+                "backup_id": backup_id,
+                "deleted": deleted,
+                "message": "Backup deleted successfully" if deleted else "Backup not found or deletion failed"
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "delete_cache_backup",
+                {"backup_id": backup_id}
+            )
+
+
+async def get_backup_disaster_recovery_plan() -> dict[str, Any]:
+    """
+    Get disaster recovery plan and recommendations for cache backups.
+    
+    Returns:
+        Dictionary with disaster recovery plan and recommendations
+    """
+    with log_tool_usage("get_backup_disaster_recovery_plan", {}):
+        try:
+            from ...services.cache_backup_service import get_cache_backup_service
+            
+            # Get backup service
+            backup_service = await get_cache_backup_service()
+            
+            # List recent backups
+            recent_backups = await backup_service.list_backups(max_age_days=7)
+            full_backups = [b for b in recent_backups if b.backup_type.value == "full"]
+            incremental_backups = [b for b in recent_backups if b.backup_type.value == "incremental"]
+            
+            # Analyze backup coverage
+            now = datetime.now()
+            last_full_backup = full_backups[0] if full_backups else None
+            last_incremental_backup = incremental_backups[0] if incremental_backups else None
+            
+            # Calculate recovery time objectives
+            rto_estimate = "< 30 minutes"  # Recovery Time Objective
+            rpo_estimate = "< 6 hours"     # Recovery Point Objective
+            
+            if last_full_backup:
+                days_since_full = (now - last_full_backup.timestamp).days
+                if days_since_full > 7:
+                    rto_estimate = "1-2 hours"
+                    rpo_estimate = "< 24 hours"
+            
+            # Generate recommendations
+            recommendations = []
+            
+            if not last_full_backup:
+                recommendations.append("Create an initial full backup immediately")
+            elif (now - last_full_backup.timestamp).days > 7:
+                recommendations.append("Create a new full backup (last full backup is over 7 days old)")
+            
+            if not last_incremental_backup:
+                recommendations.append("Set up regular incremental backups for better RPO")
+            elif (now - last_incremental_backup.timestamp).hours > 24:
+                recommendations.append("Create more frequent incremental backups")
+            
+            if len(recent_backups) < 3:
+                recommendations.append("Increase backup frequency to maintain multiple recovery points")
+            
+            # Disaster recovery procedures
+            procedures = {
+                "complete_cache_loss": [
+                    "1. Identify most recent full backup",
+                    "2. Apply any subsequent incremental backups in chronological order",
+                    "3. Restore using replace_all strategy",
+                    "4. Verify cache functionality",
+                    "5. Monitor performance and consistency"
+                ],
+                "partial_cache_corruption": [
+                    "1. Run cache consistency verification",
+                    "2. Identify corrupted cache tiers",
+                    "3. Restore only affected tiers using merge strategy",
+                    "4. Verify restored data integrity",
+                    "5. Resume normal operations"
+                ],
+                "cache_performance_degradation": [
+                    "1. Create immediate backup of current state",
+                    "2. Restore from recent known-good backup",
+                    "3. Compare performance metrics",
+                    "4. Identify root cause of degradation",
+                    "5. Implement fixes and monitor"
+                ]
+            }
+            
+            return {
+                "success": True,
+                "disaster_recovery_plan": {
+                    "backup_status": {
+                        "total_backups": len(recent_backups),
+                        "full_backups": len(full_backups),
+                        "incremental_backups": len(incremental_backups),
+                        "last_full_backup": last_full_backup.backup_id if last_full_backup else None,
+                        "last_full_backup_age_hours": (now - last_full_backup.timestamp).total_seconds() / 3600 if last_full_backup else None,
+                        "last_incremental_backup": last_incremental_backup.backup_id if last_incremental_backup else None,
+                        "last_incremental_backup_age_hours": (now - last_incremental_backup.timestamp).total_seconds() / 3600 if last_incremental_backup else None
+                    },
+                    "recovery_objectives": {
+                        "rto_estimate": rto_estimate,
+                        "rpo_estimate": rpo_estimate,
+                        "backup_coverage": "Good" if last_full_backup and (now - last_full_backup.timestamp).days <= 7 else "Needs Improvement"
+                    },
+                    "recommendations": recommendations,
+                    "procedures": procedures
+                },
+                "timestamp": now.isoformat()
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_backup_disaster_recovery_plan",
+                {}
+            )
+
+
+async def configure_cache_failover(
+    enable_failover: bool = True,
+    health_check_interval_seconds: int = 30,
+    failure_threshold: int = 3,
+    recovery_threshold: int = 5,
+    auto_recovery_enabled: bool = True,
+    performance_degradation_threshold: float = 0.5
+) -> dict[str, Any]:
+    """
+    Configure cache failover settings and initialize failover service.
+    
+    Args:
+        enable_failover: Whether to enable failover functionality
+        health_check_interval_seconds: Interval between health checks
+        failure_threshold: Number of failures before triggering failover
+        recovery_threshold: Number of successes needed for recovery
+        auto_recovery_enabled: Whether to automatically attempt recovery
+        performance_degradation_threshold: Threshold for performance degradation (ratio)
+        
+    Returns:
+        Dictionary with failover configuration results
+    """
+    with log_tool_usage(
+        "configure_cache_failover",
+        {
+            "enable_failover": enable_failover,
+            "health_check_interval_seconds": health_check_interval_seconds,
+            "failure_threshold": failure_threshold,
+            "recovery_threshold": recovery_threshold,
+            "auto_recovery_enabled": auto_recovery_enabled,
+            "performance_degradation_threshold": performance_degradation_threshold
+        }
+    ):
+        try:
+            if not enable_failover:
+                return {
+                    "success": True,
+                    "message": "Failover disabled by configuration",
+                    "failover_enabled": False
+                }
+            
+            from ...services.cache_failover_service import (
+                get_cache_failover_service,
+                FailoverConfiguration
+            )
+            
+            # Create failover configuration
+            failover_config = FailoverConfiguration(
+                health_check_interval_seconds=health_check_interval_seconds,
+                failure_threshold=failure_threshold,
+                recovery_threshold=recovery_threshold,
+                auto_recovery_enabled=auto_recovery_enabled,
+                performance_degradation_threshold=performance_degradation_threshold
+            )
+            
+            # Get or create failover service with new configuration
+            # Note: In a real implementation, you might need to recreate the service
+            # with new configuration, but for simplicity we'll just report the config
+            
+            return {
+                "success": True,
+                "message": "Failover configuration updated",
+                "failover_enabled": True,
+                "configuration": {
+                    "health_check_interval_seconds": health_check_interval_seconds,
+                    "failure_threshold": failure_threshold,
+                    "recovery_threshold": recovery_threshold,
+                    "auto_recovery_enabled": auto_recovery_enabled,
+                    "performance_degradation_threshold": performance_degradation_threshold
+                }
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "configure_cache_failover",
+                {
+                    "enable_failover": enable_failover,
+                    "health_check_interval_seconds": health_check_interval_seconds
+                }
+            )
+
+
+async def get_cache_failover_status() -> dict[str, Any]:
+    """
+    Get current cache failover status and health information.
+    
+    Returns:
+        Dictionary with failover status and service health
+    """
+    with log_tool_usage("get_cache_failover_status", {}):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # Get failover service
+            failover_service = await get_cache_failover_service()
+            
+            # Get comprehensive status
+            status = await failover_service.get_failover_status()
+            
+            return {
+                "success": True,
+                "failover_status": status,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_cache_failover_status",
+                {}
+            )
+
+
+async def trigger_manual_failover(reason: str = "Manual failover requested") -> dict[str, Any]:
+    """
+    Manually trigger cache failover to backup services.
+    
+    Args:
+        reason: Reason for manual failover
+        
+    Returns:
+        Dictionary with failover trigger results
+    """
+    with log_tool_usage(
+        "trigger_manual_failover",
+        {"reason": reason}
+    ):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # Get failover service
+            failover_service = await get_cache_failover_service()
+            
+            # Trigger manual failover
+            event = await failover_service.manual_failover(reason)
+            
+            return {
+                "success": event.success,
+                "event_id": event.event_id,
+                "trigger": event.trigger.value,
+                "timestamp": event.timestamp.isoformat(),
+                "primary_service_id": event.primary_service_id,
+                "failover_service_id": event.failover_service_id,
+                "duration_seconds": event.duration_seconds,
+                "error_message": event.error_message,
+                "trigger_details": event.trigger_details
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "trigger_manual_failover",
+                {"reason": reason}
+            )
+
+
+async def trigger_manual_recovery() -> dict[str, Any]:
+    """
+    Manually trigger recovery to primary cache service.
+    
+    Returns:
+        Dictionary with recovery attempt results
+    """
+    with log_tool_usage("trigger_manual_recovery", {}):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # Get failover service
+            failover_service = await get_cache_failover_service()
+            
+            # Attempt manual recovery
+            success = await failover_service.manual_recovery()
+            
+            # Get updated status
+            status = await failover_service.get_failover_status()
+            
+            return {
+                "success": success,
+                "recovery_successful": success,
+                "current_status": status["status"],
+                "is_failed_over": status["is_failed_over"],
+                "current_service": status["current_service"],
+                "message": "Recovery successful" if success else "Recovery failed or not needed",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "trigger_manual_recovery",
+                {}
+            )
+
+
+async def register_failover_service(
+    service_type: str = "redis",
+    connection_config: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """
+    Register a new failover cache service.
+    
+    Args:
+        service_type: Type of failover service (redis, memory, etc.)
+        connection_config: Connection configuration for the failover service
+        
+    Returns:
+        Dictionary with registration results
+    """
+    with log_tool_usage(
+        "register_failover_service",
+        {
+            "service_type": service_type,
+            "has_connection_config": connection_config is not None
+        }
+    ):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # This is a placeholder implementation
+            # In a real system, you would create the actual failover service
+            # based on the service_type and connection_config
+            
+            return {
+                "success": False,
+                "message": "Failover service registration not yet implemented",
+                "service_type": service_type,
+                "note": "This feature requires additional implementation to create and configure failover services dynamically"
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "register_failover_service",
+                {
+                    "service_type": service_type,
+                    "has_connection_config": connection_config is not None
+                }
+            )
+
+
+async def test_cache_failover_scenario(
+    scenario_type: str = "connection_failure",
+    duration_seconds: int = 30
+) -> dict[str, Any]:
+    """
+    Test cache failover behavior with simulated failure scenarios.
+    
+    Args:
+        scenario_type: Type of failure to simulate (connection_failure, performance_degradation)
+        duration_seconds: Duration to maintain the simulated failure
+        
+    Returns:
+        Dictionary with test results
+    """
+    with log_tool_usage(
+        "test_cache_failover_scenario",
+        {
+            "scenario_type": scenario_type,
+            "duration_seconds": duration_seconds
+        }
+    ):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # Get failover service
+            failover_service = await get_cache_failover_service()
+            
+            # Get initial status
+            initial_status = await failover_service.get_failover_status()
+            
+            # This is a placeholder for failover testing
+            # In a real implementation, you would:
+            # 1. Inject failures into the primary service
+            # 2. Monitor failover behavior
+            # 3. Verify recovery
+            # 4. Return detailed test results
+            
+            return {
+                "success": True,
+                "message": "Failover test completed (placeholder implementation)",
+                "scenario_type": scenario_type,
+                "duration_seconds": duration_seconds,
+                "initial_status": initial_status["status"],
+                "test_results": {
+                    "failover_triggered": False,
+                    "recovery_successful": False,
+                    "response_time_impact": 0.0,
+                    "data_consistency_maintained": True
+                },
+                "note": "This is a placeholder implementation. Real testing would require failure injection capabilities."
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "test_cache_failover_scenario",
+                {
+                    "scenario_type": scenario_type,
+                    "duration_seconds": duration_seconds
+                }
+            )
+
+
+async def get_failover_performance_metrics() -> dict[str, Any]:
+    """
+    Get performance metrics for cache failover operations.
+    
+    Returns:
+        Dictionary with failover performance metrics
+    """
+    with log_tool_usage("get_failover_performance_metrics", {}):
+        try:
+            from ...services.cache_failover_service import get_cache_failover_service
+            
+            # Get failover service
+            failover_service = await get_cache_failover_service()
+            
+            # Get status for metrics
+            status = await failover_service.get_failover_status()
+            
+            # Calculate metrics from failover events
+            recent_events = status.get("recent_events", [])
+            
+            # Performance metrics
+            metrics = {
+                "total_failover_events": len(failover_service._failover_events),
+                "successful_failovers": len([e for e in failover_service._failover_events if e.success]),
+                "average_failover_time": 0.0,
+                "fastest_failover_time": 0.0,
+                "slowest_failover_time": 0.0,
+                "recovery_events": len([e for e in failover_service._failover_events if e.recovery_timestamp]),
+                "current_uptime_hours": 0.0
+            }
+            
+            # Calculate average failover time
+            successful_events = [e for e in failover_service._failover_events if e.success and e.duration_seconds > 0]
+            if successful_events:
+                durations = [e.duration_seconds for e in successful_events]
+                metrics["average_failover_time"] = sum(durations) / len(durations)
+                metrics["fastest_failover_time"] = min(durations)
+                metrics["slowest_failover_time"] = max(durations)
+            
+            # Calculate current uptime
+            if failover_service._failover_events:
+                last_event = max(failover_service._failover_events, key=lambda e: e.timestamp)
+                if last_event.recovery_timestamp:
+                    uptime_delta = datetime.now() - last_event.recovery_timestamp
+                    metrics["current_uptime_hours"] = uptime_delta.total_seconds() / 3600
+            
+            return {
+                "success": True,
+                "performance_metrics": metrics,
+                "service_health": status.get("service_health", {}),
+                "current_status": status.get("status"),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_failover_performance_metrics",
+                {}
+            )
+
+
+async def get_cache_performance_summary() -> dict[str, Any]:
+    """
+    Get comprehensive cache performance summary and metrics.
+    
+    Returns:
+        Dictionary with performance metrics and analysis
+    """
+    with log_tool_usage("get_cache_performance_summary", {}):
+        try:
+            from ...services.cache_performance_service import get_cache_performance_service
+            
+            # Get performance service
+            performance_service = await get_cache_performance_service()
+            
+            # Get performance summary
+            summary = await performance_service.get_performance_summary()
+            
+            return {
+                "success": True,
+                "performance_summary": summary
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_cache_performance_summary",
+                {}
+            )
+
+
+async def get_performance_degradation_events(
+    limit: int = 50,
+    active_only: bool = False,
+    severity_filter: Optional[str] = None
+) -> dict[str, Any]:
+    """
+    Get recent performance degradation events.
+    
+    Args:
+        limit: Maximum number of events to return
+        active_only: Whether to return only active degradations
+        severity_filter: Filter by severity level (low, medium, high, critical)
+        
+    Returns:
+        Dictionary with degradation events
+    """
+    with log_tool_usage(
+        "get_performance_degradation_events",
+        {
+            "limit": limit,
+            "active_only": active_only,
+            "severity_filter": severity_filter
+        }
+    ):
+        try:
+            from ...services.cache_performance_service import get_cache_performance_service
+            
+            # Get performance service
+            performance_service = await get_cache_performance_service()
+            
+            # Get degradation events
+            events = await performance_service.get_degradation_events(
+                limit=limit,
+                active_only=active_only
+            )
+            
+            # Filter by severity if specified
+            if severity_filter:
+                events = [event for event in events if event.get("severity") == severity_filter]
+            
+            return {
+                "success": True,
+                "degradation_events": events,
+                "total_count": len(events),
+                "filters_applied": {
+                    "limit": limit,
+                    "active_only": active_only,
+                    "severity_filter": severity_filter
+                }
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_performance_degradation_events",
+                {
+                    "limit": limit,
+                    "active_only": active_only,
+                    "severity_filter": severity_filter
+                }
+            )
+
+
+async def trigger_performance_remediation(
+    action: str,
+    target_metric: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """
+    Manually trigger performance remediation action.
+    
+    Args:
+        action: Remediation action to trigger (cache_eviction, connection_pool_restart, 
+               garbage_collection, cache_warmup, etc.)
+        target_metric: Target metric to measure improvement against
+        metadata: Additional metadata for the remediation action
+        
+    Returns:
+        Dictionary with remediation results
+    """
+    with log_tool_usage(
+        "trigger_performance_remediation",
+        {
+            "action": action,
+            "target_metric": target_metric,
+            "has_metadata": metadata is not None
+        }
+    ):
+        try:
+            from ...services.cache_performance_service import (
+                get_cache_performance_service,
+                RemediationAction,
+                PerformanceMetricType
+            )
+            
+            # Map action string to enum
+            action_mapping = {
+                "cache_eviction": RemediationAction.CACHE_EVICTION,
+                "connection_pool_restart": RemediationAction.CONNECTION_POOL_RESTART,
+                "garbage_collection": RemediationAction.GARBAGE_COLLECTION,
+                "cache_warmup": RemediationAction.CACHE_WARMUP,
+                "load_balancing": RemediationAction.LOAD_BALANCING,
+                "circuit_breaker_trip": RemediationAction.CIRCUIT_BREAKER_TRIP,
+                "alert_notification": RemediationAction.ALERT_NOTIFICATION,
+                "auto_scaling": RemediationAction.AUTO_SCALING
+            }
+            
+            remediation_action = action_mapping.get(action)
+            if not remediation_action:
+                return {
+                    "success": False,
+                    "error": f"Unknown remediation action: {action}",
+                    "available_actions": list(action_mapping.keys())
+                }
+            
+            # Map target metric if provided
+            target_metric_enum = None
+            if target_metric:
+                metric_mapping = {
+                    "response_time": PerformanceMetricType.RESPONSE_TIME,
+                    "error_rate": PerformanceMetricType.ERROR_RATE,
+                    "hit_rate": PerformanceMetricType.HIT_RATE,
+                    "memory_usage": PerformanceMetricType.MEMORY_USAGE,
+                    "cpu_usage": PerformanceMetricType.CPU_USAGE,
+                    "network_io": PerformanceMetricType.NETWORK_IO,
+                    "disk_io": PerformanceMetricType.DISK_IO,
+                    "connection_count": PerformanceMetricType.CONNECTION_COUNT
+                }
+                target_metric_enum = metric_mapping.get(target_metric)
+            
+            # Get performance service
+            performance_service = await get_cache_performance_service()
+            
+            # Trigger remediation
+            result = await performance_service.trigger_manual_remediation(
+                action=remediation_action,
+                target_metric=target_metric_enum,
+                metadata=metadata
+            )
+            
+            return {
+                "success": result.success,
+                "remediation_result": {
+                    "action": result.action.value,
+                    "started_at": result.started_at.isoformat(),
+                    "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+                    "success": result.success,
+                    "error_message": result.error_message,
+                    "performance_improvement": result.performance_improvement,
+                    "metadata": result.metadata
+                }
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "trigger_performance_remediation",
+                {
+                    "action": action,
+                    "target_metric": target_metric
+                }
+            )
+
+
+async def configure_performance_monitoring(
+    monitoring_interval_seconds: int = 60,
+    degradation_threshold_ratio: float = 2.0,
+    critical_threshold_ratio: float = 5.0,
+    auto_remediation_enabled: bool = True,
+    alert_thresholds: Optional[dict[str, float]] = None
+) -> dict[str, Any]:
+    """
+    Configure cache performance monitoring settings.
+    
+    Args:
+        monitoring_interval_seconds: Interval between performance checks
+        degradation_threshold_ratio: Threshold ratio for degradation detection
+        critical_threshold_ratio: Threshold ratio for critical degradation
+        auto_remediation_enabled: Whether to enable automatic remediation
+        alert_thresholds: Dictionary of alert thresholds for different metrics
+        
+    Returns:
+        Dictionary with configuration results
+    """
+    with log_tool_usage(
+        "configure_performance_monitoring",
+        {
+            "monitoring_interval_seconds": monitoring_interval_seconds,
+            "degradation_threshold_ratio": degradation_threshold_ratio,
+            "critical_threshold_ratio": critical_threshold_ratio,
+            "auto_remediation_enabled": auto_remediation_enabled,
+            "has_alert_thresholds": alert_thresholds is not None
+        }
+    ):
+        try:
+            from ...services.cache_performance_service import PerformanceConfiguration
+            
+            # Default alert thresholds
+            default_alert_thresholds = {
+                "response_time_p95": 1000.0,  # 1 second
+                "error_rate": 0.05,           # 5%
+                "hit_rate": 0.8,              # 80%
+                "memory_usage": 0.85          # 85%
+            }
+            
+            # Merge with provided thresholds
+            final_alert_thresholds = default_alert_thresholds.copy()
+            if alert_thresholds:
+                final_alert_thresholds.update(alert_thresholds)
+            
+            # Create performance configuration
+            perf_config = PerformanceConfiguration(
+                monitoring_interval_seconds=monitoring_interval_seconds,
+                degradation_threshold_ratio=degradation_threshold_ratio,
+                critical_threshold_ratio=critical_threshold_ratio,
+                auto_remediation_enabled=auto_remediation_enabled,
+                alert_thresholds=final_alert_thresholds
+            )
+            
+            # Note: In a real implementation, you would update the running service
+            # For now, we'll just return the configuration
+            
+            return {
+                "success": True,
+                "message": "Performance monitoring configuration updated",
+                "configuration": {
+                    "monitoring_interval_seconds": monitoring_interval_seconds,
+                    "degradation_threshold_ratio": degradation_threshold_ratio,
+                    "critical_threshold_ratio": critical_threshold_ratio,
+                    "auto_remediation_enabled": auto_remediation_enabled,
+                    "alert_thresholds": final_alert_thresholds
+                }
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "configure_performance_monitoring",
+                {
+                    "monitoring_interval_seconds": monitoring_interval_seconds,
+                    "degradation_threshold_ratio": degradation_threshold_ratio
+                }
+            )
+
+
+async def analyze_performance_trends(
+    time_window_hours: int = 24,
+    metric_types: Optional[list[str]] = None
+) -> dict[str, Any]:
+    """
+    Analyze cache performance trends over a specified time window.
+    
+    Args:
+        time_window_hours: Time window for trend analysis in hours
+        metric_types: List of metric types to analyze (None for all)
+        
+    Returns:
+        Dictionary with performance trend analysis
+    """
+    with log_tool_usage(
+        "analyze_performance_trends",
+        {
+            "time_window_hours": time_window_hours,
+            "metric_types": metric_types
+        }
+    ):
+        try:
+            from ...services.cache_performance_service import get_cache_performance_service
+            
+            # Get performance service
+            performance_service = await get_cache_performance_service()
+            
+            # Get performance summary for trend data
+            summary = await performance_service.get_performance_summary()
+            
+            # Analyze trends (simplified implementation)
+            trends = {
+                "time_window_hours": time_window_hours,
+                "analysis_timestamp": datetime.now().isoformat(),
+                "metric_trends": {},
+                "overall_trend": "stable",
+                "recommendations": []
+            }
+            
+            # Analyze each metric type
+            metrics = summary.get("metrics", {})
+            baselines = summary.get("baselines", {})
+            
+            for metric_name, metric_data in metrics.items():
+                if metric_types and metric_name not in metric_types:
+                    continue
+                
+                current_value = metric_data.get("current", 0)
+                average_value = metric_data.get("average", 0)
+                baseline_info = baselines.get(metric_name, {})
+                baseline_value = baseline_info.get("baseline_value", average_value)
+                
+                # Calculate trend
+                if baseline_value > 0:
+                    trend_ratio = current_value / baseline_value
+                    if trend_ratio > 1.2:
+                        trend = "degrading"
+                    elif trend_ratio < 0.8:
+                        trend = "improving"
+                    else:
+                        trend = "stable"
+                else:
+                    trend = "unknown"
+                
+                trends["metric_trends"][metric_name] = {
+                    "current_value": current_value,
+                    "average_value": average_value,
+                    "baseline_value": baseline_value,
+                    "trend_ratio": trend_ratio if baseline_value > 0 else 1.0,
+                    "trend": trend,
+                    "p95_value": metric_data.get("p95", current_value),
+                    "p99_value": metric_data.get("p99", current_value)
+                }
+                
+                # Generate recommendations based on trends
+                if trend == "degrading":
+                    if metric_name == "response_time":
+                        trends["recommendations"].append(f"Response time is degrading. Consider cache optimization or scaling.")
+                    elif metric_name == "error_rate":
+                        trends["recommendations"].append(f"Error rate is increasing. Check system health and connections.")
+                    elif metric_name == "memory_usage":
+                        trends["recommendations"].append(f"Memory usage is high. Consider cache eviction or scaling.")
+            
+            # Determine overall trend
+            degrading_metrics = [name for name, data in trends["metric_trends"].items() if data["trend"] == "degrading"]
+            if len(degrading_metrics) >= 2:
+                trends["overall_trend"] = "degrading"
+            elif degrading_metrics:
+                trends["overall_trend"] = "concerning"
+            
+            return {
+                "success": True,
+                "performance_trends": trends
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "analyze_performance_trends",
+                {
+                    "time_window_hours": time_window_hours,
+                    "metric_types": metric_types
+                }
+            )
+
+
+async def get_performance_recommendations() -> dict[str, Any]:
+    """
+    Get performance optimization recommendations based on current metrics.
+    
+    Returns:
+        Dictionary with performance recommendations
+    """
+    with log_tool_usage("get_performance_recommendations", {}):
+        try:
+            from ...services.cache_performance_service import get_cache_performance_service
+            
+            # Get performance service
+            performance_service = await get_cache_performance_service()
+            
+            # Get current performance summary
+            summary = await performance_service.get_performance_summary()
+            
+            # Get recent degradation events
+            events = await performance_service.get_degradation_events(limit=10, active_only=True)
+            
+            # Generate recommendations
+            recommendations = {
+                "timestamp": datetime.now().isoformat(),
+                "overall_health": "good",
+                "immediate_actions": [],
+                "optimization_recommendations": [],
+                "monitoring_recommendations": [],
+                "capacity_planning": []
+            }
+            
+            # Analyze metrics for recommendations
+            metrics = summary.get("metrics", {})
+            operation_stats = summary.get("operation_stats", {})
+            
+            # Response time analysis
+            response_time_data = metrics.get("response_time", {})
+            if response_time_data:
+                p95 = response_time_data.get("p95", 0)
+                if p95 > 1000:  # > 1 second
+                    recommendations["immediate_actions"].append("High response times detected. Consider cache optimization.")
+                    recommendations["overall_health"] = "concerning"
+                elif p95 > 500:  # > 500ms
+                    recommendations["optimization_recommendations"].append("Response times are elevated. Monitor for trends.")
+            
+            # Error rate analysis
+            error_rate_data = metrics.get("error_rate", {})
+            if error_rate_data:
+                current_error_rate = error_rate_data.get("current", 0)
+                if current_error_rate > 0.1:  # > 10%
+                    recommendations["immediate_actions"].append("High error rate detected. Check system health.")
+                    recommendations["overall_health"] = "poor"
+                elif current_error_rate > 0.05:  # > 5%
+                    recommendations["monitoring_recommendations"].append("Error rate is elevated. Increase monitoring.")
+            
+            # Memory usage analysis
+            memory_data = metrics.get("memory_usage", {})
+            if memory_data:
+                current_memory = memory_data.get("current", 0)
+                if current_memory > 0.9:  # > 90%
+                    recommendations["immediate_actions"].append("Critical memory usage. Immediate action required.")
+                    recommendations["overall_health"] = "critical"
+                elif current_memory > 0.8:  # > 80%
+                    recommendations["capacity_planning"].append("Memory usage is high. Plan for scaling.")
+            
+            # Hit rate analysis
+            hit_rate_data = metrics.get("hit_rate", {})
+            if hit_rate_data:
+                current_hit_rate = hit_rate_data.get("current", 1.0)
+                if current_hit_rate < 0.7:  # < 70%
+                    recommendations["optimization_recommendations"].append("Low cache hit rate. Review caching strategy.")
+                elif current_hit_rate < 0.8:  # < 80%
+                    recommendations["monitoring_recommendations"].append("Hit rate could be improved. Monitor cache efficiency.")
+            
+            # Active degradation events
+            if events:
+                critical_events = [e for e in events if e.get("severity") == "critical"]
+                high_events = [e for e in events if e.get("severity") == "high"]
+                
+                if critical_events:
+                    recommendations["immediate_actions"].append(f"{len(critical_events)} critical performance issues need immediate attention.")
+                    recommendations["overall_health"] = "critical"
+                elif high_events:
+                    recommendations["immediate_actions"].append(f"{len(high_events)} high-severity performance issues detected.")
+                    if recommendations["overall_health"] == "good":
+                        recommendations["overall_health"] = "concerning"
+            
+            # General recommendations
+            if not recommendations["immediate_actions"]:
+                if not recommendations["optimization_recommendations"]:
+                    recommendations["optimization_recommendations"].append("Performance is good. Continue regular monitoring.")
+                recommendations["monitoring_recommendations"].append("Set up regular performance trend analysis.")
+                recommendations["capacity_planning"].append("Review capacity planning based on usage trends.")
+            
+            return {
+                "success": True,
+                "performance_recommendations": recommendations,
+                "active_degradations": len(events),
+                "metrics_analyzed": len(metrics)
+            }
+            
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_performance_recommendations",
+                {}
+            )

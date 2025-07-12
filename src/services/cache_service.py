@@ -1193,6 +1193,77 @@ class MultiTierCacheService(BaseCacheService):
         }
         return stats
 
+    async def check_cache_coherency(self) -> dict[str, Any]:
+        """
+        Check cache coherency between L1 and L2 tiers.
+        
+        Returns:
+            Dictionary with coherency check results
+        """
+        try:
+            coherency_result = {
+                "coherent": True,
+                "l1_l2_consistent": True,
+                "stale_entries": 0,
+                "mismatched_keys": [],
+                "checked_keys": 0,
+                "timestamp": time.time()
+            }
+            
+            if not self.l2_cache:
+                # No L2 cache, so coherency is trivial
+                return coherency_result
+            
+            # Get sample of keys to check (for performance)
+            l1_keys = list(self.l1_cache._cache.keys())[:100]  # Limit to 100 keys
+            coherency_result["checked_keys"] = len(l1_keys)
+            
+            for key in l1_keys:
+                try:
+                    # Get values from both tiers
+                    l1_entry = self.l1_cache.get(key)
+                    l2_entry = await self.l2_cache.get(key)
+                    
+                    # Compare values if both exist
+                    if l1_entry is not None and l2_entry is not None:
+                        if not self._entries_equal(l1_entry, l2_entry):
+                            coherency_result["l1_l2_consistent"] = False
+                            coherency_result["mismatched_keys"].append(key)
+                            coherency_result["stale_entries"] += 1
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error checking coherency for key {key}: {e}")
+                    coherency_result["stale_entries"] += 1
+            
+            # Determine overall coherency
+            coherency_result["coherent"] = (
+                coherency_result["l1_l2_consistent"] and 
+                coherency_result["stale_entries"] == 0
+            )
+            
+            return coherency_result
+            
+        except Exception as e:
+            self.logger.error(f"Error checking cache coherency: {e}")
+            return {
+                "coherent": False,
+                "l1_l2_consistent": False,
+                "stale_entries": -1,
+                "error": str(e),
+                "timestamp": time.time()
+            }
+
+    def _entries_equal(self, entry1: Any, entry2: Any) -> bool:
+        """Check if two cache entries are equal."""
+        try:
+            # Handle CacheEntry objects
+            if hasattr(entry1, 'data') and hasattr(entry2, 'data'):
+                return entry1.data == entry2.data
+            else:
+                return entry1 == entry2
+        except Exception:
+            return False
+
 
 # Global cache service instance
 _cache_service: RedisCacheService | MultiTierCacheService | None = None
