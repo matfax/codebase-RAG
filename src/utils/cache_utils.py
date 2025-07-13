@@ -630,6 +630,11 @@ def cache_deserialize(data: bytes, metadata: dict[str, Any]) -> Any:
     return decompress_and_deserialize(data, metadata)
 
 
+# Aliases for backward compatibility
+serialize_for_cache = cache_serialize
+deserialize_from_cache = cache_deserialize
+
+
 # Export commonly used functions
 __all__ = [
     "SerializationFormat",

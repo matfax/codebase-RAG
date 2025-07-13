@@ -9,13 +9,12 @@ import asyncio
 import logging
 from typing import Any
 
-from ...services.file_monitoring_integration import get_file_monitoring_integration
-from ...services.file_monitoring_service import MonitoringMode
+from src.services.file_monitoring_integration import get_file_monitoring_integration
+from src.services.file_monitoring_service import MonitoringMode
 
 logger = logging.getLogger(__name__)
 
 
-@logger.catch
 async def setup_project_monitoring_tool(
     project_name: str,
     root_directory: str,
@@ -95,7 +94,6 @@ async def setup_project_monitoring_tool(
         }
 
 
-@logger.catch
 async def remove_project_monitoring_tool(project_name: str) -> dict[str, Any]:
     """
     Remove file monitoring for a project.
@@ -125,7 +123,6 @@ async def remove_project_monitoring_tool(project_name: str) -> dict[str, Any]:
         }
 
 
-@logger.catch
 async def get_monitoring_status_tool(project_name: str | None = None) -> dict[str, Any]:
     """
     Get file monitoring status for all projects or a specific project.
@@ -181,7 +178,6 @@ async def get_monitoring_status_tool(project_name: str | None = None) -> dict[st
         }
 
 
-@logger.catch
 async def trigger_manual_scan_tool(project_name: str) -> dict[str, Any]:
     """
     Trigger manual file system scan for a project.
@@ -212,7 +208,6 @@ async def trigger_manual_scan_tool(project_name: str) -> dict[str, Any]:
         }
 
 
-@logger.catch
 async def configure_monitoring_mode_tool(mode: str) -> dict[str, Any]:
     """
     Configure global file monitoring mode.
@@ -254,7 +249,6 @@ async def configure_monitoring_mode_tool(mode: str) -> dict[str, Any]:
         }
 
 
-@logger.catch
 async def update_project_config_tool(
     project_name: str,
     file_patterns: list[str] | None = None,
@@ -334,7 +328,6 @@ async def update_project_config_tool(
         }
 
 
-@logger.catch
 async def trigger_file_invalidation_tool(file_path: str, project_name: str | None = None, force: bool = False) -> dict[str, Any]:
     """
     Manually trigger cache invalidation for a specific file.
