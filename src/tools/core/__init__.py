@@ -29,7 +29,9 @@ from tools.core.errors import (
     ValidationError,
 )
 from tools.core.health import basic_health_check, health_check
-from tools.core.memory_utils import (
+from tools.core.retry_utils import retry_operation, retry_with_context
+
+from src.utils.memory_utils import (
     check_memory_usage,
     clear_processing_variables,
     force_memory_cleanup,
@@ -39,7 +41,6 @@ from tools.core.memory_utils import (
     log_memory_usage,
     should_cleanup_memory,
 )
-from tools.core.retry_utils import retry_operation, retry_with_context
 
 __all__ = [
     "health_check",

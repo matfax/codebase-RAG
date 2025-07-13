@@ -24,20 +24,21 @@ from qdrant_client.http.models import (
 from tools.core.errors import (
     QdrantConnectionError,
 )
-from tools.core.memory_utils import (
-    clear_processing_variables,
-    force_memory_cleanup,
-    get_adaptive_batch_size,
-    get_memory_usage_mb,
-    log_memory_usage,
-    should_cleanup_memory,
-)
 from tools.core.retry_utils import retry_operation
 from tools.database.qdrant_utils import (
     check_qdrant_health,
     log_database_metrics,
     retry_individual_points,
     retry_qdrant_operation,
+)
+
+from src.utils.memory_utils import (
+    clear_processing_variables,
+    force_memory_cleanup,
+    get_adaptive_batch_size,
+    get_memory_usage_mb,
+    log_memory_usage,
+    should_cleanup_memory,
 )
 
 # Load environment variables

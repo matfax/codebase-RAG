@@ -24,6 +24,7 @@ from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
 
 from ..config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
+from ..utils.cache_eviction_policies import EvictionOptimizer, EvictionPolicy, EvictionPolicyFactory
 from ..utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
 
 
@@ -655,14 +656,20 @@ class CacheEntry:
 
 class LRUMemoryCache:
     """
-    Thread-safe LRU memory cache implementation.
+    Thread-safe memory cache with advanced eviction policies.
 
-    This class provides an in-memory cache with LRU (Least Recently Used) eviction
-    policy, TTL support, and size-based eviction.
+    This class provides an in-memory cache with configurable eviction policies,
+    TTL support, size-based eviction, and performance optimization.
     """
 
-    def __init__(self, max_size: int = 1000, max_memory_mb: int = 256, default_ttl: int = 3600):
-        """Initialize LRU memory cache."""
+    def __init__(
+        self,
+        max_size: int = 1000,
+        max_memory_mb: int = 256,
+        default_ttl: int = 3600,
+        eviction_policy: EvictionPolicy = EvictionPolicy.ADAPTIVE,
+    ):
+        """Initialize memory cache with advanced eviction."""
         self.max_size = max_size
         self.max_memory_mb = max_memory_mb
         self.max_memory_bytes = max_memory_mb * 1024 * 1024
@@ -673,66 +680,93 @@ class LRUMemoryCache:
         self._stats = CacheStats()
         self.logger = logging.getLogger(__name__)
 
+        # Advanced eviction policy
+        self.eviction_policy_type = eviction_policy
+        self.eviction_policy = EvictionPolicyFactory.create_policy(eviction_policy, max_size, self.logger)
+        self.eviction_optimizer = EvictionOptimizer(self.logger)
+        self._access_log: list[dict] = []
+        self._optimization_interval = 10000  # Optimize every 10k operations
+        self._operation_count = 0
+
     def get(self, key: str) -> Any | None:
-        """Get a value from the cache."""
+        """Get a value from the cache using advanced eviction policy."""
         telemetry = get_telemetry_manager()
 
         with trace_cache_operation(
             operation="get", cache_name="memory_cache", cache_key=key, additional_attributes={"cache.type": "memory", "cache.level": "l1"}
         ):
             with self._lock:
-                if key not in self._cache:
-                    self._stats.miss_count += 1
-                    self._stats.total_operations += 1
-                    # Record telemetry miss
-                    telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
-                    return None
+                self._operation_count += 1
 
-                entry = self._cache[key]
+                # Log access for optimization
+                self._log_access(key, "get")
 
-                # Check if expired
-                if entry.is_expired():
-                    self._remove_entry(key)
-                    self._stats.miss_count += 1
-                    self._stats.total_operations += 1
-                    # Record telemetry miss
-                    telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
-                    return None
+                # Use eviction policy for get operation
+                value = self.eviction_policy.get(key)
 
-                # Update access and move to end (most recently used)
-                entry.touch()
-                self._cache.move_to_end(key)
+                if value is not None:
+                    # Check if expired in our cache
+                    if key in self._cache:
+                        entry = self._cache[key]
+                        if entry.is_expired():
+                            self._remove_entry(key)
+                            self.eviction_policy.remove(key)
+                            self._stats.miss_count += 1
+                            self._stats.total_operations += 1
+                            telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
+                            return None
 
-                self._stats.hit_count += 1
+                        # Update access
+                        entry.touch()
+                        self._stats.hit_count += 1
+                        self._stats.total_operations += 1
+                        telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=True, cache_size=entry.size)
+                        return entry.value
+
+                # Cache miss
+                self._stats.miss_count += 1
                 self._stats.total_operations += 1
-                # Record telemetry hit
-                telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=True, cache_size=entry.size)
-                return entry.value
+                telemetry.record_cache_operation(operation="get", cache_name="memory_cache", hit=False)
+
+                # Periodic optimization
+                if self._operation_count % self._optimization_interval == 0:
+                    self._optimize_eviction_policy()
+
+                return None
 
     def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
-        """Set a value in the cache."""
+        """Set a value in the cache using advanced eviction policy."""
         with self._lock:
             try:
+                self._operation_count += 1
+
+                # Log access for optimization
+                self._log_access(key, "set")
+
                 # Calculate size (rough estimation)
                 size = self._estimate_size(value)
 
                 # Remove existing entry if present
                 if key in self._cache:
                     self._remove_entry(key)
+                    self.eviction_policy.remove(key)
 
-                # Check if we need to evict entries
-                self._evict_if_needed(size)
+                # Use eviction policy to handle capacity
+                success = self.eviction_policy.put(key, value, size)
 
-                # Create new entry
-                entry = CacheEntry(value=value, timestamp=time.time(), ttl=ttl or self.default_ttl, size=size)
+                if success:
+                    # Create new entry in our cache
+                    entry = CacheEntry(value=value, timestamp=time.time(), ttl=ttl or self.default_ttl, size=size)
+                    self._cache[key] = entry
+                    self._total_size += size
 
-                # Add to cache
-                self._cache[key] = entry
-                self._total_size += size
-
-                self._stats.set_count += 1
-                self._stats.total_operations += 1
-                return True
+                    self._stats.set_count += 1
+                    self._stats.total_operations += 1
+                    return True
+                else:
+                    self._stats.error_count += 1
+                    self._stats.total_operations += 1
+                    return False
 
             except Exception as e:
                 self.logger.error(f"Failed to set cache entry: {e}")
@@ -836,6 +870,115 @@ class LRUMemoryCache:
             else:
                 return 1024  # Default estimate
 
+    def _log_access(self, key: str, operation: str) -> None:
+        """Log access for eviction policy optimization."""
+        current_time = time.time()
+        self._access_log.append({"key": key, "operation": operation, "timestamp": current_time})
+
+        # Keep only recent access log (last 1000 operations)
+        if len(self._access_log) > 1000:
+            self._access_log = self._access_log[-1000:]
+
+    def _optimize_eviction_policy(self) -> None:
+        """Optimize eviction policy based on access patterns."""
+        try:
+            # Analyze workload characteristics
+            workload_stats = self.eviction_optimizer.analyze_workload_characteristics(self._access_log)
+
+            # Get optimization recommendations
+            recommendations = self.eviction_optimizer.optimize_policy_parameters(self.eviction_policy, workload_stats)
+
+            # Log recommendations
+            if recommendations.get("recommendations"):
+                self.logger.info(f"Cache optimization recommendations: {recommendations}")
+
+                # Auto-apply some recommendations if beneficial
+                for rec in recommendations["recommendations"]:
+                    if rec["type"] == "policy" and rec.get("suggested_policy"):
+                        suggested_policy = rec["suggested_policy"].upper()
+                        if hasattr(EvictionPolicy, suggested_policy):
+                            new_policy_type = getattr(EvictionPolicy, suggested_policy)
+                            if new_policy_type != self.eviction_policy_type:
+                                self._switch_eviction_policy(new_policy_type)
+                                break
+
+        except Exception as e:
+            self.logger.error(f"Error optimizing eviction policy: {e}")
+
+    def _switch_eviction_policy(self, new_policy_type: EvictionPolicy) -> None:
+        """Switch to a new eviction policy."""
+        try:
+            # Create new policy
+            new_policy = EvictionPolicyFactory.create_policy(new_policy_type, self.max_size, self.logger)
+
+            # Migrate current entries
+            for key, entry in self._cache.items():
+                if not entry.is_expired():
+                    new_policy.put(key, entry.value, entry.size)
+
+            # Update policy
+            old_policy = self.eviction_policy_type.value
+            self.eviction_policy = new_policy
+            self.eviction_policy_type = new_policy_type
+
+            self.logger.info(f"Switched eviction policy from {old_policy} to {new_policy_type.value}")
+
+        except Exception as e:
+            self.logger.error(f"Error switching eviction policy: {e}")
+
+    def get_eviction_stats(self) -> dict[str, Any]:
+        """Get eviction policy statistics."""
+        base_stats = self.eviction_policy.get_stats()
+        base_stats.update(
+            {
+                "policy_type": self.eviction_policy_type.value,
+                "available_policies": EvictionPolicyFactory.get_available_policies(),
+                "optimization_enabled": True,
+                "operation_count": self._operation_count,
+                "access_log_size": len(self._access_log),
+            }
+        )
+        return base_stats
+
+    def configure_eviction_policy(self, policy_type: str = None, auto_optimize: bool = None) -> dict[str, Any]:
+        """Configure eviction policy settings."""
+        result = {"success": False, "message": ""}
+
+        try:
+            if policy_type:
+                policy_enum = None
+                for policy in EvictionPolicy:
+                    if policy.value.upper() == policy_type.upper():
+                        policy_enum = policy
+                        break
+
+                if policy_enum and policy_enum != self.eviction_policy_type:
+                    self._switch_eviction_policy(policy_enum)
+                    result["success"] = True
+                    result["message"] = f"Switched to {policy_enum.value} eviction policy"
+                elif policy_enum == self.eviction_policy_type:
+                    result["success"] = True
+                    result["message"] = f"Already using {policy_enum.value} eviction policy"
+                else:
+                    result["message"] = f"Unknown eviction policy: {policy_type}"
+
+            if auto_optimize is not None:
+                # Note: auto_optimize is always enabled in this implementation
+                result["auto_optimize"] = True
+
+            # Return current configuration
+            result["current_config"] = {
+                "policy": self.eviction_policy_type.value,
+                "auto_optimize": True,
+                "available_policies": EvictionPolicyFactory.get_available_policies(),
+            }
+
+            return result
+
+        except Exception as e:
+            result["message"] = f"Error configuring eviction policy: {e}"
+            return result
+
 
 class MultiTierCacheService(BaseCacheService):
     """
@@ -847,6 +990,7 @@ class MultiTierCacheService(BaseCacheService):
     - Cache coherency between layers
     - Configurable write strategies (write-through, write-back)
     - Promotion and demotion logic
+    - Advanced cache warming and optimization strategies
     """
 
     def __init__(self, config: CacheConfig | None = None):
@@ -866,6 +1010,20 @@ class MultiTierCacheService(BaseCacheService):
         self._promotion_threshold = 3  # Access count threshold for promotion
         self._cleanup_task: asyncio.Task | None = None
 
+        # Cache warming and optimization
+        self._warmup_task: asyncio.Task | None = None
+        self._access_patterns: dict[str, dict] = {}  # Track access patterns for intelligent warming
+        self._warming_strategies = {
+            "aggressive": self._aggressive_warmup,
+            "conservative": self._conservative_warmup,
+            "predictive": self._predictive_warmup,
+            "adaptive": self._adaptive_warmup,
+        }
+        self._current_warming_strategy = "adaptive"
+        self._warming_enabled = True
+        self._warming_batch_size = 50
+        self._warming_delay = 1.0  # Delay between warming batches
+
     async def initialize(self) -> None:
         """Initialize multi-tier cache service."""
         # Initialize L2 cache if enabled
@@ -874,6 +1032,10 @@ class MultiTierCacheService(BaseCacheService):
 
         # Start cleanup task
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+        # Start cache warming task if enabled
+        if self._warming_enabled:
+            self._warmup_task = asyncio.create_task(self._warmup_loop())
 
         self.logger.info("Multi-tier cache service initialized")
 
@@ -884,6 +1046,14 @@ class MultiTierCacheService(BaseCacheService):
             self._cleanup_task.cancel()
             try:
                 await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel warmup task
+        if self._warmup_task:
+            self._warmup_task.cancel()
+            try:
+                await self._warmup_task
             except asyncio.CancelledError:
                 pass
 
@@ -900,6 +1070,9 @@ class MultiTierCacheService(BaseCacheService):
     async def get(self, key: str) -> Any | None:
         """Get a value from the multi-tier cache."""
         try:
+            # Track access pattern for cache warming optimization
+            self._track_access_pattern(key)
+
             # Try L1 first
             if self.config.cache_level in [CacheLevel.L1_MEMORY, CacheLevel.BOTH]:
                 value = self.l1_cache.get(key)
@@ -1254,6 +1427,271 @@ class MultiTierCacheService(BaseCacheService):
                 return entry1 == entry2
         except Exception:
             return False
+
+    # Cache Warming and Optimization Methods
+
+    def _track_access_pattern(self, key: str) -> None:
+        """Track access patterns for intelligent cache warming."""
+        current_time = time.time()
+
+        if key not in self._access_patterns:
+            self._access_patterns[key] = {"access_count": 0, "last_access": current_time, "access_times": [], "frequency_score": 0.0}
+
+        pattern = self._access_patterns[key]
+        pattern["access_count"] += 1
+        pattern["access_times"].append(current_time)
+        pattern["last_access"] = current_time
+
+        # Keep only recent access times (last 24 hours)
+        recent_cutoff = current_time - 86400  # 24 hours
+        pattern["access_times"] = [t for t in pattern["access_times"] if t > recent_cutoff]
+
+        # Calculate frequency score
+        if len(pattern["access_times"]) > 1:
+            time_span = max(pattern["access_times"]) - min(pattern["access_times"])
+            if time_span > 0:
+                pattern["frequency_score"] = len(pattern["access_times"]) / time_span * 3600  # accesses per hour
+
+        # Limit pattern storage to most recent 1000 keys
+        if len(self._access_patterns) > 1000:
+            oldest_keys = sorted(self._access_patterns.keys(), key=lambda k: self._access_patterns[k]["last_access"])[:100]
+            for old_key in oldest_keys:
+                del self._access_patterns[old_key]
+
+    async def _warmup_loop(self) -> None:
+        """Main cache warming loop."""
+        while True:
+            try:
+                await asyncio.sleep(self.config.memory.cleanup_interval * 2)  # Run warming less frequently
+
+                if self._warming_enabled and self._current_warming_strategy in self._warming_strategies:
+                    await self._warming_strategies[self._current_warming_strategy]()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Cache warming loop error: {e}")
+
+    async def _aggressive_warmup(self) -> None:
+        """Aggressive warming strategy - warm most accessed keys."""
+        try:
+            # Get top accessed keys
+            top_keys = self._get_top_accessed_keys(self._warming_batch_size * 2)
+
+            # Warm keys in batches
+            for i in range(0, len(top_keys), self._warming_batch_size):
+                batch = top_keys[i : i + self._warming_batch_size]
+                await self._warm_keys_batch(batch)
+                await asyncio.sleep(self._warming_delay)
+
+        except Exception as e:
+            self.logger.error(f"Aggressive warmup error: {e}")
+
+    async def _conservative_warmup(self) -> None:
+        """Conservative warming strategy - warm only highly frequent keys."""
+        try:
+            # Get keys with high frequency scores
+            frequent_keys = [
+                key
+                for key, pattern in self._access_patterns.items()
+                if pattern["frequency_score"] > 10.0  # More than 10 accesses per hour
+            ]
+
+            # Sort by frequency and take top keys
+            frequent_keys.sort(key=lambda k: self._access_patterns[k]["frequency_score"], reverse=True)
+            batch = frequent_keys[: self._warming_batch_size // 2]
+
+            if batch:
+                await self._warm_keys_batch(batch)
+
+        except Exception as e:
+            self.logger.error(f"Conservative warmup error: {e}")
+
+    async def _predictive_warmup(self) -> None:
+        """Predictive warming strategy - predict which keys will be accessed."""
+        try:
+            current_time = time.time()
+            predictive_keys = []
+
+            # Analyze access patterns to predict future accesses
+            for key, pattern in self._access_patterns.items():
+                # Calculate time since last access
+                time_since_access = current_time - pattern["last_access"]
+
+                # Predict based on historical frequency and recency
+                if len(pattern["access_times"]) >= 3:
+                    avg_interval = self._calculate_average_interval(pattern["access_times"])
+
+                    # If average interval suggests next access is due soon
+                    if time_since_access >= avg_interval * 0.8:
+                        predictive_keys.append((key, pattern["frequency_score"]))
+
+            # Sort by prediction confidence (frequency score)
+            predictive_keys.sort(key=lambda x: x[1], reverse=True)
+            keys_to_warm = [key for key, _ in predictive_keys[: self._warming_batch_size]]
+
+            if keys_to_warm:
+                await self._warm_keys_batch(keys_to_warm)
+
+        except Exception as e:
+            self.logger.error(f"Predictive warmup error: {e}")
+
+    async def _adaptive_warmup(self) -> None:
+        """Adaptive warming strategy - combines multiple approaches."""
+        try:
+            current_hit_rate = self.l1_cache.get_stats().hit_rate
+
+            # Adapt strategy based on current hit rate
+            if current_hit_rate < 0.6:
+                # Low hit rate - use aggressive warming
+                await self._aggressive_warmup()
+            elif current_hit_rate < 0.8:
+                # Medium hit rate - use predictive warming
+                await self._predictive_warmup()
+            else:
+                # High hit rate - use conservative warming
+                await self._conservative_warmup()
+
+        except Exception as e:
+            self.logger.error(f"Adaptive warmup error: {e}")
+
+    def _get_top_accessed_keys(self, count: int) -> list[str]:
+        """Get top accessed keys sorted by access frequency."""
+        # Sort keys by combined score of frequency and recency
+        current_time = time.time()
+        scored_keys = []
+
+        for key, pattern in self._access_patterns.items():
+            recency_score = 1.0 / (1.0 + (current_time - pattern["last_access"]) / 3600)  # Higher for recent
+            combined_score = pattern["frequency_score"] * recency_score
+            scored_keys.append((key, combined_score))
+
+        scored_keys.sort(key=lambda x: x[1], reverse=True)
+        return [key for key, _ in scored_keys[:count]]
+
+    def _calculate_average_interval(self, access_times: list[float]) -> float:
+        """Calculate average interval between accesses."""
+        if len(access_times) < 2:
+            return 3600.0  # Default to 1 hour
+
+        intervals = []
+        for i in range(1, len(access_times)):
+            intervals.append(access_times[i] - access_times[i - 1])
+
+        return sum(intervals) / len(intervals)
+
+    async def _warm_keys_batch(self, keys: list[str]) -> None:
+        """Warm a batch of keys from L2 to L1 cache."""
+        if not self.l2_cache or self.config.cache_level != CacheLevel.BOTH:
+            return
+
+        try:
+            # Get values from L2 for keys not in L1
+            keys_to_warm = []
+            for key in keys:
+                if not self.l1_cache.exists(key):
+                    keys_to_warm.append(key)
+
+            if keys_to_warm:
+                # Batch get from L2
+                l2_values = await self.l2_cache.get_batch(keys_to_warm)
+
+                # Promote to L1
+                for key, value in l2_values.items():
+                    self.l1_cache.set(key, value, self.config.memory.ttl_seconds)
+
+                self.logger.debug(f"Warmed {len(l2_values)} keys to L1 cache")
+
+        except Exception as e:
+            self.logger.error(f"Error warming keys batch: {e}")
+
+    async def trigger_cache_warmup(self, strategy: str = None, keys: list[str] = None) -> dict[str, Any]:
+        """
+        Manually trigger cache warmup.
+
+        Args:
+            strategy: Warming strategy to use ('aggressive', 'conservative', 'predictive', 'adaptive')
+            keys: Specific keys to warm (optional)
+
+        Returns:
+            Dictionary with warmup results
+        """
+        try:
+            warmup_start = time.time()
+
+            if keys:
+                # Warm specific keys
+                await self._warm_keys_batch(keys)
+                return {"strategy": "manual", "keys_warmed": len(keys), "duration": time.time() - warmup_start, "success": True}
+            else:
+                # Use specified or current strategy
+                strategy = strategy or self._current_warming_strategy
+                if strategy in self._warming_strategies:
+                    await self._warming_strategies[strategy]()
+                    return {"strategy": strategy, "duration": time.time() - warmup_start, "success": True}
+                else:
+                    return {"strategy": strategy, "success": False, "error": f"Unknown warming strategy: {strategy}"}
+
+        except Exception as e:
+            return {"strategy": strategy or "unknown", "success": False, "error": str(e), "duration": time.time() - warmup_start}
+
+    def configure_cache_warming(
+        self, enabled: bool = None, strategy: str = None, batch_size: int = None, delay: float = None
+    ) -> dict[str, Any]:
+        """
+        Configure cache warming parameters.
+
+        Args:
+            enabled: Enable/disable cache warming
+            strategy: Warming strategy to use
+            batch_size: Number of keys to warm per batch
+            delay: Delay between warming batches
+
+        Returns:
+            Current warming configuration
+        """
+        if enabled is not None:
+            self._warming_enabled = enabled
+
+        if strategy is not None and strategy in self._warming_strategies:
+            self._current_warming_strategy = strategy
+
+        if batch_size is not None and batch_size > 0:
+            self._warming_batch_size = batch_size
+
+        if delay is not None and delay >= 0:
+            self._warming_delay = delay
+
+        return {
+            "enabled": self._warming_enabled,
+            "strategy": self._current_warming_strategy,
+            "batch_size": self._warming_batch_size,
+            "delay": self._warming_delay,
+            "available_strategies": list(self._warming_strategies.keys()),
+        }
+
+    def get_warming_stats(self) -> dict[str, Any]:
+        """Get cache warming statistics and access patterns."""
+        current_time = time.time()
+
+        # Calculate pattern statistics
+        total_patterns = len(self._access_patterns)
+        high_frequency_count = sum(1 for p in self._access_patterns.values() if p["frequency_score"] > 10.0)
+        recent_access_count = sum(1 for p in self._access_patterns.values() if current_time - p["last_access"] < 3600)
+
+        # Get top accessed keys
+        top_keys = self._get_top_accessed_keys(10)
+
+        return {
+            "warming_enabled": self._warming_enabled,
+            "current_strategy": self._current_warming_strategy,
+            "total_tracked_patterns": total_patterns,
+            "high_frequency_keys": high_frequency_count,
+            "recently_accessed_keys": recent_access_count,
+            "top_accessed_keys": top_keys,
+            "batch_size": self._warming_batch_size,
+            "warming_delay": self._warming_delay,
+        }
 
 
 # Global cache service instance

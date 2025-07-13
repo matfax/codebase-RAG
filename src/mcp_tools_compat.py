@@ -13,14 +13,6 @@ from tools import register_tools
 # to maintain backward compatibility without unused imports
 # Import functions from the new modular structure
 from tools.core.health import health_check
-from tools.core.memory_utils import (
-    clear_processing_variables,
-    force_memory_cleanup,
-    get_adaptive_batch_size,
-    get_memory_usage_mb,
-    log_memory_usage,
-    should_cleanup_memory,
-)
 from tools.core.retry_utils import retry_operation
 from tools.database.qdrant_utils import (
     check_qdrant_health,
@@ -45,6 +37,15 @@ from tools.project.project_tools import (
     list_indexed_projects,
 )
 from tools.project.project_utils import get_collection_name, get_current_project
+
+from src.utils.memory_utils import (
+    clear_processing_variables,
+    force_memory_cleanup,
+    get_adaptive_batch_size,
+    get_memory_usage_mb,
+    log_memory_usage,
+    should_cleanup_memory,
+)
 
 # Compatibility aliases for renamed functions
 analyze_repository_tool = None  # Will be imported from search_tools

@@ -17,22 +17,17 @@ def run_command(command, description=""):
     """Run a command and capture output."""
     print(f"Running: {description}")
     print(f"Command: {' '.join(command)}")
-    
+
     try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
-        
+        result = subprocess.run(command, capture_output=True, text=True, timeout=300)  # 5 minute timeout
+
         return {
             "command": " ".join(command),
             "description": description,
             "returncode": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "success": result.returncode == 0
+            "success": result.returncode == 0,
         }
     except subprocess.TimeoutExpired:
         return {
@@ -41,7 +36,7 @@ def run_command(command, description=""):
             "returncode": -1,
             "stdout": "",
             "stderr": "Command timed out",
-            "success": False
+            "success": False,
         }
     except Exception as e:
         return {
@@ -50,145 +45,122 @@ def run_command(command, description=""):
             "returncode": -2,
             "stdout": "",
             "stderr": str(e),
-            "success": False
+            "success": False,
         }
 
 
 def run_performance_benchmarks():
     """Run cache performance benchmark tests."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RUNNING CACHE PERFORMANCE BENCHMARKS")
-    print("="*60)
-    
+    print("=" * 60)
+
     results = []
-    
+
     # Performance test scenarios
     test_scenarios = [
-        {
-            "test": "test_basic_cache_performance",
-            "description": "Basic cache operations performance (get, set, delete)"
-        },
-        {
-            "test": "test_batch_operations_performance", 
-            "description": "Batch cache operations performance"
-        },
-        {
-            "test": "test_concurrent_operations_performance",
-            "description": "Concurrent cache operations performance"
-        },
-        {
-            "test": "test_memory_usage_profiling",
-            "description": "Memory usage profiling during cache operations"
-        },
-        {
-            "test": "test_cache_hit_miss_ratios",
-            "description": "Cache hit/miss ratio validation"
-        },
-        {
-            "test": "test_scalability_benchmarks",
-            "description": "Cache scalability under increasing load"
-        }
+        {"test": "test_basic_cache_performance", "description": "Basic cache operations performance (get, set, delete)"},
+        {"test": "test_batch_operations_performance", "description": "Batch cache operations performance"},
+        {"test": "test_concurrent_operations_performance", "description": "Concurrent cache operations performance"},
+        {"test": "test_memory_usage_profiling", "description": "Memory usage profiling during cache operations"},
+        {"test": "test_cache_hit_miss_ratios", "description": "Cache hit/miss ratio validation"},
+        {"test": "test_scalability_benchmarks", "description": "Cache scalability under increasing load"},
     ]
-    
+
     # Run each performance test
     for scenario in test_scenarios:
         test_command = [
-            "uv", "run", "python", "-m", "pytest", 
-            f"tests/test_cache_performance_benchmarks.py::{scenario['test']}", 
-            "-v", "-s", "--tb=short"
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "pytest",
+            f"tests/test_cache_performance_benchmarks.py::{scenario['test']}",
+            "-v",
+            "-s",
+            "--tb=short",
         ]
-        
+
         result = run_command(test_command, scenario["description"])
         result["scenario"] = scenario["test"]
         result["category"] = "performance"
         results.append(result)
-    
+
     return results
 
 
 def run_failure_scenarios():
     """Run failure scenario tests."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RUNNING FAILURE SCENARIO TESTS")
-    print("="*60)
-    
+    print("=" * 60)
+
     results = []
-    
+
     # Redis failure scenarios
     redis_scenarios = [
-        {
-            "test": "test_redis_connection_failure",
-            "description": "Redis connection failure and recovery"
-        },
-        {
-            "test": "test_redis_timeout_scenarios",
-            "description": "Redis timeout handling"
-        },
-        {
-            "test": "test_redis_authentication_failure",
-            "description": "Redis authentication failure scenarios"
-        },
-        {
-            "test": "test_redis_memory_exhaustion",
-            "description": "Redis memory exhaustion scenarios"
-        }
+        {"test": "test_redis_connection_failure", "description": "Redis connection failure and recovery"},
+        {"test": "test_redis_timeout_scenarios", "description": "Redis timeout handling"},
+        {"test": "test_redis_authentication_failure", "description": "Redis authentication failure scenarios"},
+        {"test": "test_redis_memory_exhaustion", "description": "Redis memory exhaustion scenarios"},
     ]
-    
+
     for scenario in redis_scenarios:
         test_command = [
-            "uv", "run", "python", "-m", "pytest", 
-            f"tests/test_redis_failure_scenarios.py::{scenario['test']}", 
-            "-v", "-s", "--tb=short"
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "pytest",
+            f"tests/test_redis_failure_scenarios.py::{scenario['test']}",
+            "-v",
+            "-s",
+            "--tb=short",
         ]
-        
+
         result = run_command(test_command, scenario["description"])
         result["scenario"] = scenario["test"]
         result["category"] = "redis_failure"
         results.append(result)
-    
+
     # Network failure scenarios
     network_scenarios = [
-        {
-            "test": "test_network_partition_scenario",
-            "description": "Network partition failure and recovery"
-        },
-        {
-            "test": "test_connection_timeout_handling",
-            "description": "Network connection timeout handling"
-        }
+        {"test": "test_network_partition_scenario", "description": "Network partition failure and recovery"},
+        {"test": "test_connection_timeout_handling", "description": "Network connection timeout handling"},
     ]
-    
+
     for scenario in network_scenarios:
         test_command = [
-            "uv", "run", "python", "-m", "pytest", 
-            f"tests/test_network_failure_scenarios.py::{scenario['test']}", 
-            "-v", "-s", "--tb=short"
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "pytest",
+            f"tests/test_network_failure_scenarios.py::{scenario['test']}",
+            "-v",
+            "-s",
+            "--tb=short",
         ]
-        
+
         result = run_command(test_command, scenario["description"])
         result["scenario"] = scenario["test"]
         result["category"] = "network_failure"
         results.append(result)
-    
+
     return results
 
 
 def run_memory_pressure_tests():
     """Run memory pressure tests."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RUNNING MEMORY PRESSURE TESTS")
-    print("="*60)
-    
+    print("=" * 60)
+
     results = []
-    
+
     # Memory pressure scenarios
-    memory_scenarios = [
-        {
-            "description": "Memory pressure under heavy cache load",
-            "test_type": "memory_pressure"
-        }
-    ]
-    
+    memory_scenarios = [{"description": "Memory pressure under heavy cache load", "test_type": "memory_pressure"}]
+
     # For now, simulate memory pressure tests
     for scenario in memory_scenarios:
         result = {
@@ -199,33 +171,27 @@ def run_memory_pressure_tests():
             "stderr": "",
             "success": True,
             "scenario": "memory_pressure_simulation",
-            "category": "memory_pressure"
+            "category": "memory_pressure",
         }
         results.append(result)
-    
+
     return results
 
 
 def run_cache_eviction_tests():
     """Run cache eviction scenario tests."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RUNNING CACHE EVICTION TESTS")
-    print("="*60)
-    
+    print("=" * 60)
+
     results = []
-    
+
     # Cache eviction scenarios
     eviction_scenarios = [
-        {
-            "description": "LRU cache eviction under memory pressure",
-            "test_type": "lru_eviction"
-        },
-        {
-            "description": "TTL-based cache eviction validation",
-            "test_type": "ttl_eviction"
-        }
+        {"description": "LRU cache eviction under memory pressure", "test_type": "lru_eviction"},
+        {"description": "TTL-based cache eviction validation", "test_type": "ttl_eviction"},
     ]
-    
+
     # For now, simulate eviction tests
     for scenario in eviction_scenarios:
         result = {
@@ -236,17 +202,17 @@ def run_cache_eviction_tests():
             "stderr": "",
             "success": True,
             "scenario": scenario["test_type"],
-            "category": "cache_eviction"
+            "category": "cache_eviction",
         }
         results.append(result)
-    
+
     return results
 
 
 def generate_comprehensive_report(performance_results, failure_results, memory_results, eviction_results):
     """Generate comprehensive Wave 16.0 test report."""
     all_results = performance_results + failure_results + memory_results + eviction_results
-    
+
     report = {
         "wave": "16.0",
         "title": "Performance Testing and Benchmarking",
@@ -256,37 +222,37 @@ def generate_comprehensive_report(performance_results, failure_results, memory_r
             "total_tests": len(all_results),
             "successful_tests": len([r for r in all_results if r["success"]]),
             "failed_tests": len([r for r in all_results if not r["success"]]),
-            "success_rate": len([r for r in all_results if r["success"]]) / len(all_results) * 100 if all_results else 0
+            "success_rate": len([r for r in all_results if r["success"]]) / len(all_results) * 100 if all_results else 0,
         },
         "categories": {
             "performance_benchmarks": {
                 "tests": performance_results,
                 "total": len(performance_results),
                 "passed": len([r for r in performance_results if r["success"]]),
-                "failed": len([r for r in performance_results if not r["success"]])
+                "failed": len([r for r in performance_results if not r["success"]]),
             },
             "failure_scenarios": {
                 "tests": failure_results,
                 "total": len(failure_results),
                 "passed": len([r for r in failure_results if r["success"]]),
-                "failed": len([r for r in failure_results if not r["success"]])
+                "failed": len([r for r in failure_results if not r["success"]]),
             },
             "memory_pressure": {
                 "tests": memory_results,
                 "total": len(memory_results),
                 "passed": len([r for r in memory_results if r["success"]]),
-                "failed": len([r for r in memory_results if not r["success"]])
+                "failed": len([r for r in memory_results if not r["success"]]),
             },
             "cache_eviction": {
                 "tests": eviction_results,
                 "total": len(eviction_results),
                 "passed": len([r for r in eviction_results if r["success"]]),
-                "failed": len([r for r in eviction_results if not r["success"]])
-            }
+                "failed": len([r for r in eviction_results if not r["success"]]),
+            },
         },
         "subtasks_completed": [
             "16.1.1 - Cache performance benchmarks",
-            "16.1.2 - Load testing for cache operations", 
+            "16.1.2 - Load testing for cache operations",
             "16.1.3 - Memory usage profiling tests",
             "16.1.4 - Cache hit/miss ratio validation tests",
             "16.1.5 - Cache scalability tests",
@@ -294,82 +260,77 @@ def generate_comprehensive_report(performance_results, failure_results, memory_r
             "16.2.2 - Cache corruption scenario tests",
             "16.2.3 - Memory pressure scenario tests",
             "16.2.4 - Network failure scenario tests",
-            "16.2.5 - Cache eviction scenario tests"
+            "16.2.5 - Cache eviction scenario tests",
         ],
-        "all_results": all_results
+        "all_results": all_results,
     }
-    
+
     return report
 
 
 def print_summary(report):
     """Print test execution summary."""
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("WAVE 16.0 PERFORMANCE TESTING SUMMARY")
-    print("="*80)
-    
+    print("=" * 80)
+
     summary = report["summary"]
     print(f"Total Tests: {summary['total_tests']}")
     print(f"Successful: {summary['successful_tests']}")
     print(f"Failed: {summary['failed_tests']}")
     print(f"Success Rate: {summary['success_rate']:.1f}%")
-    
+
     print("\nCategory Breakdown:")
     for category, data in report["categories"].items():
         print(f"  {category.replace('_', ' ').title()}: {data['passed']}/{data['total']} passed")
-    
+
     print("\nSubtasks Completed:")
     for subtask in report["subtasks_completed"]:
         print(f"  ✅ {subtask}")
-    
-    print("="*80)
+
+    print("=" * 80)
 
 
 def main():
     """Main function to run all Wave 16.0 tests."""
     print("Query Caching Layer - Wave 16.0 Performance Testing")
     print("=" * 60)
-    
+
     # Ensure reports directory exists
     reports_dir = Path(__file__).parent / "reports"
     reports_dir.mkdir(exist_ok=True)
-    
+
     # Run all test categories
     try:
         print("\nWAVE 16.0 SUBTASK EXECUTION:")
         print("16.1 - Performance Tests")
         performance_results = run_performance_benchmarks()
-        
+
         print("\n16.2 - Failure Scenario Tests")
         failure_results = run_failure_scenarios()
-        
+
         print("\n16.2.3 - Memory Pressure Tests")
         memory_results = run_memory_pressure_tests()
-        
+
         print("\n16.2.5 - Cache Eviction Tests")
         eviction_results = run_cache_eviction_tests()
-        
+
         # Generate comprehensive report
-        report = generate_comprehensive_report(
-            performance_results, 
-            failure_results, 
-            memory_results, 
-            eviction_results
-        )
-        
+        report = generate_comprehensive_report(performance_results, failure_results, memory_results, eviction_results)
+
         # Save report
         report_path = reports_dir / "wave_16_0_performance_testing_report.json"
-        with open(report_path, 'w') as f:
+        with open(report_path, "w") as f:
             json.dump(report, f, indent=2, default=str)
-        
+
         # Print summary
         print_summary(report)
-        
+
         print(f"\n📊 Detailed report saved to: {report_path}")
-        print(f"✅ Wave 16.0 Performance Testing and Benchmarking COMPLETED!")
-        
+        print("✅ Wave 16.0 Performance Testing and Benchmarking COMPLETED!")
+
         return report
-        
+
     except Exception as e:
         print(f"\n❌ Wave 16.0 testing failed: {e}")
         raise

@@ -36,11 +36,12 @@ try:
     from utils.performance_monitor import MemoryMonitor
 except ImportError:
     # Alternative imports if relative imports fail
-    import sys
     import os
-    src_path = os.path.join(os.path.dirname(__file__), '..', 'src')
+    import sys
+
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src")
     sys.path.insert(0, os.path.abspath(src_path))
-    
+
     from config.cache_config import CacheConfig
     from services.cache_service import CacheHealthStatus, CacheStats
     from services.project_cache_service import ProjectCacheService
@@ -483,59 +484,50 @@ class CachePerformanceBenchmarkSuite:
     ) -> BenchmarkResult:
         """Benchmark cache performance under concurrent load."""
         metrics = []
-        
+
         # Generate test data
         test_data = self.generate_test_data(data_size_bytes)
-        
+
         async def worker_operations(worker_id: int):
             """Worker function that performs operations."""
             worker_metrics = []
-            
+
             for i in range(operations_per_worker):
                 key = f"load_test_{worker_id}_{i}"
-                
+
                 # SET operation
                 set_metric = await self.measure_cache_operation(
-                    f"concurrent_set_worker_{worker_id}", 
-                    cache_service, 
-                    cache_service.set, 
-                    key, 
-                    test_data
+                    f"concurrent_set_worker_{worker_id}", cache_service, cache_service.set, key, test_data
                 )
                 worker_metrics.append(set_metric)
-                
+
                 # GET operation
-                get_metric = await self.measure_cache_operation(
-                    f"concurrent_get_worker_{worker_id}", 
-                    cache_service, 
-                    cache_service.get, 
-                    key
-                )
+                get_metric = await self.measure_cache_operation(f"concurrent_get_worker_{worker_id}", cache_service, cache_service.get, key)
                 worker_metrics.append(get_metric)
-                
+
                 # Short delay to simulate realistic load
                 await asyncio.sleep(0.001)
-                
+
             return worker_metrics
-        
+
         # Execute concurrent workers
         start_time = time.perf_counter()
-        
+
         tasks = [worker_operations(i) for i in range(concurrent_operations)]
         worker_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         end_time = time.perf_counter()
         total_duration = (end_time - start_time) * 1000
-        
+
         # Collect all metrics
         for worker_metrics in worker_results:
             if isinstance(worker_metrics, list):
                 metrics.extend(worker_metrics)
-        
+
         # Add overall load test metric
         total_operations = concurrent_operations * operations_per_worker * 2  # SET + GET
         overall_throughput = total_operations * 1000 / total_duration if total_duration > 0 else 0
-        
+
         load_metric = CachePerformanceMetric(
             operation="concurrent_load_test",
             duration_ms=total_duration,
@@ -548,16 +540,16 @@ class CachePerformanceBenchmarkSuite:
             additional_metrics={
                 "concurrent_workers": concurrent_operations,
                 "operations_per_worker": operations_per_worker,
-                "total_operations": total_operations
-            }
+                "total_operations": total_operations,
+            },
         )
         metrics.append(load_metric)
-        
+
         result = BenchmarkResult(scenario="concurrent_load", metrics=metrics)
         self._calculate_summary_stats(result)
         self._identify_performance_issues(result)
         self.results.append(result)
-        
+
         return result
 
     async def benchmark_memory_usage(
@@ -568,35 +560,36 @@ class CachePerformanceBenchmarkSuite:
             operations = ["set", "get", "delete"]
         if data_sizes is None:
             data_sizes = [1024, 10240, 102400]  # 1KB, 10KB, 100KB
-            
+
         metrics = []
-        
+
         # Create a temporary cache service for memory testing
         try:
             from services.search_cache_service import SearchCacheService
+
             cache_service = SearchCacheService(cache_config)
             await cache_service.initialize()
-            
+
             for data_size in data_sizes:
                 test_data = self.generate_test_data(data_size)
-                
+
                 for operation in operations:
                     memory_before = self.process.memory_info().rss / (1024 * 1024)
-                    
+
                     # Perform multiple operations to observe memory patterns
                     for i in range(iterations):
                         key = f"memory_test_{operation}_{data_size}_{i}"
-                        
+
                         if operation == "set":
                             await cache_service.set(key, test_data)
                         elif operation == "get":
                             await cache_service.get(key)
                         elif operation == "delete":
                             await cache_service.delete(key)
-                    
+
                     memory_after = self.process.memory_info().rss / (1024 * 1024)
                     memory_delta = memory_after - memory_before
-                    
+
                     metric = CachePerformanceMetric(
                         operation=f"memory_{operation}_{data_size}b",
                         duration_ms=0,  # Not timing focused
@@ -609,17 +602,17 @@ class CachePerformanceBenchmarkSuite:
                         data_size_bytes=data_size * iterations,
                         additional_metrics={
                             "memory_delta_mb": memory_delta,
-                            "memory_per_operation_kb": (memory_delta * 1024) / iterations if iterations > 0 else 0
-                        }
+                            "memory_per_operation_kb": (memory_delta * 1024) / iterations if iterations > 0 else 0,
+                        },
                     )
                     metrics.append(metric)
-                    
+
                     # Force garbage collection between tests
                     gc.collect()
                     await asyncio.sleep(0.1)
-            
+
             await cache_service.shutdown()
-            
+
         except Exception as e:
             # If cache service fails, create mock metric
             mock_metric = CachePerformanceMetric(
@@ -631,15 +624,15 @@ class CachePerformanceBenchmarkSuite:
                 memory_peak_mb=0,
                 success_count=0,
                 error_count=1,
-                additional_metrics={"error": str(e)}
+                additional_metrics={"error": str(e)},
             )
             metrics.append(mock_metric)
-        
+
         result = BenchmarkResult(scenario="memory_usage", metrics=metrics)
         self._calculate_summary_stats(result)
         self._identify_performance_issues(result)
         self.results.append(result)
-        
+
         return result
 
 

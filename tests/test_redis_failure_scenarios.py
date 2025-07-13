@@ -35,9 +35,10 @@ try:
 except ImportError:
     # Alternative imports if relative imports fail
     import os
-    src_path = os.path.join(os.path.dirname(__file__), '..', 'src')
+
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src")
     sys.path.insert(0, os.path.abspath(src_path))
-    
+
     from config.cache_config import CacheConfig
     from services.cache_service import CacheHealthStatus
     from services.project_cache_service import ProjectCacheService
@@ -664,124 +665,130 @@ class RedisFailureTestSuite:
 
 class RedisFailureScenarioTester:
     """Enhanced Redis failure scenario tester for comprehensive testing."""
-    
+
     def __init__(self, cache_config: CacheConfig):
         self.cache_config = cache_config
         self.simulator = RedisFailureSimulator()
-    
-    async def run_all_failure_scenarios(self) -> List[Dict[str, Any]]:
+
+    async def run_all_failure_scenarios(self) -> list[dict[str, Any]]:
         """Run all Redis failure scenarios."""
         results = []
-        
+
         # Scenario 1: Connection Failure
         try:
             result = await self.test_connection_failure_scenario()
-            results.append({
-                "scenario": "redis_connection_failure",
-                "status": "passed" if result.fallback_activated else "failed",
-                "description": f"Redis connection failure test with {result.operations_attempted} operations",
-                "details": {
-                    "operations_attempted": result.operations_attempted,
-                    "operations_succeeded": result.operations_succeeded,
-                    "operations_failed": result.operations_failed,
-                    "fallback_activated": result.fallback_activated,
-                    "error_types": result.error_types
+            results.append(
+                {
+                    "scenario": "redis_connection_failure",
+                    "status": "passed" if result.fallback_activated else "failed",
+                    "description": f"Redis connection failure test with {result.operations_attempted} operations",
+                    "details": {
+                        "operations_attempted": result.operations_attempted,
+                        "operations_succeeded": result.operations_succeeded,
+                        "operations_failed": result.operations_failed,
+                        "fallback_activated": result.fallback_activated,
+                        "error_types": result.error_types,
+                    },
                 }
-            })
+            )
         except Exception as e:
-            results.append({
-                "scenario": "redis_connection_failure",
-                "status": "error",
-                "description": f"Connection failure test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "redis_connection_failure",
+                    "status": "error",
+                    "description": f"Connection failure test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         # Scenario 2: Timeout Failure
         try:
             result = await self.test_timeout_failure_scenario()
-            results.append({
-                "scenario": "redis_timeout_failure",
-                "status": "passed" if result.error_types else "failed",
-                "description": "Redis timeout failure test",
-                "details": {
-                    "operations_attempted": result.operations_attempted,
-                    "error_types": result.error_types,
-                    "duration": result.duration_seconds
+            results.append(
+                {
+                    "scenario": "redis_timeout_failure",
+                    "status": "passed" if result.error_types else "failed",
+                    "description": "Redis timeout failure test",
+                    "details": {
+                        "operations_attempted": result.operations_attempted,
+                        "error_types": result.error_types,
+                        "duration": result.duration_seconds,
+                    },
                 }
-            })
+            )
         except Exception as e:
-            results.append({
-                "scenario": "redis_timeout_failure",
-                "status": "error",
-                "description": f"Timeout failure test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "redis_timeout_failure",
+                    "status": "error",
+                    "description": f"Timeout failure test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         # Scenario 3: Authentication Failure
         try:
             result = await self.test_authentication_failure_scenario()
-            results.append({
-                "scenario": "redis_auth_failure",
-                "status": "passed" if "AuthenticationError" in result.error_types else "failed",
-                "description": "Redis authentication failure test",
-                "details": {
-                    "error_types": result.error_types,
-                    "operations_attempted": result.operations_attempted
+            results.append(
+                {
+                    "scenario": "redis_auth_failure",
+                    "status": "passed" if "AuthenticationError" in result.error_types else "failed",
+                    "description": "Redis authentication failure test",
+                    "details": {"error_types": result.error_types, "operations_attempted": result.operations_attempted},
                 }
-            })
+            )
         except Exception as e:
-            results.append({
-                "scenario": "redis_auth_failure",
-                "status": "error",
-                "description": f"Authentication failure test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "redis_auth_failure",
+                    "status": "error",
+                    "description": f"Authentication failure test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         # Scenario 4: Memory Exhaustion
         try:
             result = await self.test_memory_exhaustion_scenario()
-            results.append({
-                "scenario": "redis_memory_exhaustion",
-                "status": "passed" if "ResponseError" in result.error_types else "failed",
-                "description": "Redis memory exhaustion test",
-                "details": {
-                    "error_types": result.error_types,
-                    "operations_attempted": result.operations_attempted
+            results.append(
+                {
+                    "scenario": "redis_memory_exhaustion",
+                    "status": "passed" if "ResponseError" in result.error_types else "failed",
+                    "description": "Redis memory exhaustion test",
+                    "details": {"error_types": result.error_types, "operations_attempted": result.operations_attempted},
                 }
-            })
+            )
         except Exception as e:
-            results.append({
-                "scenario": "redis_memory_exhaustion",
-                "status": "error",
-                "description": f"Memory exhaustion test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "redis_memory_exhaustion",
+                    "status": "error",
+                    "description": f"Memory exhaustion test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         return results
-    
+
     async def test_connection_failure_scenario(self) -> FailureScenarioResult:
         """Test Redis connection failure scenario."""
         mock_redis = AsyncMock()
-        
+
         # Simulate connection failure
         await self.simulator.simulate_connection_failure(mock_redis)
-        
+
         # Create mock cache service
         mock_cache = AsyncMock()
         mock_cache._redis_client = mock_redis
-        
+
         operations_attempted = 0
         operations_succeeded = 0
         operations_failed = 0
         error_types = []
-        
+
         # Test various operations during failure
-        test_operations = [
-            ("get", "test_key"),
-            ("set", "test_key", "test_value"),
-            ("delete", "test_key")
-        ]
-        
+        test_operations = [("get", "test_key"), ("set", "test_key", "test_value"), ("delete", "test_key")]
+
         for operation, *args in test_operations:
             operations_attempted += 1
             try:
@@ -795,7 +802,7 @@ class RedisFailureScenarioTester:
             except Exception as e:
                 operations_failed += 1
                 error_types.append(type(e).__name__)
-        
+
         return FailureScenarioResult(
             scenario_name="redis_connection_failure",
             failure_type=FailureType.CONNECTION_REFUSED,
@@ -804,22 +811,22 @@ class RedisFailureScenarioTester:
             operations_succeeded=operations_succeeded,
             operations_failed=operations_failed,
             fallback_activated=operations_failed > 0,
-            error_types=list(set(error_types))
+            error_types=list(set(error_types)),
         )
-    
+
     async def test_timeout_failure_scenario(self) -> FailureScenarioResult:
         """Test Redis timeout failure scenario."""
         mock_redis = AsyncMock()
-        
+
         # Simulate timeout failure
         await self.simulator.simulate_timeout_failure(mock_redis, timeout_delay=1.0)
-        
+
         operations_attempted = 0
         operations_failed = 0
         error_types = []
-        
+
         start_time = time.time()
-        
+
         # Test operations during timeout
         for i in range(3):
             operations_attempted += 1
@@ -828,9 +835,9 @@ class RedisFailureScenarioTester:
             except Exception as e:
                 operations_failed += 1
                 error_types.append(type(e).__name__)
-        
+
         duration = time.time() - start_time
-        
+
         return FailureScenarioResult(
             scenario_name="redis_timeout_failure",
             failure_type=FailureType.TIMEOUT,
@@ -838,20 +845,20 @@ class RedisFailureScenarioTester:
             operations_attempted=operations_attempted,
             operations_succeeded=operations_attempted - operations_failed,
             operations_failed=operations_failed,
-            error_types=list(set(error_types))
+            error_types=list(set(error_types)),
         )
-    
+
     async def test_authentication_failure_scenario(self) -> FailureScenarioResult:
         """Test Redis authentication failure scenario."""
         mock_redis = AsyncMock()
-        
+
         # Simulate authentication failure
         await self.simulator.simulate_authentication_failure(mock_redis)
-        
+
         operations_attempted = 0
         operations_failed = 0
         error_types = []
-        
+
         # Test operations during auth failure
         for i in range(3):
             operations_attempted += 1
@@ -860,7 +867,7 @@ class RedisFailureScenarioTester:
             except Exception as e:
                 operations_failed += 1
                 error_types.append(type(e).__name__)
-        
+
         return FailureScenarioResult(
             scenario_name="redis_auth_failure",
             failure_type=FailureType.AUTHENTICATION_ERROR,
@@ -868,20 +875,20 @@ class RedisFailureScenarioTester:
             operations_attempted=operations_attempted,
             operations_succeeded=operations_attempted - operations_failed,
             operations_failed=operations_failed,
-            error_types=list(set(error_types))
+            error_types=list(set(error_types)),
         )
-    
+
     async def test_memory_exhaustion_scenario(self) -> FailureScenarioResult:
         """Test Redis memory exhaustion scenario."""
         mock_redis = AsyncMock()
-        
+
         # Simulate memory exhaustion
         await self.simulator.simulate_memory_exhaustion(mock_redis)
-        
+
         operations_attempted = 0
         operations_failed = 0
         error_types = []
-        
+
         # Test operations during memory exhaustion
         for i in range(5):
             operations_attempted += 1
@@ -890,7 +897,7 @@ class RedisFailureScenarioTester:
             except Exception as e:
                 operations_failed += 1
                 error_types.append(type(e).__name__)
-        
+
         return FailureScenarioResult(
             scenario_name="redis_memory_exhaustion",
             failure_type=FailureType.MEMORY_EXHAUSTION,
@@ -898,7 +905,7 @@ class RedisFailureScenarioTester:
             operations_attempted=operations_attempted,
             operations_succeeded=operations_attempted - operations_failed,
             operations_failed=operations_failed,
-            error_types=list(set(error_types))
+            error_types=list(set(error_types)),
         )
 
 

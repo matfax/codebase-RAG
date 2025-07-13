@@ -28,7 +28,8 @@ try:
 except ImportError:
     # Alternative imports if relative imports fail
     import os
-    src_path = os.path.join(os.path.dirname(__file__), '..', 'src')
+
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src")
     sys.path.insert(0, os.path.abspath(src_path))
     from config.cache_config import CacheConfig
 
@@ -154,93 +155,97 @@ class NetworkFailureTester:
 
 class NetworkFailureScenarioTester:
     """Enhanced network failure scenario tester for comprehensive testing."""
-    
+
     def __init__(self, cache_config: CacheConfig):
         self.cache_config = cache_config
         self.failure_tester = NetworkFailureTester()
-    
-    async def run_all_network_scenarios(self) -> List[Dict[str, Any]]:
+
+    async def run_all_network_scenarios(self) -> list[dict[str, Any]]:
         """Run all network failure scenarios."""
         results = []
-        
+
         # Scenario 1: Network Partition
         try:
             result = await self.test_network_partition_scenario()
-            results.append({
-                "scenario": "network_partition",
-                "status": "passed" if result.data_consistency_maintained else "failed",
-                "description": f"Network partition test with {result.operations_during_failure} operations during failure",
-                "details": {
-                    "failure_duration": result.failure_duration_seconds,
-                    "operations_during_failure": result.operations_during_failure,
-                    "fallback_activations": result.fallback_activations,
-                    "recovery_time": result.recovery_time_seconds,
-                    "error_types": result.error_types
+            results.append(
+                {
+                    "scenario": "network_partition",
+                    "status": "passed" if result.data_consistency_maintained else "failed",
+                    "description": f"Network partition test with {result.operations_during_failure} operations during failure",
+                    "details": {
+                        "failure_duration": result.failure_duration_seconds,
+                        "operations_during_failure": result.operations_during_failure,
+                        "fallback_activations": result.fallback_activations,
+                        "recovery_time": result.recovery_time_seconds,
+                        "error_types": result.error_types,
+                    },
                 }
-            })
+            )
         except Exception as e:
-            results.append({
-                "scenario": "network_partition",
-                "status": "error",
-                "description": f"Network partition test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {"scenario": "network_partition", "status": "error", "description": f"Network partition test failed: {e}", "error": str(e)}
+            )
+
         # Scenario 2: Connection Timeout
         try:
             result = await self.test_connection_timeout_scenario()
-            results.append({
-                "scenario": "connection_timeout",
-                "status": "passed" if result else "failed",
-                "description": "Connection timeout handling test",
-                "details": {"timeout_handled": result}
-            })
+            results.append(
+                {
+                    "scenario": "connection_timeout",
+                    "status": "passed" if result else "failed",
+                    "description": "Connection timeout handling test",
+                    "details": {"timeout_handled": result},
+                }
+            )
         except Exception as e:
-            results.append({
-                "scenario": "connection_timeout",
-                "status": "error",
-                "description": f"Connection timeout test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "connection_timeout",
+                    "status": "error",
+                    "description": f"Connection timeout test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         # Scenario 3: Intermittent Network Issues
         try:
             result = await self.test_intermittent_network_issues()
-            results.append({
-                "scenario": "intermittent_network",
-                "status": "passed" if result else "failed",
-                "description": "Intermittent network issues test",
-                "details": {"resilience_maintained": result}
-            })
+            results.append(
+                {
+                    "scenario": "intermittent_network",
+                    "status": "passed" if result else "failed",
+                    "description": "Intermittent network issues test",
+                    "details": {"resilience_maintained": result},
+                }
+            )
         except Exception as e:
-            results.append({
-                "scenario": "intermittent_network",
-                "status": "error",
-                "description": f"Intermittent network test failed: {e}",
-                "error": str(e)
-            })
-        
+            results.append(
+                {
+                    "scenario": "intermittent_network",
+                    "status": "error",
+                    "description": f"Intermittent network test failed: {e}",
+                    "error": str(e),
+                }
+            )
+
         return results
-    
+
     async def test_network_partition_scenario(self) -> NetworkFailureResult:
         """Test network partition scenario."""
         # Mock cache service for testing
         mock_cache = AsyncMock()
         mock_cache.set.return_value = True
         mock_cache.get.return_value = "test_value"
-        
-        result = await self.failure_tester.simulate_network_partition(
-            mock_cache, 
-            partition_duration=2.0
-        )
+
+        result = await self.failure_tester.simulate_network_partition(mock_cache, partition_duration=2.0)
         return result
-    
+
     async def test_connection_timeout_scenario(self) -> bool:
         """Test connection timeout handling."""
         # Simulate timeout scenario
         mock_cache = AsyncMock()
         mock_cache.set.side_effect = asyncio.TimeoutError("Connection timeout")
-        
+
         try:
             await mock_cache.set("timeout_test", "value")
             return False  # Should have thrown timeout
@@ -248,32 +253,33 @@ class NetworkFailureScenarioTester:
             return True  # Timeout was properly handled
         except Exception:
             return False  # Unexpected error
-    
+
     async def test_intermittent_network_issues(self) -> bool:
         """Test intermittent network connectivity issues."""
         mock_cache = AsyncMock()
-        
+
         # Simulate intermittent failures
         call_count = 0
+
         def side_effect(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count % 3 == 0:  # Every 3rd call fails
                 raise ConnectionError("Intermittent failure")
             return True
-        
+
         mock_cache.set.side_effect = side_effect
-        
+
         successful_operations = 0
         failed_operations = 0
-        
+
         for i in range(10):
             try:
                 await mock_cache.set(f"intermittent_key_{i}", f"value_{i}")
                 successful_operations += 1
             except ConnectionError:
                 failed_operations += 1
-        
+
         # Should have some successes and some failures
         return successful_operations > 0 and failed_operations > 0
 

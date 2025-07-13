@@ -28,7 +28,7 @@ from tools.core.errors import (
 from tools.core.retry_utils import retry_operation
 
 # Import cache services
-from ...services.search_cache_service import (
+from src.services.search_cache_service import (
     SearchMode,
     SearchParameters,
     SearchScope,

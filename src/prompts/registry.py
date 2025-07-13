@@ -10,16 +10,16 @@ from services.embedding_service import EmbeddingService
 from services.indexing_service import IndexingService
 from services.project_analysis_service import ProjectAnalysisService
 
-from .advanced_search import AdvanceSearchPrompt
+from src.prompts.advanced_search import AdvanceSearchPrompt
 
 # Import prompt implementations
-from .exploration import (
+from src.prompts.exploration import (
     ExploreProjectPrompt,
     FindEntryPointsPrompt,
     TraceFunctionalityPrompt,
     UnderstandComponentPrompt,
 )
-from .recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
+from src.prompts.recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
 
 logger = logging.getLogger(__name__)
 

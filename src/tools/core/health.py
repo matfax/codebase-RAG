@@ -9,12 +9,13 @@ import time
 from datetime import datetime
 from typing import Any
 
-from tools.core.memory_utils import get_memory_stats, get_memory_usage_mb
 from utils.performance_monitor import MemoryMonitor, get_cache_performance_monitor
+
+from src.utils.memory_utils import get_memory_stats, get_memory_usage_mb
 
 # Import cache health checker (with fallback if not available)
 try:
-    from tools.core.cache_health_checks import check_all_caches_health, get_cache_health_checker
+    from tools.core.cache_health_checks import check_all_caches_health
 
     CACHE_HEALTH_CHECKS_AVAILABLE = True
 except ImportError:

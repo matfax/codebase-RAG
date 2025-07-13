@@ -156,3 +156,18 @@ class FileOperationError(MCPToolError):
         super().__init__(message, details)
         self.file_path = file_path
         self.operation = operation
+
+
+class CacheError(MCPToolError):
+    """Raised when cache operations fail."""
+
+    def __init__(
+        self,
+        message: str,
+        cache_name: str = None,
+        operation: str = None,
+        details: str | None = None,
+    ):
+        super().__init__(message, details)
+        self.cache_name = cache_name
+        self.operation = operation

@@ -726,3 +726,164 @@ async def _perform_detailed_health_checks(service, service_name: str) -> dict[st
         checks["cache_coherency"] = {"status": "error", "error": str(e)}
 
     return checks
+
+
+# ===== CACHE ALERTING TOOLS =====
+
+
+async def configure_cache_alerts(
+    alert_config: dict[str, Any],
+    enable_alerts: bool = True,
+) -> dict[str, Any]:
+    """
+    Configure cache alerting system.
+
+    Args:
+        alert_config: Dictionary with alert configuration settings
+        enable_alerts: Whether to enable alerts globally
+
+    Returns:
+        Dictionary with alert configuration results
+    """
+    with log_tool_usage(
+        "configure_cache_alerts",
+        {
+            "enable_alerts": enable_alerts,
+            "config_keys": list(alert_config.keys()) if alert_config else [],
+        },
+    ):
+        try:
+            # Default alert configuration
+            default_config = {
+                "high_memory_threshold_mb": 1000,
+                "low_hit_rate_threshold": 0.5,
+                "high_response_time_threshold_ms": 1000,
+                "connection_failure_threshold": 3,
+                "alert_cooldown_minutes": 30,
+                "notification_channels": ["log"],
+                "severity_levels": ["warning", "error", "critical"],
+            }
+
+            # Merge with provided configuration
+            final_config = {**default_config, **alert_config}
+
+            # Validate configuration
+            validation_errors = []
+
+            if final_config["high_memory_threshold_mb"] < 0:
+                validation_errors.append("Memory threshold must be non-negative")
+
+            if not 0 <= final_config["low_hit_rate_threshold"] <= 1:
+                validation_errors.append("Hit rate threshold must be between 0 and 1")
+
+            if final_config["high_response_time_threshold_ms"] < 0:
+                validation_errors.append("Response time threshold must be non-negative")
+
+            if validation_errors:
+                return {
+                    "success": False,
+                    "error": "Configuration validation failed",
+                    "validation_errors": validation_errors,
+                }
+
+            # Apply configuration (simulated)
+            # In a real implementation, this would update global alert configuration
+            return {
+                "success": True,
+                "alert_config": final_config,
+                "alerts_enabled": enable_alerts,
+                "message": f"Alert configuration {'enabled' if enable_alerts else 'disabled'} successfully",
+            }
+
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "configure_cache_alerts",
+                {
+                    "enable_alerts": enable_alerts,
+                    "config_provided": bool(alert_config),
+                },
+            )
+
+
+async def get_cache_alerts(
+    severity_filter: Optional[str] = None,
+    service_filter: Optional[str] = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """
+    Get current cache alerts and their status.
+
+    Args:
+        severity_filter: Filter by severity level (warning, error, critical)
+        service_filter: Filter by service name
+        limit: Maximum number of alerts to return
+
+    Returns:
+        Dictionary with current alerts
+    """
+    with log_tool_usage(
+        "get_cache_alerts",
+        {
+            "severity_filter": severity_filter,
+            "service_filter": service_filter,
+            "limit": limit,
+        },
+    ):
+        try:
+            # Get health status to generate current alerts
+            health_result = await get_cache_health_status(
+                include_detailed_checks=True,
+                check_connectivity=True,
+                check_performance=True,
+            )
+
+            if not health_result.get("success"):
+                return health_result
+
+            alerts = health_result["health_status"]["alerts"]
+
+            # Apply filters
+            filtered_alerts = alerts
+
+            if severity_filter:
+                filtered_alerts = [a for a in filtered_alerts if a.get("severity") == severity_filter]
+
+            if service_filter:
+                filtered_alerts = [a for a in filtered_alerts if a.get("service") == service_filter]
+
+            # Apply limit
+            filtered_alerts = filtered_alerts[:limit]
+
+            # Add timestamps and IDs to alerts
+            for i, alert in enumerate(filtered_alerts):
+                alert["alert_id"] = f"alert_{int(time.time())}_{i}"
+                alert["timestamp"] = time.time()
+
+            return {
+                "success": True,
+                "alerts": filtered_alerts,
+                "total_alerts": len(alerts),
+                "filtered_alerts": len(filtered_alerts),
+                "filters_applied": {
+                    "severity": severity_filter,
+                    "service": service_filter,
+                    "limit": limit,
+                },
+                "alert_summary": {
+                    "critical": len([a for a in alerts if a.get("severity") == "critical"]),
+                    "error": len([a for a in alerts if a.get("severity") == "error"]),
+                    "warning": len([a for a in alerts if a.get("severity") == "warning"]),
+                },
+            }
+
+        except Exception as e:
+            return handle_tool_error(
+                e,
+                "get_cache_alerts",
+                {
+                    "severity_filter": severity_filter,
+                    "service_filter": service_filter,
+                    "limit": limit,
+                },
+            )
