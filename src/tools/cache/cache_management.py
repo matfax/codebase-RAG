@@ -1430,7 +1430,7 @@ async def get_comprehensive_cache_stats(
 
                 embedding_service = await get_embedding_cache_service()
                 if hasattr(embedding_service, "get_cache_stats"):
-                    cache_stats["embedding"] = await embedding_service.get_cache_stats(project_name)
+                    cache_stats["embedding"] = embedding_service.get_cache_stats()
                 elif hasattr(embedding_service, "get_stats"):
                     cache_stats["embedding"] = embedding_service.get_stats()
             except Exception as e:
@@ -1442,7 +1442,7 @@ async def get_comprehensive_cache_stats(
 
                 search_service = await get_search_cache_service()
                 if hasattr(search_service, "get_cache_stats"):
-                    cache_stats["search"] = await search_service.get_cache_stats(project_name)
+                    cache_stats["search"] = search_service.get_cache_stats()
                 elif hasattr(search_service, "get_stats"):
                     cache_stats["search"] = search_service.get_stats()
             except Exception as e:
@@ -1454,7 +1454,7 @@ async def get_comprehensive_cache_stats(
 
                 project_service = await get_project_cache_service()
                 if hasattr(project_service, "get_cache_stats"):
-                    cache_stats["project"] = await project_service.get_cache_stats(project_name)
+                    cache_stats["project"] = project_service.get_cache_stats()
                 elif hasattr(project_service, "get_stats"):
                     cache_stats["project"] = project_service.get_stats()
             except Exception as e:
@@ -1466,7 +1466,7 @@ async def get_comprehensive_cache_stats(
 
                 file_service = await get_file_cache_service()
                 if hasattr(file_service, "get_cache_stats"):
-                    cache_stats["file"] = await file_service.get_cache_stats(project_name)
+                    cache_stats["file"] = file_service.get_cache_stats()
                 elif hasattr(file_service, "get_stats"):
                     cache_stats["file"] = file_service.get_stats()
             except Exception as e:

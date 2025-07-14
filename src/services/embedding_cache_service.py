@@ -627,7 +627,7 @@ class EmbeddingCacheService:
                 model_name = "default"  # Use default model for warmup
 
                 # Generate mock embedding (zeros) for warmup
-                embedding = torch.zeros(384)  # Common embedding dimension
+                embedding = torch.zeros(768)  # Common embedding dimension
 
                 # Cache the mock embedding
                 await self.cache_embedding(
@@ -649,9 +649,9 @@ class EmbeddingCacheService:
                     if isinstance(embedding_data, list):
                         embedding = torch.tensor(embedding_data, dtype=torch.float32)
                     else:
-                        embedding = torch.zeros(384)
+                        embedding = torch.zeros(768)
                 else:
-                    embedding = torch.zeros(384)
+                    embedding = torch.zeros(768)
 
                 # Cache the embedding
                 await self.cache_embedding(text=query_text, model_name=model_name, embedding=embedding, embedding_type=embedding_type)
@@ -682,14 +682,14 @@ class EmbeddingCacheService:
             if isinstance(item_data, str):
                 # String data - estimate based on text length
                 text_size = len(item_data.encode("utf-8"))
-                # Add embedding size (assume 384 dimensions * 4 bytes per float)
-                embedding_size = 384 * 4
+                # Add embedding size (assume 768 dimensions * 4 bytes per float)
+                embedding_size = 768 * 4
                 base_size = (text_size + embedding_size) / (1024 * 1024)
 
             elif isinstance(item_data, dict):
                 # Dictionary data - estimate based on serialized size
                 text_size = len(str(item_data).encode("utf-8"))
-                embedding_size = 384 * 4  # Default embedding size
+                embedding_size = 768 * 4  # Default embedding size
 
                 # If embedding data is present, calculate actual size
                 if "embedding" in item_data:

@@ -58,6 +58,29 @@ Root Files:
    Context Enhancement → Ranked Results with Breadcrumbs
    ```
 
+   **⚠️ IMPORTANT: Async/Await Search Chain**
+   The search pipeline uses async/await throughout. Key async functions:
+   - `search_sync()` in `search_tools.py` - Main entry point (despite name, is async)
+   - `SearchService.search()` - Async search orchestration
+   - `EmbeddingService.generate_embeddings()` - Returns async generator
+   - `CodeParserService.parse_file()` - Async file parsing
+
+   Common async issues and fixes:
+   ```python
+   # ❌ WRONG - Missing await causes "coroutine was never awaited"
+   embeddings = embedding_service.generate_embeddings([query])
+
+   # ✅ CORRECT - Properly await async calls
+   embeddings = await embedding_service.generate_embeddings([query])
+
+   # ❌ WRONG - Can't iterate coroutine directly
+   for chunk in parser.parse_file(path):
+
+   # ✅ CORRECT - Await async function first
+   chunks = await parser.parse_file(path)
+   for chunk in chunks:
+   ```
+
    **Manual Tool Flow:**
    ```
    CLI Input → Validation → Pre-analysis → Progress Tracking →
@@ -137,3 +160,37 @@ Each intelligent chunk includes rich metadata:
 - `project_{name}_file_metadata`: File change tracking for incremental indexing
   - Stores: file_path, mtime, content_hash, file_size, indexed_at, syntax_error_count
   - Used for: change detection, incremental processing, progress tracking, error monitoring
+
+## Critical Implementation Notes
+
+### Async/Await Patterns in Search Pipeline
+
+The entire search pipeline is **async** and requires proper await handling:
+
+1. **Search Entry Points**:
+   ```python
+   # search_tools.py - Main MCP tool entry
+   async def search_sync(...):  # Despite name, this is async!
+       search_service = SearchService(...)
+       results = await search_service.search(...)  # Must await
+   ```
+
+2. **Common Async Chain Issues**:
+   - `RuntimeWarning: coroutine 'X' was never awaited` - Missing await
+   - `'coroutine' object has no attribute 'Y'` - Trying to use coroutine without await
+   - `TypeError: 'async_generator' object is not iterable` - Need async for
+
+3. **Key Async Functions**:
+   - `EmbeddingService.generate_embeddings()` - Async embedding generation
+   - `SearchService.search()` - Main search orchestration
+   - `SearchCacheService.get_cached_results()` - Cache retrieval
+   - `CodeParserService.parse_file()` - File parsing (if used in search)
+   - `QdrantService.search()` - Vector database queries
+
+4. **Debugging Async Issues**:
+   ```python
+   # Add these debug prints to trace async flow:
+   print(f"Before await: {type(result)}")  # Shows <class 'coroutine'>
+   result = await some_async_function()
+   print(f"After await: {type(result)}")   # Shows actual result type
+   ```

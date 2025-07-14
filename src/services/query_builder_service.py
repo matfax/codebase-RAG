@@ -263,7 +263,7 @@ class QueryBuilderService:
 
         # Build base query with similarity targeting
         search_request = qdrant_models.SearchRequest(
-            vector=context.query_vector or [0.0] * 384,  # Placeholder if no vector
+            vector=context.query_vector or [0.0] * 768,  # Placeholder if no vector
             limit=context.max_results,
             offset=context.offset,
             score_threshold=parameters.score_threshold or context.similarity_threshold,
@@ -325,7 +325,7 @@ class QueryBuilderService:
         else:
             # Metadata-only query
             search_request = qdrant_models.SearchRequest(
-                vector=[0.0] * 384,  # Placeholder vector
+                vector=[0.0] * 768,  # Placeholder vector
                 limit=context.max_results,
                 offset=context.offset,
                 with_payload=context.include_metadata,
@@ -401,7 +401,7 @@ class QueryBuilderService:
 
         # Build base query
         search_request = qdrant_models.SearchRequest(
-            vector=context.query_vector or [0.0] * 384,
+            vector=context.query_vector or [0.0] * 768,
             limit=context.max_results,
             offset=context.offset,
             score_threshold=parameters.score_threshold or context.similarity_threshold,

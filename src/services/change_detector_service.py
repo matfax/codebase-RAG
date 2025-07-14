@@ -167,6 +167,9 @@ class ChangeDetectorService:
         # Perform change detection
         result = self._analyze_changes(stored_metadata=stored_metadata, current_metadata=current_file_metadata)
 
+        # Log detailed change information
+        self._log_detailed_changes(result)
+
         self.logger.info(f"Change detection complete: {result.get_summary()}")
         return result
 
@@ -382,3 +385,73 @@ class ChangeDetectorService:
         summary += f" (out of {total_files} total files)"
 
         return summary
+
+    def _log_detailed_changes(self, result: ChangeDetectionResult):
+        """
+        Log detailed information about file changes with before/after metadata.
+
+        Args:
+            result: Change detection result to log
+        """
+        # Log added files
+        if result.added_files:
+            self.logger.info(f"📁 ADDED FILES ({len(result.added_files)}):")
+            for change in result.added_files:
+                self.logger.info(f"  + {change.file_path}")
+                if change.metadata:
+                    self.logger.info(f"    Size: {change.metadata.file_size:,} bytes")
+                    self.logger.info(f"    Modified: {change.metadata.mtime_str}")
+                    self.logger.info(f"    Hash: {change.metadata.content_hash[:12]}...")
+
+        # Log modified files with before/after comparison
+        if result.modified_files:
+            self.logger.info(f"🔄 MODIFIED FILES ({len(result.modified_files)}):")
+            for change in result.modified_files:
+                self.logger.info(f"  ≈ {change.file_path}")
+
+                if change.old_metadata and change.metadata:
+                    # Size comparison
+                    old_size = change.old_metadata.file_size
+                    new_size = change.metadata.file_size
+                    size_change = new_size - old_size
+                    size_change_str = f"+{size_change:,}" if size_change > 0 else f"{size_change:,}"
+
+                    self.logger.info(f"    Size: {old_size:,} → {new_size:,} bytes ({size_change_str})")
+
+                    # Modification time
+                    self.logger.info(f"    Modified: {change.old_metadata.mtime_str} → {change.metadata.mtime_str}")
+
+                    # Content hash
+                    old_hash = change.old_metadata.content_hash[:12]
+                    new_hash = change.metadata.content_hash[:12]
+                    self.logger.info(f"    Hash: {old_hash}... → {new_hash}...")
+
+                    # Additional change details
+                    if hasattr(change.old_metadata, "indexed_at") and change.old_metadata.indexed_at:
+                        self.logger.info(f"    Last indexed: {change.old_metadata.indexed_at}")
+
+        # Log deleted files
+        if result.deleted_files:
+            self.logger.info(f"🗑️  DELETED FILES ({len(result.deleted_files)}):")
+            for change in result.deleted_files:
+                self.logger.info(f"  - {change.file_path}")
+                if change.old_metadata:
+                    self.logger.info(f"    Was: {change.old_metadata.file_size:,} bytes")
+                    self.logger.info(f"    Last modified: {change.old_metadata.mtime_str}")
+
+        # Log moved files
+        if result.moved_files:
+            self.logger.info(f"📦 MOVED FILES ({len(result.moved_files)}):")
+            for change in result.moved_files:
+                self.logger.info(f"  → {change.old_path} → {change.file_path}")
+
+        # Log unchanged files summary (only in debug mode)
+        if result.unchanged_files:
+            self.logger.debug(f"✅ UNCHANGED FILES: {len(result.unchanged_files)} files (no changes detected)")
+
+        # Summary line
+        if result.has_changes:
+            total_affected = len(result.added_files) + len(result.modified_files) + len(result.deleted_files) + len(result.moved_files)
+            self.logger.info(
+                f"📊 CHANGE SUMMARY: {total_affected} files affected out of {total_affected + len(result.unchanged_files)} total files"
+            )

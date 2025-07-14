@@ -170,7 +170,7 @@ def _expand_search_context(
     qdrant_client,
     search_collections: list[str],
     context_chunks: int = 1,
-    embedding_dimension: int = 384,
+    embedding_dimension: int = 768,
 ) -> list[dict[str, Any]]:
     """Expand search results with surrounding context.
 
@@ -656,16 +656,112 @@ async def search(
     Returns:
         Dictionary containing search results with metadata, scores, and context
     """
-    # Use the asynchronous cached implementation
-    return await search_async_cached(
-        query,
-        n_results,
-        cross_project,
-        search_mode,
-        include_context,
-        context_chunks,
-        target_projects,
-    )
+    # FORCE ERROR TO CHECK IF THIS CODE IS EXECUTED
+    if query == "function":
+        return {"error": "DEBUG: This code is being executed!", "query": query, "results": [], "total": 0}
+
+    # TEMPORARY: Simple direct search test to debug issues
+    try:
+        # Initialize services
+        embeddings_manager = get_embeddings_manager_instance()
+        qdrant_client = get_qdrant_client()
+
+        # Generate query embedding
+        embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+        query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
+
+        if query_embedding_tensor is None:
+            return {"error": "Failed to generate embedding", "query": query, "results": [], "total": 0}
+
+        # Convert tensor to list if necessary
+        if hasattr(query_embedding_tensor, "tolist"):
+            query_embedding = query_embedding_tensor.tolist()
+        else:
+            query_embedding = query_embedding_tensor
+
+        # Get current project collections
+        current_project = get_current_project()
+        all_collections = [c.name for c in qdrant_client.get_collections().collections]
+
+        if cross_project:
+            search_collections = [c for c in all_collections if not c.endswith("_file_metadata")]
+        elif current_project:
+            search_collections = [
+                c for c in all_collections if c.startswith(current_project["collection_prefix"]) and not c.endswith("_file_metadata")
+            ]
+        else:
+            search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
+
+        if not search_collections:
+            return {
+                "error": "No collections found",
+                "query": query,
+                "results": [],
+                "total": 0,
+                "debug_info": {"all_collections": all_collections, "current_project": current_project, "cross_project": cross_project},
+            }
+
+        # Try a simple search on the first collection
+        test_collection = search_collections[0]
+        try:
+            search_results = qdrant_client.search(
+                collection_name=test_collection,
+                query_vector=query_embedding,
+                limit=n_results,
+                score_threshold=0.0,  # Accept all results for testing
+            )
+
+            results = []
+            for result in search_results:
+                if isinstance(result.payload, dict):
+                    results.append(
+                        {
+                            "score": float(result.score),
+                            "collection": test_collection,
+                            "content": result.payload.get("content", ""),
+                            "file_path": result.payload.get("file_path", ""),
+                            "chunk_type": result.payload.get("chunk_type", ""),
+                            "language": result.payload.get("language", ""),
+                        }
+                    )
+
+            return {
+                "results": results,
+                "query": query,
+                "total": len(results),
+                "project_context": current_project.get("name", "unknown") if current_project else "unknown",
+                "search_scope": "cross_project" if cross_project else "current_project",
+                "search_mode": search_mode,
+                "collections_searched": [test_collection],
+                "debug_info": {
+                    "query_embedding_dimensions": len(query_embedding),
+                    "collections_available": len(search_collections),
+                    "test_collection": test_collection,
+                    "raw_results_count": len(search_results),
+                    "query_embedding_sample": query_embedding[:3],
+                },
+            }
+
+        except Exception as e:
+            return {
+                "error": f"Qdrant search failed: {str(e)}",
+                "query": query,
+                "results": [],
+                "total": 0,
+                "debug_info": {
+                    "test_collection": test_collection,
+                    "query_embedding_dimensions": len(query_embedding),
+                    "embedding_sample": query_embedding[:3],
+                },
+            }
+
+    except Exception as e:
+        return {
+            "error": f"Search setup failed: {str(e)}",
+            "query": query,
+            "results": [],
+            "total": 0,
+        }
 
 
 async def search_async_cached(
@@ -833,7 +929,7 @@ async def search_async_cached(
                 qdrant_client,
                 search_collections,
                 context_chunks,
-                embedding_dimension=768,  # Default for nomic-embed-text
+                embedding_dimension=768,  # Actual dimension for nomic-embed-text
             )
 
         # Truncate content for response size management
@@ -1070,6 +1166,7 @@ async def search_sync(
 
         # Perform search
         logger.info(f"Searching {len(search_collections)} collections for query: '{query[:50]}...'")
+        logger.info(f"DEBUG: Query embedding dimensions: {len(query_embedding)}, collections: {search_collections}")
 
         search_results = await _perform_hybrid_search(
             qdrant_client=qdrant_client,
@@ -1090,7 +1187,7 @@ async def search_sync(
                 qdrant_client,
                 search_collections,
                 context_chunks,
-                embedding_dimension=768,  # Default for nomic-embed-text
+                embedding_dimension=768,  # Actual dimension for nomic-embed-text
             )
 
         # Truncate content for response size management

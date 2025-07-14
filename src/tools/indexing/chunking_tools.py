@@ -37,33 +37,46 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
 
             parser_service = CodeParserService()
 
+            # Get performance summary from parser service
+            performance_report = parser_service.get_performance_summary()
+
+            # Get comprehensive metrics from tracker
+            from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+
             if language:
                 # Get language-specific metrics
-                lang_metrics = parser_service.get_language_performance(language)
+                lang_metrics = chunking_metrics_tracker.get_language_metrics(language)
                 if not lang_metrics:
                     return {
                         "error": f"No metrics found for language: {language}",
                         "available_languages": list(parser_service.get_supported_languages()),
+                        "performance_summary": performance_report,
+                        "timestamp": datetime.now().isoformat(),
                     }
 
                 logger.info(
                     f"Retrieved metrics for {language}: "
-                    f"{lang_metrics['success_rate']:.1f}% success rate, "
-                    f"{lang_metrics['total_files']} files processed"
+                    f"{lang_metrics.success_rate:.1f}% success rate, "
+                    f"{lang_metrics.total_files} files processed"
                 )
 
                 result = {
-                    "language_metrics": lang_metrics,
+                    "language": language,
+                    "language_metrics": {
+                        "total_files": lang_metrics.total_files,
+                        "successful_files": lang_metrics.successful_files,
+                        "failed_files": lang_metrics.failed_files,
+                        "success_rate": lang_metrics.success_rate,
+                        "total_chunks": lang_metrics.total_chunks,
+                        "average_processing_time_ms": lang_metrics.average_processing_time_ms,
+                        "chunk_types": lang_metrics.chunk_types,
+                    },
+                    "performance_summary": performance_report,
                     "timestamp": datetime.now().isoformat(),
                 }
 
             else:
                 # Get comprehensive metrics for all languages
-                performance_report = parser_service.get_performance_summary()
-
-                # Parse the report to extract key metrics
-                from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
-
                 all_metrics = chunking_metrics_tracker.get_all_metrics()
 
                 logger.info(
@@ -74,14 +87,17 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
 
                 result = {
                     "comprehensive_metrics": all_metrics,
-                    "performance_report": performance_report,
+                    "performance_summary": performance_report,
                     "timestamp": datetime.now().isoformat(),
                 }
 
             # Export metrics if requested
             if export_path:
                 try:
-                    parser_service.export_performance_metrics(export_path)
+                    import json
+
+                    with open(export_path, "w") as f:
+                        json.dump(result, f, indent=2, default=str)
                     result["export_status"] = f"Metrics exported to {export_path}"
                     logger.info(f"Metrics exported to {export_path}")
                 except Exception as export_error:

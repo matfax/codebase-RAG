@@ -357,7 +357,7 @@ int main() {
             summary = self.tree_sitter_manager.get_initialization_summary()
 
             report.total_languages = summary["total_languages"]
-            report.installed_languages = len(summary["successful_languages"])
+            report.installed_languages = summary["successful_languages"]
             report.failed_languages = summary["failed_languages"]
 
         except Exception as e:
@@ -590,10 +590,10 @@ int main() {
             summary = manager.get_initialization_summary()
 
             result["total_languages"] = summary["total_languages"]
-            result["successful_languages"] = len(summary["successful_languages"])
+            result["successful_languages"] = summary["successful_languages"]
             result["failed_languages"] = summary["failed_languages"]
 
-            success_rate = (len(summary["successful_languages"]) / summary["total_languages"]) * 100
+            success_rate = (summary["successful_languages"] / summary["total_languages"]) * 100
 
             if success_rate >= 90:
                 result["status"] = "healthy"

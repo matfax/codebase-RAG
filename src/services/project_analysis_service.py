@@ -1024,6 +1024,15 @@ class ProjectAnalysisService:
             # If all else fails, re-raise the original error
             raise
 
+    def _get_project_name(self, directory: str) -> str:
+        """Get project name from directory path."""
+        try:
+            directory_path = Path(directory).resolve()
+            # Use same naming convention as MCP tools (replace spaces and hyphens with underscores)
+            return directory_path.name.replace(" ", "_").replace("-", "_")
+        except Exception:
+            return "unknown"
+
     def get_project_context(self, directory: str) -> dict[str, Any]:
         """Get project context information including project name and type."""
         try:

@@ -126,6 +126,9 @@ class CacheKeyGenerator:
         # Namespace separator
         self.namespace_separator = ":"
 
+        # Timestamp configuration
+        self.include_timestamps = getattr(self.config, "include_timestamps", False)
+
         # Initialize hash functions
         self._hash_functions = {
             HashAlgorithm.SHA256: hashlib.sha256,
@@ -191,6 +194,63 @@ class CacheKeyGenerator:
         except Exception as e:
             self.logger.error(f"Failed to generate cache key: {e}")
             raise CacheKeyGeneratorError(f"Key generation failed: {e}")
+
+    def generate_hierarchical_key(
+        self,
+        key_type: KeyType,
+        namespace: str,
+        project_id: str,
+        content_hash: str,
+        version: str | None = None,
+        additional_params: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Generate a hierarchical cache key with pre-computed content hash.
+
+        This method is similar to generate_key but uses a pre-computed content hash
+        instead of computing it from content, useful for embedding and other cases
+        where the hash is already known.
+
+        Args:
+            key_type: Type of cache key
+            namespace: Namespace for the key
+            project_id: Project identifier
+            content_hash: Pre-computed content hash
+            version: Key version (defaults to current version)
+            additional_params: Additional parameters for key generation
+
+        Returns:
+            str: Generated cache key
+        """
+        try:
+            version = version or self.current_version
+            additional_params = additional_params or {}
+
+            # Create key components
+            components = CacheKeyComponents(
+                key_type=key_type,
+                namespace=namespace,
+                project_id=project_id,
+                content_hash=content_hash,
+                version=version,
+                timestamp=time.time() if self.include_timestamps else None,
+                additional_params=additional_params,
+            )
+
+            # Build hierarchical key
+            key = self._build_hierarchical_key(components)
+
+            # Check for collisions and resolve if necessary
+            key = self._handle_key_collision(key, components)
+
+            # Register the key
+            self._register_key(key, components)
+
+            return key
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate hierarchical cache key: {e}")
+            raise CacheKeyGeneratorError(f"Hierarchical key generation failed: {e}")
 
     def generate_embedding_key(
         self,

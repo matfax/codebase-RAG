@@ -639,7 +639,8 @@ async def get_file_cache_service() -> FileCacheService:
     """
     global _file_cache_service
     if _file_cache_service is None:
-        _file_cache_service = FileCacheService()
+        cache_service = await get_cache_service()
+        _file_cache_service = FileCacheService(cache_service)
         await _file_cache_service.initialize()
     return _file_cache_service
 

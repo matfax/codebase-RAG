@@ -5,9 +5,11 @@ Performance Test Runner for Query Caching Layer
 This script runs comprehensive performance tests and benchmarks for the cache system,
 providing detailed metrics and analysis of cache performance.
 """
+# ruff: noqa: T201
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
@@ -18,8 +20,6 @@ src_path = Path(__file__).parent / "src"
 tests_path = Path(__file__).parent / "tests"
 sys.path.insert(0, str(src_path))
 sys.path.insert(0, str(tests_path))
-
-import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -41,15 +41,20 @@ async def run_cache_performance_benchmarks():
         benchmark_suite = CachePerformanceBenchmarkSuite()
 
         # Create mock cache configuration for testing
+        from config.cache_config import MemoryCacheConfig, RedisConfig
+
         cache_config = CacheConfig(
-            redis_host="localhost",
-            redis_port=6379,
-            redis_db=0,
-            redis_password=None,
-            redis_ssl=False,
-            memory_cache_size_mb=128,
-            default_ttl_seconds=3600,
-            compression_enabled=True,
+            redis=RedisConfig(
+                host="localhost",
+                port=6379,
+                db=0,
+                password=None,
+                ssl_enabled=False,
+            ),
+            memory=MemoryCacheConfig(
+                max_memory_mb=128,
+            ),
+            default_ttl=3600,
         )
 
         results = []
@@ -123,13 +128,20 @@ async def run_failure_scenario_tests():
 
     try:
         # Import failure testing modules
-        from config.cache_config import CacheConfig
+        # Create cache configuration for testing
+        from config.cache_config import CacheConfig, RedisConfig
         from test_network_failure_scenarios import NetworkFailureScenarioTester
         from test_redis_failure_scenarios import RedisFailureScenarioTester
 
-        # Create cache configuration for testing
         cache_config = CacheConfig(
-            redis_host="localhost", redis_port=6379, redis_db=0, connection_timeout=5, socket_timeout=5, max_connections=20
+            redis=RedisConfig(
+                host="localhost",
+                port=6379,
+                db=0,
+                connection_timeout=5,
+                socket_timeout=5,
+                max_connections=20,
+            )
         )
 
         results = []

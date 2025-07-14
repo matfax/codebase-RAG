@@ -217,21 +217,28 @@ class RedisConnectionManager:
     async def initialize(self) -> None:
         """Initialize Redis connection pool."""
         try:
-            # Create connection pool
-            self._pool = ConnectionPool.from_url(
-                self.config.get_redis_url(),
-                max_connections=self.config.redis.max_connections,
-                socket_timeout=self.config.redis.socket_timeout,
-                socket_connect_timeout=self.config.redis.connection_timeout,
-                retry_on_timeout=self.config.redis.retry_on_timeout,
-                retry_on_error=[ConnectionError, TimeoutError],
-                health_check_interval=self.config.health_check_interval,
-                ssl=self.config.redis.ssl_enabled,
-                ssl_cert_reqs=None if not self.config.redis.ssl_enabled else "required",
-                ssl_ca_certs=self.config.redis.ssl_ca_cert_path,
-                ssl_certfile=self.config.redis.ssl_cert_path,
-                ssl_keyfile=self.config.redis.ssl_key_path,
-            )
+            # Create connection pool with SSL handling
+            pool_kwargs = {
+                "max_connections": self.config.redis.max_connections,
+                "socket_timeout": self.config.redis.socket_timeout,
+                "socket_connect_timeout": self.config.redis.connection_timeout,
+                "retry_on_timeout": self.config.redis.retry_on_timeout,
+                "retry_on_error": [ConnectionError, TimeoutError],
+                "health_check_interval": self.config.health_check_interval,
+            }
+
+            # Add SSL parameters only if SSL is enabled
+            if self.config.redis.ssl_enabled:
+                pool_kwargs.update(
+                    {
+                        "ssl_cert_reqs": "required",
+                        "ssl_ca_certs": self.config.redis.ssl_ca_cert_path,
+                        "ssl_certfile": self.config.redis.ssl_cert_path,
+                        "ssl_keyfile": self.config.redis.ssl_key_path,
+                    }
+                )
+
+            self._pool = ConnectionPool.from_url(self.config.get_redis_url(), **pool_kwargs)
 
             # Create Redis client
             self._redis = redis.Redis(connection_pool=self._pool)
@@ -375,19 +382,22 @@ class RedisCacheService(BaseCacheService):
     with connection pooling, health monitoring, and comprehensive error handling.
     """
 
-    def __init__(self, config: CacheConfig | None = None):
+    def __init__(self, config: CacheConfig | None = None, redis_manager: RedisConnectionManager | None = None):
         """Initialize Redis cache service."""
         super().__init__(config)
-        self.redis_manager = RedisConnectionManager(self.config)
+        self.redis_manager = redis_manager or RedisConnectionManager(self.config)
+        self._owns_redis_manager = redis_manager is None
 
     async def initialize(self) -> None:
         """Initialize Redis cache service."""
-        await self.redis_manager.initialize()
+        if self._owns_redis_manager:
+            await self.redis_manager.initialize()
         self.logger.info("Redis cache service initialized")
 
     async def shutdown(self) -> None:
         """Shutdown Redis cache service."""
-        await self.redis_manager.shutdown()
+        if self._owns_redis_manager:
+            await self.redis_manager.shutdown()
         self.logger.info("Redis cache service shutdown")
 
     async def get(self, key: str) -> Any | None:
@@ -410,6 +420,23 @@ class RedisCacheService(BaseCacheService):
                 value = await redis_client.get(prefixed_key)
 
                 if value is not None:
+                    # Deserialize value from Redis
+                    try:
+                        if isinstance(value, bytes):
+                            value = value.decode("utf-8")
+                        if isinstance(value, str):
+                            # Try to deserialize as JSON, fallback to string
+                            try:
+                                import json
+
+                                deserialized_value = json.loads(value)
+                            except json.JSONDecodeError:
+                                deserialized_value = value
+                        else:
+                            deserialized_value = value
+                    except Exception:
+                        deserialized_value = value
+
                     self._update_stats("get", success=True)
                     # Record telemetry hit
                     telemetry.record_cache_operation(
@@ -418,7 +445,7 @@ class RedisCacheService(BaseCacheService):
                         hit=True,
                         cache_size=len(value) if isinstance(value, str | bytes) else None,
                     )
-                    return value
+                    return deserialized_value
                 else:
                     self._update_stats("get", success=False)
                     # Record telemetry miss
@@ -451,9 +478,20 @@ class RedisCacheService(BaseCacheService):
                 # Use provided TTL or default
                 cache_ttl = ttl or self.config.default_ttl
 
+                # Serialize value for Redis storage
+                if isinstance(value, dict | list):
+                    import json
+
+                    serialized_value = json.dumps(value)
+                elif isinstance(value, str | bytes | int | float):
+                    serialized_value = value
+                else:
+                    import json
+
+                    serialized_value = json.dumps(str(value))
+
                 # Set value in Redis
-                # Note: Serialization will be handled by cache_utils
-                result = await redis_client.setex(prefixed_key, cache_ttl, value)
+                result = await redis_client.setex(prefixed_key, cache_ttl, serialized_value)
 
                 self._update_stats("set", success=bool(result))
 
@@ -524,7 +562,24 @@ class RedisCacheService(BaseCacheService):
             result = {}
             for i, (key, value) in enumerate(zip(keys, values, strict=False)):
                 if value is not None:
-                    result[key] = value
+                    # Deserialize value from Redis
+                    try:
+                        if isinstance(value, bytes):
+                            value = value.decode("utf-8")
+                        if isinstance(value, str):
+                            # Try to deserialize as JSON, fallback to string
+                            try:
+                                import json
+
+                                deserialized_value = json.loads(value)
+                            except json.JSONDecodeError:
+                                deserialized_value = value
+                        else:
+                            deserialized_value = value
+                    except Exception:
+                        deserialized_value = value
+
+                    result[key] = deserialized_value
                     self._update_stats("get", success=True)
                 else:
                     self._update_stats("get", success=False)
@@ -547,7 +602,20 @@ class RedisCacheService(BaseCacheService):
             async with redis_client.pipeline() as pipe:
                 for key, value in items.items():
                     prefixed_key = f"{self.config.key_prefix}:{key}"
-                    pipe.setex(prefixed_key, cache_ttl, value)
+
+                    # Serialize value for Redis storage
+                    if isinstance(value, dict | list):
+                        import json
+
+                        serialized_value = json.dumps(value)
+                    elif isinstance(value, str | bytes | int | float):
+                        serialized_value = value
+                    else:
+                        import json
+
+                        serialized_value = json.dumps(str(value))
+
+                    pipe.setex(prefixed_key, cache_ttl, serialized_value)
 
                 # Execute pipeline
                 results = await pipe.execute()
@@ -1001,8 +1069,9 @@ class MultiTierCacheService(BaseCacheService):
             max_size=self.config.memory.max_size, max_memory_mb=self.config.memory.max_memory_mb, default_ttl=self.config.memory.ttl_seconds
         )
 
-        # Initialize L2 Redis cache
-        self.l2_cache = RedisCacheService(config) if self.config.cache_level in [CacheLevel.L2_REDIS, CacheLevel.BOTH] else None
+        # Initialize L2 Redis cache with shared connection manager
+        self.l2_cache = None
+        self._shared_redis_manager = None
 
         # Cache coherency tracking
         self._dirty_keys: set[str] = set()
@@ -1026,7 +1095,9 @@ class MultiTierCacheService(BaseCacheService):
     async def initialize(self) -> None:
         """Initialize multi-tier cache service."""
         # Initialize L2 cache if enabled
-        if self.l2_cache:
+        if self.config.cache_level in [CacheLevel.L2_REDIS, CacheLevel.BOTH]:
+            self._shared_redis_manager = await get_redis_connection_manager()
+            self.l2_cache = RedisCacheService(self.config, self._shared_redis_manager)
             await self.l2_cache.initialize()
 
         # Start cleanup task
@@ -1693,8 +1764,19 @@ class MultiTierCacheService(BaseCacheService):
         }
 
 
-# Global cache service instance
+# Global cache service and Redis connection manager instances
 _cache_service: RedisCacheService | MultiTierCacheService | None = None
+_redis_connection_manager: RedisConnectionManager | None = None
+
+
+async def get_redis_connection_manager() -> RedisConnectionManager:
+    """Get the global Redis connection manager instance."""
+    global _redis_connection_manager
+    if _redis_connection_manager is None:
+        config = get_global_cache_config()
+        _redis_connection_manager = RedisConnectionManager(config)
+        await _redis_connection_manager.initialize()
+    return _redis_connection_manager
 
 
 async def get_cache_service() -> RedisCacheService | MultiTierCacheService:
@@ -1710,14 +1792,18 @@ async def get_cache_service() -> RedisCacheService | MultiTierCacheService:
         if config.cache_level == CacheLevel.BOTH:
             _cache_service = MultiTierCacheService(config)
         else:
-            _cache_service = RedisCacheService(config)
+            redis_manager = await get_redis_connection_manager()
+            _cache_service = RedisCacheService(config, redis_manager)
         await _cache_service.initialize()
     return _cache_service
 
 
 async def shutdown_cache_service() -> None:
     """Shutdown the global cache service."""
-    global _cache_service
+    global _cache_service, _redis_connection_manager
     if _cache_service:
         await _cache_service.shutdown()
         _cache_service = None
+    if _redis_connection_manager:
+        await _redis_connection_manager.shutdown()
+        _redis_connection_manager = None

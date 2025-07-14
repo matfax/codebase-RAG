@@ -52,7 +52,7 @@ class RedisConfig:
     port: int = 6379
     password: str | None = None
     db: int = 0
-    max_connections: int = 10
+    max_connections: int = 50
     connection_timeout: float = 5.0
     socket_timeout: float = 5.0
     retry_on_timeout: bool = True

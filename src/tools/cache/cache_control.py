@@ -58,48 +58,48 @@ async def get_cache_configuration(
 
             if config_type in ["all", "redis"]:
                 config_data["redis"] = {
-                    "host": cache_config.redis_host,
-                    "port": cache_config.redis_port,
-                    "db": cache_config.redis_db,
-                    "password_set": bool(cache_config.redis_password),
-                    "max_connections": cache_config.redis_max_connections,
-                    "connection_timeout": cache_config.redis_timeout,
-                    "socket_keepalive": cache_config.redis_socket_keepalive,
-                    "socket_keepalive_options": cache_config.redis_socket_keepalive_options,
+                    "host": cache_config.redis.host,
+                    "port": cache_config.redis.port,
+                    "db": cache_config.redis.db,
+                    "password_set": bool(cache_config.redis.password),
+                    "max_connections": cache_config.redis.max_connections,
+                    "connection_timeout": cache_config.redis.connection_timeout,
+                    "socket_timeout": cache_config.redis.socket_timeout,
+                    "retry_on_timeout": cache_config.redis.retry_on_timeout,
+                    "max_retries": cache_config.redis.max_retries,
+                    "ssl_enabled": cache_config.redis.ssl_enabled,
                 }
 
             if config_type in ["all", "memory"]:
                 config_data["memory"] = {
-                    "l1_max_size": cache_config.l1_max_size,
-                    "l1_ttl_seconds": cache_config.l1_ttl_seconds,
-                    "l2_max_size": cache_config.l2_max_size,
-                    "l2_ttl_seconds": cache_config.l2_ttl_seconds,
-                    "compression_enabled": cache_config.compression_enabled,
-                    "compression_level": cache_config.compression_level,
+                    "max_size": cache_config.memory.max_size,
+                    "ttl_seconds": cache_config.memory.ttl_seconds,
+                    "eviction_policy": cache_config.memory.eviction_policy.value,
+                    "cleanup_interval": cache_config.memory.cleanup_interval,
+                    "max_memory_mb": cache_config.memory.max_memory_mb,
                 }
 
             if config_type in ["all", "ttl"]:
                 config_data["ttl"] = {
-                    "embedding_ttl_seconds": cache_config.embedding_ttl_seconds,
-                    "search_ttl_seconds": cache_config.search_ttl_seconds,
-                    "project_ttl_seconds": cache_config.project_ttl_seconds,
-                    "file_ttl_seconds": cache_config.file_ttl_seconds,
-                    "default_ttl_seconds": cache_config.default_ttl_seconds,
+                    "embedding_ttl_seconds": cache_config.embedding_cache.ttl_seconds,
+                    "search_ttl_seconds": cache_config.search_cache.ttl_seconds,
+                    "project_ttl_seconds": cache_config.project_cache.ttl_seconds,
+                    "file_ttl_seconds": cache_config.file_cache.ttl_seconds,
+                    "default_ttl_seconds": cache_config.default_ttl,
                 }
 
             if config_type in ["all", "limits"]:
                 config_data["limits"] = {
-                    "max_key_size": cache_config.max_key_size,
-                    "max_value_size": cache_config.max_value_size,
+                    "max_key_length": cache_config.max_key_length,
                     "batch_size": cache_config.batch_size,
-                    "max_concurrent_operations": cache_config.max_concurrent_operations,
+                    "parallel_operations": cache_config.parallel_operations,
+                    "connection_pool_size": cache_config.connection_pool_size,
                 }
 
             if config_type in ["all", "security"]:
                 config_data["security"] = {
                     "encryption_enabled": cache_config.encryption_enabled,
-                    "encryption_key_set": bool(getattr(cache_config, "encryption_key", None)),
-                    "isolation_enabled": cache_config.isolation_enabled,
+                    "encryption_key_set": bool(cache_config.encryption_key),
                 }
 
             # Format output based on export format

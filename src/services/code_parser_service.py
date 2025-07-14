@@ -15,23 +15,23 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from services.ast_extraction_service import AstExtractionService
-from services.chunking_strategies import (
+from src.models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
+from src.models.file_metadata import FileMetadata
+from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+from src.utils.file_system_utils import get_file_mtime, get_file_size
+
+from .ast_extraction_service import AstExtractionService
+from .chunking_strategies import (
     FallbackChunkingStrategy,
     StructuredFileChunkingStrategy,
     chunking_strategy_registry,
 )
 
 # Import file cache service for performance optimization
-from services.file_cache_service import get_file_cache_service
+from .file_cache_service import get_file_cache_service
 
 # Import the new refactored services
-from services.language_support_service import LanguageSupportService
-
-from src.models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
-from src.models.file_metadata import FileMetadata
-from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
-from src.utils.file_system_utils import get_file_mtime, get_file_size
+from .language_support_service import LanguageSupportService
 
 
 class CodeParserService:
@@ -488,6 +488,68 @@ class CodeParserService:
             "error_recovery_count": 0,
             "cache_hits": 0,
             "cache_misses": 0,
+        }
+
+    def reset_session_metrics(self):
+        """
+        Reset session-specific chunking metrics.
+
+        This method resets both internal parsing statistics and external chunking metrics
+        while preserving historical data. Called by reset_chunking_metrics_tool.
+        """
+        # Reset internal parsing statistics
+        self.reset_parsing_statistics()
+
+        # Reset external chunking metrics tracker if available
+        try:
+            from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+
+            if chunking_metrics_tracker:
+                chunking_metrics_tracker.reset_session_metrics()
+                self.logger.debug("Reset session metrics for chunking tracker")
+        except ImportError:
+            self.logger.debug("Chunking metrics tracker not available for reset")
+        except Exception as e:
+            self.logger.warning(f"Failed to reset chunking metrics tracker: {e}")
+
+        self.logger.info("Session metrics reset completed")
+
+    def get_performance_summary(self) -> dict:
+        """
+        Get performance summary for chunking metrics.
+
+        Returns:
+            Dictionary with performance metrics and statistics
+        """
+        cache_total = self._parse_stats["cache_hits"] + self._parse_stats["cache_misses"]
+        cache_hit_rate = self._parse_stats["cache_hits"] / cache_total if cache_total > 0 else 0.0
+
+        # Calculate average processing time per file
+        avg_processing_time = (
+            self._parse_stats["total_processing_time_ms"] / self._parse_stats["total_files_processed"]
+            if self._parse_stats["total_files_processed"] > 0
+            else 0.0
+        )
+
+        # Calculate average chunks per file
+        avg_chunks_per_file = (
+            self._parse_stats["total_chunks_extracted"] / self._parse_stats["total_files_processed"]
+            if self._parse_stats["total_files_processed"] > 0
+            else 0.0
+        )
+
+        return {
+            "total_files_processed": self._parse_stats["total_files_processed"],
+            "total_chunks_extracted": self._parse_stats["total_chunks_extracted"],
+            "total_processing_time_ms": self._parse_stats["total_processing_time_ms"],
+            "average_processing_time_ms": avg_processing_time,
+            "average_chunks_per_file": avg_chunks_per_file,
+            "error_recovery_count": self._parse_stats["error_recovery_count"],
+            "cache_hit_rate": cache_hit_rate,
+            "cache_hits": self._parse_stats["cache_hits"],
+            "cache_misses": self._parse_stats["cache_misses"],
+            "strategy_usage": self._parse_stats["strategy_usage"].copy(),
+            "supported_languages": len(self.get_supported_languages()),
         }
 
     def _create_fallback_result(

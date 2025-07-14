@@ -36,13 +36,19 @@ from .cache_invalidation_service import (
 @pytest.fixture
 def config():
     """Create test cache configuration."""
+    from config.cache_config import MemoryCacheConfig, RedisConfig
+
     return CacheConfig(
-        redis_host="localhost",
-        redis_port=6379,
-        redis_password=None,
-        redis_db=0,
+        redis=RedisConfig(
+            host="localhost",
+            port=6379,
+            password=None,
+            db=0,
+        ),
+        memory=MemoryCacheConfig(
+            max_memory_mb=100,
+        ),
         default_ttl=3600,
-        max_memory_mb=100,
         debug_mode=True,
     )
 
