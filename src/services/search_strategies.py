@@ -380,7 +380,7 @@ class BaseExecutor:
         self.logger = logging.getLogger(__name__)
         self.parameters = parameters or SearchParameters()
 
-    def execute_search(self, query: str, search_mode: SearchMode = None) -> list[Any]:
+    async def execute_search(self, query: str, search_mode: SearchMode = None) -> list[Any]:
         """
         Execute a single search query.
 
@@ -395,7 +395,7 @@ class BaseExecutor:
 
         try:
             # Use the existing search_sync function
-            results = search_sync(
+            results = await search_sync(
                 query=query,
                 n_results=self.parameters.n_results,
                 search_mode=mode.value,

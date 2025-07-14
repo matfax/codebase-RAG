@@ -896,7 +896,7 @@ async def search_async_cached(
         # Unexpected errors - fall back to sync implementation
         logger.warning(f"Cached search failed, falling back to sync search: {e}")
         try:
-            return search_sync(
+            return await search_sync(
                 query,
                 n_results,
                 cross_project,
@@ -927,7 +927,7 @@ async def search_async_cached(
             }
 
 
-def search_sync(
+async def search_sync(
     query: str,
     n_results: int = 5,
     cross_project: bool = False,
