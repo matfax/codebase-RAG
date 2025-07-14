@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
+
 from src.models.prompt_context import (
     DifficultyLevel,
     PromptContext,

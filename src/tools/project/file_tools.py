@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from src.tools.core.error_utils import handle_tool_error, log_tool_usage
-from src.tools.core.errors import FileOperationError
-from src.tools.project.project_utils import delete_file_chunks
+from tools.core.error_utils import handle_tool_error, log_tool_usage
+from tools.core.errors import FileOperationError
+from tools.project.project_utils import delete_file_chunks
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def get_file_metadata(file_path: str) -> dict[str, Any]:
     with log_tool_usage("get_file_metadata", {"file_path": file_path}):
         try:
             from qdrant_client.http.models import FieldCondition, Filter, MatchValue
-            from src.tools.database.qdrant_utils import get_qdrant_client
+            from tools.database.qdrant_utils import get_qdrant_client
 
             abs_path = Path(file_path).resolve()
             if not abs_path.exists():

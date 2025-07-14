@@ -20,11 +20,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from ..models.cache_models import CacheEntry, CacheEntryType, create_cache_entry
-from ..models.code_chunk import CodeChunk, ParseResult
-from ..models.file_metadata import FileMetadata
-from ..services.cache_service import BaseCacheService, get_cache_service
-from ..utils.cache_key_generator import CacheKeyGenerator
+from models.cache_models import CacheEntry, CacheEntryType, create_cache_entry
+from models.code_chunk import CodeChunk, ParseResult
+from models.file_metadata import FileMetadata
+from services.cache_service import BaseCacheService, get_cache_service
+from utils.cache_key_generator import CacheKeyGenerator
 
 
 @dataclass

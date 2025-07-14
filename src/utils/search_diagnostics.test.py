@@ -4,6 +4,7 @@ from collections import defaultdict
 from unittest.mock import Mock, patch
 
 import pytest
+
 from src.utils.search_diagnostics import SearchDiagnostics, create_search_quality_report
 
 

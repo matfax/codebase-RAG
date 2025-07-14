@@ -608,6 +608,7 @@ def delete_file_chunks(file_path: str, collection_name: str | None = None) -> di
         Dictionary with deletion results
     """
     from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+
     from src.tools.database.qdrant_utils import get_qdrant_client
 
     logger.info(f"Deleting chunks for file: {file_path}")

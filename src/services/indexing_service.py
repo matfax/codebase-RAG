@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import logging
 import multiprocessing
@@ -13,10 +14,11 @@ from typing import Any
 
 import psutil
 from git import GitCommandError, Repo
-from src.models.code_chunk import ChunkType
-from src.models.code_chunk import CodeChunk as ParsedCodeChunk
 from services.code_parser_service import CodeParserService
 from services.project_analysis_service import ProjectAnalysisService
+
+from src.models.code_chunk import ChunkType
+from src.models.code_chunk import CodeChunk as ParsedCodeChunk
 from src.utils.performance_monitor import MemoryMonitor, ProgressTracker
 from src.utils.stage_logger import (
     get_file_discovery_logger,
@@ -73,7 +75,7 @@ class IndexingService:
             self.logger.warning(f"Error sanitizing path {file_path}: {e}")
             return os.path.basename(file_path)  # Fallback to just filename
 
-    def process_codebase_for_indexing(
+    async def process_codebase_for_indexing(
         self,
         source_path: str,
         incremental_mode: bool = False,
@@ -160,61 +162,50 @@ class IndexingService:
                 self.file_reading_logger.info(f"Processing batch {batch_num}: files {batch_start + 1}-{batch_end}")
                 batch_start_time = time.time()
 
-                # Use ThreadPoolExecutor with proper resource management
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    try:
-                        # Submit batch processing tasks
-                        future_to_file = {
-                            executor.submit(
-                                self._process_single_file,
-                                file_path,
-                                project_name,
-                                directory_to_index,
-                            ): file_path
-                            for file_path in batch_files
-                        }
+                # Use asyncio.gather for concurrent processing
+                try:
+                    # Create coroutines for batch processing
+                    tasks = [self._process_single_file(file_path, project_name, directory_to_index) for file_path in batch_files]
 
-                        batch_processed = 0
-                        batch_failed = 0
+                    batch_processed = 0
+                    batch_failed = 0
 
-                        # Collect results as they complete
-                        for future in as_completed(future_to_file):
-                            file_path = future_to_file[future]
-                            thread_id = threading.get_ident()
-                            try:
-                                file_chunks = future.result()
-                                if file_chunks:  # Only add non-None chunks
-                                    chunks.extend(file_chunks)  # Extend to add all chunks from the file
-                                    batch_processed += 1
-                                    self.file_reading_logger.log_item_processed(
-                                        "file_processing",
-                                        file_path=file_path,
-                                        chunks_created=len(file_chunks),
-                                    )
-                                    with self._lock:
-                                        self._processed_count += 1
-                                        processing_stage.processed_count = self._processed_count
-                                        self.progress_tracker.increment_processed()
-                                        self.logger.debug(
-                                            f"[Thread-{thread_id}] Successfully processed file {file_path} -> {len(file_chunks)} chunks ({self._processed_count}/{len(relevant_files)})"
-                                        )
-                            except Exception as e:
-                                batch_failed += 1
-                                self.file_reading_logger.log_item_failed("file_processing", error=str(e), file_path=file_path)
+                    # Process all files concurrently
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Collect results
+                    for file_path, result in zip(batch_files, results, strict=False):
+                        try:
+                            if isinstance(result, Exception):
+                                # Handle exception
+                                raise result
+
+                            file_chunks = result
+                            if file_chunks:  # Only add non-None chunks
+                                chunks.extend(file_chunks)  # Extend to add all chunks from the file
+                                batch_processed += 1
+                                self.file_reading_logger.log_item_processed(
+                                    "file_processing",
+                                    file_path=file_path,
+                                    chunks_created=len(file_chunks),
+                                )
                                 with self._lock:
-                                    self._error_files.append((file_path, str(e)))
-                                    self.progress_tracker.increment_failed()
-                                self.logger.error(f"[Thread-{thread_id}] Error processing file {file_path}: {e}")
-                            finally:
-                                # Clean up future reference
-                                del future_to_file[future]
+                                    self._processed_count += 1
+                                    processing_stage.processed_count = self._processed_count
+                                    self.progress_tracker.increment_processed()
+                                    self.logger.debug(
+                                        f"Successfully processed file {file_path} -> {len(file_chunks)} chunks ({self._processed_count}/{len(relevant_files)})"
+                                    )
+                        except Exception as e:
+                            batch_failed += 1
+                            self.file_reading_logger.log_item_failed("file_processing", error=str(e), file_path=file_path)
+                            with self._lock:
+                                self._error_files.append((file_path, str(e)))
+                                self.progress_tracker.increment_failed()
+                            self.logger.error(f"Error processing file {file_path}: {e}")
 
-                    except Exception as e:
-                        self.logger.error(f"Error in batch processing: {e}")
-
-                    finally:
-                        # Ensure ThreadPoolExecutor cleanup
-                        executor.shutdown(wait=True)
+                except Exception as e:
+                    self.logger.error(f"Error in batch processing: {e}")
 
                 # Log batch completion
                 batch_duration = time.time() - batch_start_time
@@ -256,7 +247,7 @@ class IndexingService:
 
         return self.progress_tracker.get_progress_summary()
 
-    def _process_single_file(
+    async def _process_single_file(
         self,
         file_path: str,
         project_name: str | None = None,
@@ -268,7 +259,7 @@ class IndexingService:
                 content = f.read()
 
             # Use intelligent code parsing for supported languages
-            parse_result = self.code_parser_service.parse_file(file_path, content)
+            parse_result = await self.code_parser_service.parse_file(file_path, content)
 
             # Convert parsed chunks to the existing Chunk format
             chunks = []
@@ -572,7 +563,7 @@ class IndexingService:
 
         return language_map.get(extension, "unknown")
 
-    def process_specific_files(
+    async def process_specific_files(
         self,
         file_paths: list[str],
         project_name: str | None = None,
@@ -617,22 +608,20 @@ class IndexingService:
                 batch_processed = 0
                 batch_failed = 0
 
-                # Process batch with threading
-                with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-                    future_to_file = {
-                        executor.submit(
-                            self._process_single_file,
-                            file_path,
-                            project_name,
-                            base_directory,
-                        ): file_path
-                        for file_path in batch_files
-                    }
+                # Process batch with asyncio
+                try:
+                    # Create coroutines for batch processing
+                    tasks = [self._process_single_file(file_path, project_name, base_directory) for file_path in batch_files]
 
-                    for future in as_completed(future_to_file):
-                        file_path = future_to_file[future]
+                    # Process all files concurrently
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    for file_path, result in zip(batch_files, results, strict=False):
                         try:
-                            file_chunks = future.result()
+                            if isinstance(result, Exception):
+                                raise result
+
+                            file_chunks = result
                             if file_chunks:
                                 chunks.extend(file_chunks)  # Extend to add all chunks from the file
                                 batch_processed += 1
@@ -649,6 +638,9 @@ class IndexingService:
                             with self._lock:
                                 self._error_files.append((file_path, str(e)))
                                 batch_failed += 1
+
+                except Exception as e:
+                    self.logger.error(f"Error in batch processing: {e}")
 
                 # Update stage progress
                 stage.processed_count = self._processed_count

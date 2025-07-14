@@ -9,7 +9,7 @@ import os
 import time
 import traceback
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,7 @@ from qdrant_client.http.models import (
     PointStruct,
     VectorParams,
 )
+
 from src.tools.core.errors import (
     QdrantConnectionError,
 )
@@ -371,9 +372,9 @@ def clear_project_collections() -> dict[str, Any]:
     }
 
 
-def _process_chunk_batch_for_streaming(
+async def _process_chunk_batch_for_streaming(
     chunks: list[Any], embeddings_manager, batch_size: int = 20
-) -> Generator[tuple[str, list[PointStruct]], None, None]:
+) -> AsyncGenerator[tuple[str, list[PointStruct]], None]:
     """
     Process chunks in batches and yield (collection_name, points) for streaming insertion.
 
@@ -461,7 +462,7 @@ def _process_chunk_batch_for_streaming(
 
                 # Generate embeddings in batch
                 start_time = time.time()
-                embeddings = embeddings_manager.generate_embeddings(
+                embeddings = await embeddings_manager.generate_embeddings(
                     os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"),
                     texts,
                 )

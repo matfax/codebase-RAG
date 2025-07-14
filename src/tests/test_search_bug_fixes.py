@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+
 from src.tools.indexing.search_tools import _perform_hybrid_search, search_sync
 from src.utils.search_diagnostics import SearchDiagnostics, create_search_quality_report
 

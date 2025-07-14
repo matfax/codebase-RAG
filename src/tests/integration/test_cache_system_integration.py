@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import Mock, patch
 
 import pytest
@@ -191,7 +191,6 @@ class TestCacheSystemIntegration:
     async def test_performance_optimization_integration(self, cache_system):
         """Test performance optimization system integration."""
         optimizer = cache_system["optimizer"]
-        cache_service = cache_system["cache_service"]
 
         # Create performance profile
         profile = PerformanceProfile(
@@ -540,7 +539,7 @@ class TestCacheFailureScenarios:
 
         # Cache should handle corruption gracefully
         try:
-            retrieved_data = await cache_service.get(valid_key)
+            await cache_service.get(valid_key)
             # Depending on implementation, this might return corrupted data or None
             # The important thing is that it doesn't crash
         except Exception as e:
@@ -575,10 +574,8 @@ class TestCacheFailureScenarios:
         num_workers = 50
         operations_per_worker = 200
 
-        start_time = time.time()
         tasks = [stress_worker(i, operations_per_worker) for i in range(num_workers)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        end_time = time.time()
 
         # Check for exceptions
         exceptions = [r for r in results if isinstance(r, Exception)]

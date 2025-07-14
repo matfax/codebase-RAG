@@ -20,6 +20,7 @@ from services.file_metadata_service import FileMetadataService
 from services.indexing_service import IndexingService
 from services.project_analysis_service import ProjectAnalysisService
 from services.qdrant_service import QdrantService
+
 from src.utils.performance_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class IndexingPipeline:
         """Set callback function for progress reporting."""
         self._progress_callback = callback
 
-    def execute_full_indexing(self, directory: str, project_name: str, clear_existing: bool = True) -> PipelineResult:
+    async def execute_full_indexing(self, directory: str, project_name: str, clear_existing: bool = True) -> PipelineResult:
         """
         Execute full indexing pipeline.
 
@@ -103,7 +104,7 @@ class IndexingPipeline:
 
             # Process codebase
             self._report_progress("Processing codebase for intelligent chunking")
-            chunks = self.indexing_service.process_codebase_for_indexing(directory)
+            chunks = await self.indexing_service.process_codebase_for_indexing(directory)
 
             if not chunks:
                 return PipelineResult(
@@ -119,7 +120,7 @@ class IndexingPipeline:
 
             # Generate embeddings and store
             self._report_progress("Generating embeddings and storing to vector database")
-            points_stored, collections_used = self._process_chunks_to_storage(
+            points_stored, collections_used = await self._process_chunks_to_storage(
                 chunks, {"project_name": project_name, "source_path": directory}
             )
 
@@ -162,7 +163,7 @@ class IndexingPipeline:
             except Exception:
                 pass
 
-    def execute_incremental_indexing(self, directory: str, project_name: str) -> PipelineResult:
+    async def execute_incremental_indexing(self, directory: str, project_name: str) -> PipelineResult:
         """
         Execute incremental indexing pipeline.
 
@@ -221,10 +222,10 @@ class IndexingPipeline:
             # Process changed files
             if files_to_reindex:
                 self._report_progress(f"Processing {len(files_to_reindex)} changed files")
-                chunks = self.indexing_service.process_specific_files(files_to_reindex, project_name, directory)
+                chunks = await self.indexing_service.process_specific_files(files_to_reindex, project_name, directory)
 
                 if chunks:
-                    points_stored, collections = self._process_chunks_to_storage(
+                    points_stored, collections = await self._process_chunks_to_storage(
                         chunks, {"project_name": project_name, "source_path": directory}
                     )
                     total_points_stored = points_stored
@@ -269,7 +270,7 @@ class IndexingPipeline:
             except Exception:
                 pass
 
-    def _process_chunks_to_storage(self, chunks: list, project_context: dict[str, Any]) -> tuple[int, list[str]]:
+    async def _process_chunks_to_storage(self, chunks: list, project_context: dict[str, Any]) -> tuple[int, list[str]]:
         """
         Process chunks into embeddings and store them.
 
@@ -312,7 +313,7 @@ class IndexingPipeline:
             try:
                 # Generate embeddings
                 texts = [chunk.content for chunk in collection_chunk_list]
-                embeddings = self.embedding_service.generate_embeddings(model_name, texts)
+                embeddings = await self.embedding_service.generate_embeddings(model_name, texts)
 
                 if embeddings is None:
                     self._report_error("embedding", collection_name, "Failed to generate embeddings", "Check Ollama service availability")

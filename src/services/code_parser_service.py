@@ -15,8 +15,6 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from src.models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
-from src.models.file_metadata import FileMetadata
 from services.ast_extraction_service import AstExtractionService
 from services.chunking_strategies import (
     FallbackChunkingStrategy,
@@ -29,6 +27,9 @@ from services.file_cache_service import get_file_cache_service
 
 # Import the new refactored services
 from services.language_support_service import LanguageSupportService
+
+from src.models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
+from src.models.file_metadata import FileMetadata
 from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
 from src.utils.file_system_utils import get_file_mtime, get_file_size
 

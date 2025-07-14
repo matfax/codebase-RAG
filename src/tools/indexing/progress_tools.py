@@ -9,9 +9,9 @@ import time
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from src.tools.core.error_utils import handle_tool_error, log_tool_usage
-from src.tools.core.errors import IndexingError
-from src.utils.performance_monitor import MemoryMonitor
+from tools.core.error_utils import handle_tool_error, log_tool_usage
+from tools.core.errors import IndexingError
+from utils.performance_monitor import MemoryMonitor
 
 # Configure logging
 logger = logging.getLogger(__name__)

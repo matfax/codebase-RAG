@@ -27,6 +27,7 @@ from services.search_cache_service import (
     SearchScope,
     get_search_cache_service,
 )
+
 from src.tools.core.errors import (
     EmbeddingError,
     QdrantConnectionError,
@@ -366,7 +367,7 @@ async def _perform_hybrid_search_cached(
 
         # Cache miss - perform actual search
         search_start = time.time()
-        results = _perform_hybrid_search(
+        results = await _perform_hybrid_search(
             qdrant_client=qdrant_client,
             embedding_model=embedding_model,
             query=query,
@@ -393,7 +394,7 @@ async def _perform_hybrid_search_cached(
     except Exception as e:
         logger.error(f"Error in cached search: {e}")
         # Fall back to non-cached search
-        return _perform_hybrid_search(
+        return await _perform_hybrid_search(
             qdrant_client=qdrant_client,
             embedding_model=embedding_model,
             query=query,
@@ -407,7 +408,7 @@ async def _perform_hybrid_search_cached(
         )
 
 
-def _perform_hybrid_search(
+async def _perform_hybrid_search(
     qdrant_client,
     embedding_model,
     query: str,
@@ -467,8 +468,11 @@ def _perform_hybrid_search(
                 query_vector=query_embedding,
                 query_filter=collection_filter,
                 limit=per_collection_limit,
-                score_threshold=0.1,  # Minimum similarity threshold
+                score_threshold=0.0,  # Minimum similarity threshold - temporarily lowered for debugging
             )
+
+            # DEBUG: Log search results count
+            logger.info(f"DEBUG: Collection {collection} returned {len(search_results)} raw results")
 
             for result in search_results:
                 empty_content_stats["total_found"] += 1
@@ -485,8 +489,14 @@ def _perform_hybrid_search(
                     file_path = result.payload.get("file_path", "unknown")
                     chunk_type = result.payload.get("chunk_type", "unknown")
                     chunk_name = result.payload.get("name", "unknown")
-                    logger.debug(f"Skipping result with invalid content from {collection}: {file_path} ({chunk_type}:{chunk_name})")
+                    logger.info(
+                        f"DEBUG: Skipping result with invalid content from {collection}: "
+                        f"{file_path} ({chunk_type}:{chunk_name}) - content: {content[:50]}"
+                    )
                     continue
+
+                # DEBUG: Log valid content
+                logger.info(f"DEBUG: Valid result from {collection} - score: {result.score}, content: {content[:50]}")
 
                 # Build base result structure
                 base_result = {
@@ -729,7 +739,7 @@ async def search_async_cached(
         # Generate query embedding
         embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
         try:
-            query_embedding_tensor = embeddings_manager.generate_embeddings(embedding_model, query)
+            query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
 
             if query_embedding_tensor is None:
                 raise EmbeddingError(
@@ -995,7 +1005,7 @@ def search_sync(
         # Generate query embedding
         embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
         try:
-            query_embedding_tensor = embeddings_manager.generate_embeddings(embedding_model, query)
+            query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
 
             if query_embedding_tensor is None:
                 raise EmbeddingError(
@@ -1061,7 +1071,7 @@ def search_sync(
         # Perform search
         logger.info(f"Searching {len(search_collections)} collections for query: '{query[:50]}...'")
 
-        search_results = _perform_hybrid_search(
+        search_results = await _perform_hybrid_search(
             qdrant_client=qdrant_client,
             embedding_model=embeddings_manager,
             query=query,
