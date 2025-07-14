@@ -154,7 +154,7 @@ def reindex_file(file_path: str) -> dict[str, Any]:
                 return clear_result
 
             # Then reindex the file
-            from src.services.indexing_service import IndexingService
+            from ...services.indexing_service import IndexingService
 
             indexing_service = IndexingService()
 

@@ -33,7 +33,7 @@ def diagnose_parser_health(comprehensive: bool = False, language: str | None = N
     """
     with log_tool_usage("diagnose_parser_health", {"comprehensive": comprehensive, "language": language}):
         try:
-            from src.utils.parser_diagnostics import parser_diagnostics
+            from ...utils.parser_diagnostics import parser_diagnostics
 
             if language:
                 # Test specific language

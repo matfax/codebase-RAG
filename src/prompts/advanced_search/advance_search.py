@@ -3,10 +3,16 @@
 This module implements the advance_search prompt for guided cross-project search operations.
 """
 
+import sys
+from pathlib import Path
+
+# Add src directory to path for absolute imports
+if str(Path(__file__).parent.parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
-
-from ..base import BasePromptImplementation
+from prompts.base import BasePromptImplementation
 
 
 class AdvanceSearchPrompt(BasePromptImplementation):

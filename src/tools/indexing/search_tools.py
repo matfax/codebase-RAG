@@ -19,6 +19,14 @@ from qdrant_client.http.models import (
     Filter,
     MatchValue,
 )
+
+# Import cache services
+from services.search_cache_service import (
+    SearchMode,
+    SearchParameters,
+    SearchScope,
+    get_search_cache_service,
+)
 from tools.core.errors import (
     EmbeddingError,
     QdrantConnectionError,
@@ -27,13 +35,7 @@ from tools.core.errors import (
 )
 from tools.core.retry_utils import retry_operation
 
-# Import cache services
-from src.services.search_cache_service import (
-    SearchMode,
-    SearchParameters,
-    SearchScope,
-    get_search_cache_service,
-)
+from ..project.project_utils import get_available_project_names
 
 # Load environment variables
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
@@ -753,8 +755,6 @@ async def search_async_cached(
 
             # Check if any collections were found
             if not search_collections:
-                from ..project.project_utils import get_available_project_names
-
                 return {
                     "error": f"No indexed collections found for projects: {target_projects}",
                     "available_projects": get_available_project_names(all_collections),
@@ -1021,8 +1021,6 @@ def search_sync(
 
             # Check if any collections were found
             if not search_collections:
-                from ..project.project_utils import get_available_project_names
-
                 return {
                     "error": f"No indexed collections found for projects: {target_projects}",
                     "available_projects": get_available_project_names(all_collections),

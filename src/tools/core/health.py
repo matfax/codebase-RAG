@@ -9,9 +9,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from utils.memory_utils import get_memory_stats, get_memory_usage_mb
 from utils.performance_monitor import MemoryMonitor, get_cache_performance_monitor
-
-from src.utils.memory_utils import get_memory_stats, get_memory_usage_mb
 
 # Import cache health checker (with fallback if not available)
 try:

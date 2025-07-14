@@ -21,18 +21,17 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import torch
-
-from ..config.cache_config import CacheConfig, get_global_cache_config
-from ..models.cache_models import (
+from config.cache_config import CacheConfig, get_global_cache_config
+from models.cache_models import (
     CacheEntry,
     CacheEntryMetadata,
     CacheEntryType,
     CacheStatistics,
     create_cache_entry,
 )
-from ..services.cache_service import BaseCacheService, get_cache_service
-from ..utils.cache_key_generator import CacheKeyGenerator, KeyType
-from ..utils.cache_utils import CompressionFormat, SerializationFormat
+from services.cache_service import BaseCacheService, get_cache_service
+from utils.cache_key_generator import CacheKeyGenerator, KeyType
+from utils.cache_utils import CompressionFormat, SerializationFormat
 
 
 class EmbeddingType(Enum):
@@ -598,7 +597,7 @@ class EmbeddingCacheService:
         Returns:
             List of WarmupItem objects for cache preloading
         """
-        from ..utils.cache_warmup_utils import get_embedding_cache_warmup_candidates
+        from utils.cache_warmup_utils import get_embedding_cache_warmup_candidates
 
         try:
             candidates = await get_embedding_cache_warmup_candidates(self, historical_data)

@@ -4,22 +4,27 @@ This module implements the main registry for MCP prompts.
 """
 
 import logging
+import sys
+from pathlib import Path
+
+# Add src directory to path for absolute imports
+if str(Path(__file__).parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mcp.server.fastmcp import FastMCP
-from services.embedding_service import EmbeddingService
-from services.indexing_service import IndexingService
-from services.project_analysis_service import ProjectAnalysisService
-
-from src.prompts.advanced_search import AdvanceSearchPrompt
+from prompts.advanced_search import AdvanceSearchPrompt
 
 # Import prompt implementations
-from src.prompts.exploration import (
+from prompts.exploration import (
     ExploreProjectPrompt,
     FindEntryPointsPrompt,
     TraceFunctionalityPrompt,
     UnderstandComponentPrompt,
 )
-from src.prompts.recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
+from prompts.recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
+from services.embedding_service import EmbeddingService
+from services.indexing_service import IndexingService
+from services.project_analysis_service import ProjectAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -83,3 +88,18 @@ class MCPPromptsSystem:
         except Exception as e:
             self.logger.error(f"Failed to register prompt {prompt_instance.__class__.__name__}: {e}")
             raise
+
+
+def register_prompts(mcp_app: FastMCP):
+    """Register all MCP prompts with the FastMCP application.
+
+    Args:
+        mcp_app: The FastMCP application instance
+    """
+    try:
+        prompts_system = MCPPromptsSystem(mcp_app)
+        prompts_system.register_all_prompts()
+        logger.info("MCP Prompts system registered successfully")
+    except Exception as e:
+        logger.error(f"Failed to register MCP Prompts system: {e}")
+        raise

@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from ..config.cache_config import CacheConfig, get_global_cache_config
-from ..utils.cache_key_generator import CacheKeyGenerator, KeyType, get_cache_key_generator
+from config.cache_config import CacheConfig, get_global_cache_config
+from utils.cache_key_generator import CacheKeyGenerator, KeyType, get_cache_key_generator
+
 from .cache_service import BaseCacheService, CacheOperationError, get_cache_service
 
 

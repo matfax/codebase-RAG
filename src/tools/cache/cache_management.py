@@ -11,11 +11,12 @@ This module provides MCP tools for:
 import asyncio
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from ..core.error_utils import handle_tool_error, log_tool_usage
-from ..core.errors import CacheError
+from tools.core.error_utils import handle_caught_exception, handle_tool_error, log_tool_usage
+from tools.core.errors import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -866,7 +867,9 @@ async def get_cache_invalidation_stats() -> dict[str, Any]:
             }
 
         except Exception as e:
-            return handle_tool_error(e, "get_cache_invalidation_stats", {})
+            from tools.core.error_utils import handle_caught_exception
+
+            return handle_caught_exception(e, "get_cache_invalidation_stats", {})
 
 
 async def get_project_invalidation_policy(
@@ -1994,8 +1997,8 @@ async def get_cache_health_report(
             # Statistics
             if include_statistics:
                 try:
-                    stats_result = await get_cache_statistics()
-                    health_report["statistics"] = stats_result
+                    # TODO: Implement get_cache_statistics function
+                    health_report["statistics"] = {"message": "Statistics collection not yet implemented"}
                 except Exception as e:
                     health_report["statistics"] = {"error": str(e)}
 
@@ -2200,7 +2203,9 @@ async def restore_cache_from_backup(
             }
 
         except Exception as e:
-            return handle_tool_error(e, "restore_cache_from_backup", {"backup_id": backup_id, "strategy": strategy, "dry_run": dry_run})
+            return handle_caught_exception(
+                e, "restore_cache_from_backup", {"backup_id": backup_id, "strategy": strategy, "dry_run": dry_run}
+            )
 
 
 async def list_cache_backups(backup_type: str | None = None, max_age_days: int | None = None, limit: int = 50) -> dict[str, Any]:
@@ -2269,7 +2274,9 @@ async def list_cache_backups(backup_type: str | None = None, max_age_days: int |
             }
 
         except Exception as e:
-            return handle_tool_error(e, "list_cache_backups", {"backup_type": backup_type, "max_age_days": max_age_days, "limit": limit})
+            return handle_caught_exception(
+                e, "list_cache_backups", {"backup_type": backup_type, "max_age_days": max_age_days, "limit": limit}
+            )
 
 
 async def verify_backup_integrity(backup_id: str) -> dict[str, Any]:
@@ -2295,7 +2302,7 @@ async def verify_backup_integrity(backup_id: str) -> dict[str, Any]:
             return {"success": True, "backup_id": backup_id, "verification_result": verification_result}
 
         except Exception as e:
-            return handle_tool_error(e, "verify_backup_integrity", {"backup_id": backup_id})
+            return handle_caught_exception(e, "verify_backup_integrity", {"backup_id": backup_id})
 
 
 async def delete_cache_backup(backup_id: str, confirm: bool = False) -> dict[str, Any]:
@@ -2330,7 +2337,7 @@ async def delete_cache_backup(backup_id: str, confirm: bool = False) -> dict[str
             }
 
         except Exception as e:
-            return handle_tool_error(e, "delete_cache_backup", {"backup_id": backup_id})
+            return handle_caught_exception(e, "delete_cache_backup", {"backup_id": backup_id})
 
 
 async def get_backup_disaster_recovery_plan() -> dict[str, Any]:
@@ -2438,7 +2445,7 @@ async def get_backup_disaster_recovery_plan() -> dict[str, Any]:
             }
 
         except Exception as e:
-            return handle_tool_error(e, "get_backup_disaster_recovery_plan", {})
+            return handle_caught_exception(e, "get_backup_disaster_recovery_plan", {})
 
 
 async def configure_cache_failover(
@@ -2481,7 +2488,7 @@ async def configure_cache_failover(
             from ...services.cache_failover_service import FailoverConfiguration, get_cache_failover_service
 
             # Create failover configuration
-            failover_config = FailoverConfiguration(
+            FailoverConfiguration(
                 health_check_interval_seconds=health_check_interval_seconds,
                 failure_threshold=failure_threshold,
                 recovery_threshold=recovery_threshold,
@@ -2534,7 +2541,7 @@ async def get_cache_failover_status() -> dict[str, Any]:
             return {"success": True, "failover_status": status, "timestamp": datetime.now().isoformat()}
 
         except Exception as e:
-            return handle_tool_error(e, "get_cache_failover_status", {})
+            return handle_caught_exception(e, "get_cache_failover_status", {})
 
 
 async def trigger_manual_failover(reason: str = "Manual failover requested") -> dict[str, Any]:
@@ -2570,7 +2577,7 @@ async def trigger_manual_failover(reason: str = "Manual failover requested") -> 
             }
 
         except Exception as e:
-            return handle_tool_error(e, "trigger_manual_failover", {"reason": reason})
+            return handle_caught_exception(e, "trigger_manual_failover", {"reason": reason})
 
 
 async def trigger_manual_recovery() -> dict[str, Any]:
@@ -2604,7 +2611,7 @@ async def trigger_manual_recovery() -> dict[str, Any]:
             }
 
         except Exception as e:
-            return handle_tool_error(e, "trigger_manual_recovery", {})
+            return handle_caught_exception(e, "trigger_manual_recovery", {})
 
 
 async def register_failover_service(service_type: str = "redis", connection_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2708,7 +2715,7 @@ async def get_failover_performance_metrics() -> dict[str, Any]:
             status = await failover_service.get_failover_status()
 
             # Calculate metrics from failover events
-            recent_events = status.get("recent_events", [])
+            # recent_events = status.get("recent_events", [])
 
             # Performance metrics
             metrics = {
@@ -2745,7 +2752,7 @@ async def get_failover_performance_metrics() -> dict[str, Any]:
             }
 
         except Exception as e:
-            return handle_tool_error(e, "get_failover_performance_metrics", {})
+            return handle_caught_exception(e, "get_failover_performance_metrics", {})
 
 
 async def get_cache_performance_summary() -> dict[str, Any]:
@@ -2768,7 +2775,7 @@ async def get_cache_performance_summary() -> dict[str, Any]:
             return {"success": True, "performance_summary": summary}
 
         except Exception as e:
-            return handle_tool_error(e, "get_cache_performance_summary", {})
+            return handle_caught_exception(e, "get_cache_performance_summary", {})
 
 
 async def get_performance_degradation_events(
@@ -2892,7 +2899,7 @@ async def trigger_performance_remediation(
             }
 
         except Exception as e:
-            return handle_tool_error(e, "trigger_performance_remediation", {"action": action, "target_metric": target_metric})
+            return handle_caught_exception(e, "trigger_performance_remediation", {"action": action, "target_metric": target_metric})
 
 
 async def configure_performance_monitoring(
@@ -2942,7 +2949,7 @@ async def configure_performance_monitoring(
                 final_alert_thresholds.update(alert_thresholds)
 
             # Create performance configuration
-            perf_config = PerformanceConfiguration(
+            PerformanceConfiguration(
                 monitoring_interval_seconds=monitoring_interval_seconds,
                 degradation_threshold_ratio=degradation_threshold_ratio,
                 critical_threshold_ratio=critical_threshold_ratio,
@@ -3094,7 +3101,7 @@ async def get_performance_recommendations() -> dict[str, Any]:
 
             # Analyze metrics for recommendations
             metrics = summary.get("metrics", {})
-            operation_stats = summary.get("operation_stats", {})
+            # operation_stats = summary.get("operation_stats", {})
 
             # Response time analysis
             response_time_data = metrics.get("response_time", {})
@@ -3165,4 +3172,4 @@ async def get_performance_recommendations() -> dict[str, Any]:
             }
 
         except Exception as e:
-            return handle_tool_error(e, "get_performance_recommendations", {})
+            return handle_caught_exception(e, "get_performance_recommendations", {})

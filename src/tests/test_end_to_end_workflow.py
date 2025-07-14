@@ -551,7 +551,7 @@ A simple user management application with Python backend and JavaScript frontend
 ### Creating Users
 
 ```python
-from src.main import UserManager
+from main import UserManager
 
 manager = UserManager("/path/to/db.json")
 user_id = manager.create_user("John Doe", "john@example.com")
@@ -560,7 +560,7 @@ user_id = manager.create_user("John Doe", "john@example.com")
 ### Validating Emails
 
 ```python
-from src.utils import validate_email
+from utils import validate_email
 
 is_valid = validate_email("user@example.com")
 ```
@@ -568,7 +568,7 @@ is_valid = validate_email("user@example.com")
 ### Password Management
 
 ```python
-from src.utils import hash_password, verify_password
+from utils import hash_password, verify_password
 
 hashed = hash_password("user_password")
 is_correct = verify_password("user_password", hashed)
@@ -620,8 +620,8 @@ python src/main.py
 import pytest
 import tempfile
 import os
-from src.main import UserManager
-from src.utils import validate_email, hash_password, verify_password
+from main import UserManager
+from utils import validate_email, hash_password, verify_password
 
 class TestUserManager:
     """Test user management operations."""

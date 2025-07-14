@@ -38,7 +38,7 @@ from tools.project.project_tools import (
 )
 from tools.project.project_utils import get_collection_name, get_current_project
 
-from src.utils.memory_utils import (
+from .utils.memory_utils import (
     clear_processing_variables,
     force_memory_cleanup,
     get_adaptive_batch_size,

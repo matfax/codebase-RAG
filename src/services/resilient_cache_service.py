@@ -14,23 +14,23 @@ from redis.exceptions import ConnectionError, TimeoutError
 
 from ..config.cache_config import CacheConfig, get_global_cache_config
 from ..utils.resilience_framework import (
-    ResilienceFramework,
-    ResilienceConfig,
-    FallbackStrategy,
-    DegradationLevel,
     CircuitBreakerOpenError,
-    get_resilience_framework
+    DegradationLevel,
+    FallbackStrategy,
+    ResilienceConfig,
+    ResilienceFramework,
+    get_resilience_framework,
 )
 from .cache_service import (
     BaseCacheService,
-    RedisCacheService,
-    MultiTierCacheService,
-    CacheError,
     CacheConnectionError,
-    CacheOperationError,
+    CacheError,
     CacheHealthInfo,
     CacheHealthStatus,
-    CacheStats
+    CacheOperationError,
+    CacheStats,
+    MultiTierCacheService,
+    RedisCacheService,
 )
 
 
@@ -46,7 +46,7 @@ class ResilientCacheService(BaseCacheService):
     - Self-healing mechanisms
     """
 
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: CacheConfig | None = None):
         """Initialize resilient cache service."""
         super().__init__(config)
 
@@ -66,22 +66,22 @@ class ResilientCacheService(BaseCacheService):
             max_delay=30.0,
             degradation_enabled=True,
             auto_recovery_enabled=True,
-            self_healing_enabled=True
+            self_healing_enabled=True,
         )
 
-        self._resilience_framework: Optional[ResilienceFramework] = None
+        self._resilience_framework: ResilienceFramework | None = None
 
         # Graceful degradation state
         self._degraded_mode = False
         self._degradation_start_time = 0.0
-        self._fallback_cache: Dict[str, Any] = {}
-        self._fallback_timestamps: Dict[str, float] = {}
+        self._fallback_cache: dict[str, Any] = {}
+        self._fallback_timestamps: dict[str, float] = {}
         self._fallback_ttl = 300  # 5 minutes
 
         # Health monitoring
         self._last_successful_operation = time.time()
         self._consecutive_failures = 0
-        self._health_check_task: Optional[asyncio.Task] = None
+        self._health_check_task: asyncio.Task | None = None
 
         # Self-healing strategies
         self._healing_strategies_registered = False
@@ -143,7 +143,7 @@ class ResilientCacheService(BaseCacheService):
                 key,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 cache_key=f"get:{key}",
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Store successful result for fallback
@@ -169,11 +169,13 @@ class ResilientCacheService(BaseCacheService):
         try:
             result = await self._resilience_framework.execute_resilient_operation(
                 self._cache_service.set,
-                key, value, ttl,
+                key,
+                value,
+                ttl,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value=False,
                 cache_key=f"set:{key}",
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Store in fallback cache on successful set
@@ -202,7 +204,7 @@ class ResilientCacheService(BaseCacheService):
                 key,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value=False,
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Remove from fallback cache
@@ -231,7 +233,7 @@ class ResilientCacheService(BaseCacheService):
                 key,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value=False,
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             if result:
@@ -247,7 +249,7 @@ class ResilientCacheService(BaseCacheService):
             self._on_failed_operation()
             return await self._exists_degraded(key)
 
-    async def get_batch(self, keys: List[str]) -> Dict[str, Any]:
+    async def get_batch(self, keys: list[str]) -> dict[str, Any]:
         """Get multiple values from cache with resilience features."""
         if self._degraded_mode:
             return await self._get_batch_degraded(keys)
@@ -263,7 +265,7 @@ class ResilientCacheService(BaseCacheService):
                 keys,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value={},
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Store successful results for fallback
@@ -284,7 +286,7 @@ class ResilientCacheService(BaseCacheService):
             self._on_failed_operation()
             return await self._get_batch_degraded(keys)
 
-    async def set_batch(self, items: Dict[str, Any], ttl: int | None = None) -> Dict[str, bool]:
+    async def set_batch(self, items: dict[str, Any], ttl: int | None = None) -> dict[str, bool]:
         """Set multiple values in cache with resilience features."""
         if self._degraded_mode:
             return await self._set_batch_degraded(items, ttl)
@@ -297,10 +299,11 @@ class ResilientCacheService(BaseCacheService):
         try:
             result = await self._resilience_framework.execute_resilient_operation(
                 self._cache_service.set_batch,
-                items, ttl,
+                items,
+                ttl,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value={key: False for key in items.keys()},
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Store successful sets in fallback cache
@@ -321,7 +324,7 @@ class ResilientCacheService(BaseCacheService):
             self._on_failed_operation()
             return await self._set_batch_degraded(items, ttl)
 
-    async def delete_batch(self, keys: List[str]) -> Dict[str, bool]:
+    async def delete_batch(self, keys: list[str]) -> dict[str, bool]:
         """Delete multiple values from cache with resilience features."""
         if self._degraded_mode:
             return await self._delete_batch_degraded(keys)
@@ -337,7 +340,7 @@ class ResilientCacheService(BaseCacheService):
                 keys,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value={key: False for key in keys},
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Remove from fallback cache
@@ -368,7 +371,7 @@ class ResilientCacheService(BaseCacheService):
                 self._cache_service.clear,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
                 fallback_value=False,
-                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError)
+                retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
             # Clear fallback cache as well
@@ -392,10 +395,10 @@ class ResilientCacheService(BaseCacheService):
         """Get comprehensive health information including resilience status."""
         try:
             # Get base health info
-            base_health = await self._cache_service.get_health() if not self._degraded_mode else CacheHealthInfo(
-                status=CacheHealthStatus.DEGRADED,
-                redis_connected=False,
-                last_error="Service in degraded mode"
+            base_health = (
+                await self._cache_service.get_health()
+                if not self._degraded_mode
+                else CacheHealthInfo(status=CacheHealthStatus.DEGRADED, redis_connected=False, last_error="Service in degraded mode")
             )
 
             # Get resilience health status
@@ -405,27 +408,25 @@ class ResilientCacheService(BaseCacheService):
             base_health.status = self._determine_overall_health_status(base_health.status, resilience_health)
 
             # Add resilience-specific information
-            if hasattr(base_health, '__dict__'):
-                base_health.__dict__.update({
-                    'degraded_mode': self._degraded_mode,
-                    'degradation_level': resilience_health.get('degradation_level', 'normal'),
-                    'circuit_breaker_state': resilience_health.get('circuit_breaker_state', 'closed'),
-                    'disabled_features': resilience_health.get('disabled_features', []),
-                    'consecutive_failures': self._consecutive_failures,
-                    'last_successful_operation': self._last_successful_operation,
-                    'fallback_cache_size': len(self._fallback_cache),
-                    'self_healing_active': resilience_health.get('self_healing_active', False)
-                })
+            if hasattr(base_health, "__dict__"):
+                base_health.__dict__.update(
+                    {
+                        "degraded_mode": self._degraded_mode,
+                        "degradation_level": resilience_health.get("degradation_level", "normal"),
+                        "circuit_breaker_state": resilience_health.get("circuit_breaker_state", "closed"),
+                        "disabled_features": resilience_health.get("disabled_features", []),
+                        "consecutive_failures": self._consecutive_failures,
+                        "last_successful_operation": self._last_successful_operation,
+                        "fallback_cache_size": len(self._fallback_cache),
+                        "self_healing_active": resilience_health.get("self_healing_active", False),
+                    }
+                )
 
             return base_health
 
         except Exception as e:
             self.logger.error(f"Failed to get health info: {e}")
-            return CacheHealthInfo(
-                status=CacheHealthStatus.UNHEALTHY,
-                last_error=str(e),
-                degraded_mode=self._degraded_mode
-            )
+            return CacheHealthInfo(status=CacheHealthStatus.UNHEALTHY, last_error=str(e), degraded_mode=self._degraded_mode)
 
     # Degraded mode operations
     async def _get_degraded(self, key: str) -> Any | None:
@@ -473,7 +474,7 @@ class ResilientCacheService(BaseCacheService):
             return time.time() - timestamp <= self._fallback_ttl
         return False
 
-    async def _get_batch_degraded(self, keys: List[str]) -> Dict[str, Any]:
+    async def _get_batch_degraded(self, keys: list[str]) -> dict[str, Any]:
         """Batch get operation in degraded mode."""
         result = {}
         for key in keys:
@@ -482,14 +483,14 @@ class ResilientCacheService(BaseCacheService):
                 result[key] = value
         return result
 
-    async def _set_batch_degraded(self, items: Dict[str, Any], ttl: int | None = None) -> Dict[str, bool]:
+    async def _set_batch_degraded(self, items: dict[str, Any], ttl: int | None = None) -> dict[str, bool]:
         """Batch set operation in degraded mode."""
         result = {}
         for key, value in items.items():
             result[key] = await self._set_degraded(key, value, ttl)
         return result
 
-    async def _delete_batch_degraded(self, keys: List[str]) -> Dict[str, bool]:
+    async def _delete_batch_degraded(self, keys: list[str]) -> dict[str, bool]:
         """Batch delete operation in degraded mode."""
         result = {}
         for key in keys:
@@ -508,7 +509,7 @@ class ResilientCacheService(BaseCacheService):
             return False
 
     # Fallback operations for when batch operations are disabled
-    async def _get_batch_fallback(self, keys: List[str]) -> Dict[str, Any]:
+    async def _get_batch_fallback(self, keys: list[str]) -> dict[str, Any]:
         """Fallback batch get using individual operations."""
         result = {}
         for key in keys:
@@ -520,7 +521,7 @@ class ResilientCacheService(BaseCacheService):
                 self.logger.warning(f"Individual get failed for key {key}: {e}")
         return result
 
-    async def _set_batch_fallback(self, items: Dict[str, Any], ttl: int | None = None) -> Dict[str, bool]:
+    async def _set_batch_fallback(self, items: dict[str, Any], ttl: int | None = None) -> dict[str, bool]:
         """Fallback batch set using individual operations."""
         result = {}
         for key, value in items.items():
@@ -531,7 +532,7 @@ class ResilientCacheService(BaseCacheService):
                 result[key] = False
         return result
 
-    async def _delete_batch_fallback(self, keys: List[str]) -> Dict[str, bool]:
+    async def _delete_batch_fallback(self, keys: list[str]) -> dict[str, bool]:
         """Fallback batch delete using individual operations."""
         result = {}
         for key in keys:
@@ -563,10 +564,7 @@ class ResilientCacheService(BaseCacheService):
     def _cleanup_fallback_cache(self) -> None:
         """Clean up expired fallback cache entries."""
         current_time = time.time()
-        expired_keys = [
-            key for key, timestamp in self._fallback_timestamps.items()
-            if current_time - timestamp > self._fallback_ttl
-        ]
+        expired_keys = [key for key, timestamp in self._fallback_timestamps.items() if current_time - timestamp > self._fallback_ttl]
 
         for key in expired_keys:
             self._remove_fallback_data(key)
@@ -600,10 +598,10 @@ class ResilientCacheService(BaseCacheService):
         # Exit degraded mode after successful health check
         time_in_degraded = time.time() - self._degradation_start_time
         return (
-            self._consecutive_failures == 0 and
-            time_in_degraded >= 60 and  # At least 1 minute in degraded mode
-            self._resilience_framework and
-            self._resilience_framework.circuit_breaker.get_state().value == 'closed'
+            self._consecutive_failures == 0
+            and time_in_degraded >= 60  # At least 1 minute in degraded mode
+            and self._resilience_framework
+            and self._resilience_framework.circuit_breaker.get_state().value == "closed"
         )
 
     async def _enable_degraded_mode(self) -> None:
@@ -627,15 +625,15 @@ class ResilientCacheService(BaseCacheService):
             except Exception as e:
                 self.logger.warning(f"Failed to exit degraded mode: {e}")
 
-    def _determine_overall_health_status(self, base_status: CacheHealthStatus, resilience_health: Dict) -> CacheHealthStatus:
+    def _determine_overall_health_status(self, base_status: CacheHealthStatus, resilience_health: dict) -> CacheHealthStatus:
         """Determine overall health status based on all factors."""
         if self._degraded_mode:
             return CacheHealthStatus.DEGRADED
 
-        circuit_breaker_state = resilience_health.get('circuit_breaker_state', 'closed')
-        if circuit_breaker_state == 'open':
+        circuit_breaker_state = resilience_health.get("circuit_breaker_state", "closed")
+        if circuit_breaker_state == "open":
             return CacheHealthStatus.UNHEALTHY
-        elif circuit_breaker_state == 'half_open':
+        elif circuit_breaker_state == "half_open":
             return CacheHealthStatus.DEGRADED
 
         return base_status
@@ -647,7 +645,7 @@ class ResilientCacheService(BaseCacheService):
                 self._cache_service.initialize,
                 fallback_strategy=FallbackStrategy.NONE,
                 retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
-                use_circuit_breaker=False  # Don't use circuit breaker for initialization
+                use_circuit_breaker=False,  # Don't use circuit breaker for initialization
             )
         except Exception as e:
             self.logger.error(f"Failed to initialize underlying cache service: {e}")
@@ -659,14 +657,10 @@ class ResilientCacheService(BaseCacheService):
             return
 
         # Register connection recovery strategy
-        self._resilience_framework.self_healing_manager.register_healing_strategy(
-            self._heal_connection
-        )
+        self._resilience_framework.self_healing_manager.register_healing_strategy(self._heal_connection)
 
         # Register cache cleanup strategy
-        self._resilience_framework.self_healing_manager.register_healing_strategy(
-            self._heal_cache_cleanup
-        )
+        self._resilience_framework.self_healing_manager.register_healing_strategy(self._heal_cache_cleanup)
 
         self.logger.debug("Registered self-healing strategies")
 
@@ -719,7 +713,7 @@ class ResilientCacheService(BaseCacheService):
 
 
 # Factory function for creating resilient cache service
-async def create_resilient_cache_service(config: Optional[CacheConfig] = None) -> ResilientCacheService:
+async def create_resilient_cache_service(config: CacheConfig | None = None) -> ResilientCacheService:
     """Create and initialize a resilient cache service."""
     service = ResilientCacheService(config)
     await service.initialize()
@@ -727,7 +721,7 @@ async def create_resilient_cache_service(config: Optional[CacheConfig] = None) -
 
 
 # Global resilient cache service instance
-_resilient_cache_service: Optional[ResilientCacheService] = None
+_resilient_cache_service: ResilientCacheService | None = None
 
 
 async def get_resilient_cache_service() -> ResilientCacheService:

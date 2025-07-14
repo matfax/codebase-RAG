@@ -17,8 +17,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from ..core.error_utils import handle_tool_error, log_tool_usage
-from ..core.errors import CacheError
+from tools.core.error_utils import handle_tool_error, log_tool_usage
+from tools.core.errors import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,9 @@ async def get_cache_configuration(
             }
 
         except Exception as e:
-            return handle_tool_error(
+            from tools.core.error_utils import handle_caught_exception
+
+            return handle_caught_exception(
                 e,
                 "get_cache_configuration",
                 {
@@ -807,8 +809,8 @@ async def configure_cache_alerts(
 
 
 async def get_cache_alerts(
-    severity_filter: Optional[str] = None,
-    service_filter: Optional[str] = None,
+    severity_filter: str | None = None,
+    service_filter: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
     """

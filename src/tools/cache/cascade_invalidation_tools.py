@@ -8,8 +8,8 @@ dependency relationships, and analyze cascade invalidation performance.
 import logging
 from typing import Any
 
-from src.services.cache_invalidation_service import get_cache_invalidation_service
-from src.services.cascade_invalidation_service import CascadeStrategy, DependencyType
+from ...services.cache_invalidation_service import get_cache_invalidation_service
+from ...services.cascade_invalidation_service import CascadeStrategy, DependencyType
 
 logger = logging.getLogger(__name__)
 

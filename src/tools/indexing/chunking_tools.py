@@ -33,7 +33,7 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
     """
     with log_tool_usage("get_chunking_metrics", {"language": language, "export_path": bool(export_path)}):
         try:
-            from src.services.code_parser_service import CodeParserService
+            from ...services.code_parser_service import CodeParserService
 
             parser_service = CodeParserService()
 
@@ -62,7 +62,7 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
                 performance_report = parser_service.get_performance_summary()
 
                 # Parse the report to extract key metrics
-                from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+                from ...utils.chunking_metrics_tracker import chunking_metrics_tracker
 
                 all_metrics = chunking_metrics_tracker.get_all_metrics()
 
@@ -109,7 +109,7 @@ def reset_chunking_metrics() -> dict[str, Any]:
     """
     with log_tool_usage("reset_chunking_metrics", {}):
         try:
-            from src.services.code_parser_service import CodeParserService
+            from ...services.code_parser_service import CodeParserService
 
             parser_service = CodeParserService()
             parser_service.reset_session_metrics()

@@ -30,8 +30,7 @@ from tools.core.errors import (
 )
 from tools.core.health import basic_health_check, health_check
 from tools.core.retry_utils import retry_operation, retry_with_context
-
-from src.utils.memory_utils import (
+from utils.memory_utils import (
     check_memory_usage,
     clear_processing_variables,
     force_memory_cleanup,

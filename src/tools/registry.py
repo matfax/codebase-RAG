@@ -19,14 +19,8 @@ def register_tools(mcp_app: FastMCP) -> None:
         mcp_app: The FastMCP application instance
     """
     # Register MCP Prompts system first
-    try:
-        from prompts import register_prompts
-
-        register_prompts(mcp_app)
-        logger.info("MCP Prompts system registered successfully")
-    except Exception as e:
-        logger.error(f"Failed to register MCP Prompts system: {e}")
-        # Continue without prompts if there's an error
+    # TODO: Fix import issues with prompts system
+    logger.info("Skipping MCP Prompts registration due to import issues")
 
     logger.info("Registering MCP Tools...")
 

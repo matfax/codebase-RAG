@@ -3,9 +3,15 @@
 This module implements the optimize_search prompt for search optimization.
 """
 
-from mcp.server.fastmcp import FastMCP
+import sys
+from pathlib import Path
 
-from ..base import BasePromptImplementation
+# Add src directory to path for absolute imports
+if str(Path(__file__).parent.parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from mcp.server.fastmcp import FastMCP
+from prompts.base import BasePromptImplementation
 
 
 class OptimizeSearchPrompt(BasePromptImplementation):

@@ -31,8 +31,7 @@ from tools.database.qdrant_utils import (
     retry_individual_points,
     retry_qdrant_operation,
 )
-
-from src.utils.memory_utils import (
+from utils.memory_utils import (
     clear_processing_variables,
     force_memory_cleanup,
     get_adaptive_batch_size,

@@ -90,7 +90,7 @@ def check_index_status(directory: str = ".") -> dict[str, Any]:
 
             # Get file count estimation for recommendations
             try:
-                from src.services.project_analysis_service import ProjectAnalysisService
+                from ...services.project_analysis_service import ProjectAnalysisService
 
                 analysis_service = ProjectAnalysisService()
                 quick_analysis = analysis_service.analyze_repository(str(dir_path))

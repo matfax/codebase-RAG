@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any, Optional, Union
 from uuid import uuid4
 
-from ..utils.cache_utils import CompressionFormat, SerializationFormat
+from utils.cache_utils import CompressionFormat, SerializationFormat
 
 
 class CacheEntryStatus(Enum):
