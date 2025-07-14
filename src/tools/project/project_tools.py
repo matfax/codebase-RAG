@@ -9,9 +9,9 @@ import logging
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import ProjectError
-from tools.project.project_utils import clear_project_collections, get_current_project
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import ProjectError
+from src.tools.project.project_utils import clear_project_collections, get_current_project
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
 
                 if cached_metadata:
                     # Get collection information (this needs to be fetched from Qdrant)
-                    from tools.database.qdrant_utils import check_existing_index
+                    from src.tools.database.qdrant_utils import check_existing_index
 
                     project_info = {
                         "name": cached_metadata.project_name,
@@ -95,7 +95,7 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
                 }
 
             # Get additional project statistics
-            from tools.database.qdrant_utils import check_existing_index
+            from src.tools.database.qdrant_utils import check_existing_index
 
             index_info = check_existing_index(project_info)
 
@@ -164,7 +164,7 @@ def get_project_info(directory: str = ".") -> dict[str, Any]:
                 }
 
             # Get additional project statistics
-            from tools.database.qdrant_utils import check_existing_index
+            from src.tools.database.qdrant_utils import check_existing_index
 
             index_info = check_existing_index(project_info)
 
@@ -194,7 +194,7 @@ def list_indexed_projects() -> dict[str, Any]:
     """
     with log_tool_usage("list_indexed_projects", {}):
         try:
-            from tools.database.qdrant_utils import get_qdrant_client
+            from src.tools.database.qdrant_utils import get_qdrant_client
 
             client = get_qdrant_client()
             collections = client.get_collections().collections
@@ -311,7 +311,7 @@ def clear_project_data(project_name: str | None = None, directory: str = ".") ->
         try:
             if project_name:
                 # Clear specific project by name
-                from tools.database.qdrant_utils import get_qdrant_client
+                from src.tools.database.qdrant_utils import get_qdrant_client
 
                 client = get_qdrant_client()
                 collections = [c.name for c in client.get_collections().collections]

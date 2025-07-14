@@ -27,13 +27,13 @@ from services.search_cache_service import (
     SearchScope,
     get_search_cache_service,
 )
-from tools.core.errors import (
+from src.tools.core.errors import (
     EmbeddingError,
     QdrantConnectionError,
     SearchError,
     ValidationError,
 )
-from tools.core.retry_utils import retry_operation
+from src.tools.core.retry_utils import retry_operation
 
 from ..project.project_utils import get_available_project_names
 

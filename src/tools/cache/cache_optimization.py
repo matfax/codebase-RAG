@@ -16,8 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import CacheError
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -407,19 +407,19 @@ async def _backup_service_data(service_name: str, backup_path: Path, backup_type
     try:
         # Get service instance
         if service_name == "embedding":
-            from ...services.embedding_cache_service import get_embedding_cache_service
+            from src.services.embedding_cache_service import get_embedding_cache_service
 
             service = await get_embedding_cache_service()
         elif service_name == "search":
-            from ...services.search_cache_service import get_search_cache_service
+            from src.services.search_cache_service import get_search_cache_service
 
             service = await get_search_cache_service()
         elif service_name == "project":
-            from ...services.project_cache_service import get_project_cache_service
+            from src.services.project_cache_service import get_project_cache_service
 
             service = await get_project_cache_service()
         elif service_name == "file":
-            from ...services.file_cache_service import get_file_cache_service
+            from src.services.file_cache_service import get_file_cache_service
 
             service = await get_file_cache_service()
         else:
@@ -621,19 +621,19 @@ async def _restore_service_data(service_name: str, service_data_path: Path) -> d
     try:
         # Get service instance
         if service_name == "embedding":
-            from ...services.embedding_cache_service import get_embedding_cache_service
+            from src.services.embedding_cache_service import get_embedding_cache_service
 
             service = await get_embedding_cache_service()
         elif service_name == "search":
-            from ...services.search_cache_service import get_search_cache_service
+            from src.services.search_cache_service import get_search_cache_service
 
             service = await get_search_cache_service()
         elif service_name == "project":
-            from ...services.project_cache_service import get_project_cache_service
+            from src.services.project_cache_service import get_project_cache_service
 
             service = await get_project_cache_service()
         elif service_name == "file":
-            from ...services.file_cache_service import get_file_cache_service
+            from src.services.file_cache_service import get_file_cache_service
 
             service = await get_file_cache_service()
         else:

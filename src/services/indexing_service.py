@@ -13,12 +13,12 @@ from typing import Any
 
 import psutil
 from git import GitCommandError, Repo
-from models.code_chunk import ChunkType
-from models.code_chunk import CodeChunk as ParsedCodeChunk
+from src.models.code_chunk import ChunkType
+from src.models.code_chunk import CodeChunk as ParsedCodeChunk
 from services.code_parser_service import CodeParserService
 from services.project_analysis_service import ProjectAnalysisService
-from utils.performance_monitor import MemoryMonitor, ProgressTracker
-from utils.stage_logger import (
+from src.utils.performance_monitor import MemoryMonitor, ProgressTracker
+from src.utils.stage_logger import (
     get_file_discovery_logger,
     get_file_reading_logger,
     log_batch_summary,

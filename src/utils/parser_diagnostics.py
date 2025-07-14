@@ -23,7 +23,7 @@ except ImportError:
     Parser = None
     Node = None
 
-from utils.tree_sitter_manager import TreeSitterManager
+from src.utils.tree_sitter_manager import TreeSitterManager
 
 
 @dataclass

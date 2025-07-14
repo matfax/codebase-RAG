@@ -12,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from models.prompt_context import TaskType, UserRole
+from src.models.prompt_context import TaskType, UserRole
 
 logger = logging.getLogger(__name__)
 

@@ -21,17 +21,17 @@ from qdrant_client.http.models import (
     PointStruct,
     VectorParams,
 )
-from tools.core.errors import (
+from src.tools.core.errors import (
     QdrantConnectionError,
 )
-from tools.core.retry_utils import retry_operation
-from tools.database.qdrant_utils import (
+from src.tools.core.retry_utils import retry_operation
+from src.tools.database.qdrant_utils import (
     check_qdrant_health,
     log_database_metrics,
     retry_individual_points,
     retry_qdrant_operation,
 )
-from utils.memory_utils import (
+from src.utils.memory_utils import (
     clear_processing_variables,
     force_memory_cleanup,
     get_adaptive_batch_size,
@@ -780,7 +780,7 @@ def index_directory_sync(
     """
     try:
         # Initialize memory monitoring
-        from utils.performance_monitor import MemoryMonitor
+        from src.utils.performance_monitor import MemoryMonitor
 
         memory_threshold = float(os.getenv("MEMORY_WARNING_THRESHOLD_MB", "1000"))
         memory_monitor = MemoryMonitor(warning_threshold_mb=memory_threshold)

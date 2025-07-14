@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from utils.telemetry import (
+from src.utils.telemetry import (
     OPENTELEMETRY_AVAILABLE,
     TelemetryConfig,
     configure_telemetry_from_dict,
@@ -298,7 +298,7 @@ async def get_telemetry_metrics_summary() -> dict[str, Any]:
             }
 
         # Get performance monitor data to supplement telemetry
-        from utils.performance_monitor import get_cache_performance_monitor
+        from src.utils.performance_monitor import get_cache_performance_monitor
 
         cache_monitor = get_cache_performance_monitor()
         cache_metrics = cache_monitor.get_aggregated_metrics()

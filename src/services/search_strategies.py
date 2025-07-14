@@ -19,7 +19,7 @@ try:
 except ImportError:
     NUMPY_AVAILABLE = False
 
-from tools.indexing.search_tools import search_sync
+from src.tools.indexing.search_tools import search_sync
 
 
 class SearchMode(Enum):

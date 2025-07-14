@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from services.project_analysis_service import ProjectAnalysisService
-from utils.file_system_utils import format_file_size
+from src.utils.file_system_utils import format_file_size
 
 
 @dataclass

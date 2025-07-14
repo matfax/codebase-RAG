@@ -16,21 +16,21 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
-from models.prompt_context import (
+from src.models.prompt_context import (
     DifficultyLevel,
     PromptContext,
     PromptType,
     TaskType,
     UserRole,
 )
-from utils.prompt_error_handler import (
+from src.utils.prompt_error_handler import (
     ErrorCategory,
     ErrorSeverity,
     PromptError,
     PromptErrorHandler,
 )
-from utils.prompt_validator import PromptValidator, ValidationResult
-from utils.workflow_orchestrator import WorkflowOrchestrator
+from src.utils.prompt_validator import PromptValidator, ValidationResult
+from src.utils.workflow_orchestrator import WorkflowOrchestrator
 
 
 class TestPromptValidator:

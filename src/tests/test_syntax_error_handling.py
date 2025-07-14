@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from models.code_chunk import ChunkType, ParseResult
+from src.models.code_chunk import ChunkType, ParseResult
 from services.code_parser_service import CodeParserService
 
 

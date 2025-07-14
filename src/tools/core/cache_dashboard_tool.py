@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Literal, Optional
 
-from tools.core.cache_dashboard import (
+from src.tools.core.cache_dashboard import (
     generate_cache_detailed_dashboard,
     generate_cache_overview_dashboard,
     generate_cache_real_time_dashboard,

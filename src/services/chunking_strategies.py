@@ -9,7 +9,7 @@ to support multiple languages with their unique characteristics.
 import logging
 from abc import ABC, abstractmethod
 
-from models.code_chunk import ChunkType, CodeChunk
+from src.models.code_chunk import ChunkType, CodeChunk
 from services.ast_extraction_service import AstExtractionService
 from tree_sitter import Node
 

@@ -9,9 +9,9 @@ import time
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import IndexingError
-from utils.performance_monitor import MemoryMonitor
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import IndexingError
+from src.utils.performance_monitor import MemoryMonitor
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -66,11 +66,11 @@ def check_index_status(directory: str = ".") -> dict[str, Any]:
         try:
             from pathlib import Path
 
-            from tools.database.qdrant_utils import (
+            from src.tools.database.qdrant_utils import (
                 check_existing_index,
                 estimate_indexing_time,
             )
-            from tools.project.project_utils import get_current_project
+            from src.tools.project.project_utils import get_current_project
 
             dir_path = Path(directory).resolve()
             if not dir_path.exists():
@@ -90,7 +90,7 @@ def check_index_status(directory: str = ".") -> dict[str, Any]:
 
             # Get file count estimation for recommendations
             try:
-                from ...services.project_analysis_service import ProjectAnalysisService
+                from src.services.project_analysis_service import ProjectAnalysisService
 
                 analysis_service = ProjectAnalysisService()
                 quick_analysis = analysis_service.analyze_repository(str(dir_path))

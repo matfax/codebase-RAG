@@ -15,8 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from tools.core.error_utils import handle_caught_exception, handle_tool_error, log_tool_usage
-from tools.core.errors import CacheError
+from src.tools.core.error_utils import handle_caught_exception, handle_tool_error, log_tool_usage
+from src.tools.core.errors import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def manual_invalidate_file_cache(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 get_cache_invalidation_service,
             )
@@ -167,7 +167,7 @@ async def manual_invalidate_project_cache(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 InvalidationStrategy,
                 ProjectInvalidationScope,
@@ -285,7 +285,7 @@ async def manual_invalidate_cache_keys(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 get_cache_invalidation_service,
             )
@@ -363,7 +363,7 @@ async def manual_invalidate_cache_pattern(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 get_cache_invalidation_service,
             )
@@ -447,7 +447,7 @@ async def clear_all_caches(
                     "warning": "This operation will clear ALL cache data across all services.",
                 }
 
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 get_cache_invalidation_service,
             )
@@ -522,14 +522,14 @@ async def inspect_cache_state(
         },
     ):
         try:
-            from ...services.cache_service import get_cache_service
+            from src.services.cache_service import get_cache_service
 
             # Get all cache services
             cache_services = {}
 
             if cache_type in ["all", "embedding"]:
                 try:
-                    from ...services.embedding_cache_service import get_embedding_cache_service
+                    from src.services.embedding_cache_service import get_embedding_cache_service
 
                     cache_services["embedding"] = await get_embedding_cache_service()
                 except Exception as e:
@@ -537,7 +537,7 @@ async def inspect_cache_state(
 
             if cache_type in ["all", "search"]:
                 try:
-                    from ...services.search_cache_service import get_search_cache_service
+                    from src.services.search_cache_service import get_search_cache_service
 
                     cache_services["search"] = await get_search_cache_service()
                 except Exception as e:
@@ -545,7 +545,7 @@ async def inspect_cache_state(
 
             if cache_type in ["all", "project"]:
                 try:
-                    from ...services.project_cache_service import get_project_cache_service
+                    from src.services.project_cache_service import get_project_cache_service
 
                     cache_services["project"] = await get_project_cache_service()
                 except Exception as e:
@@ -553,7 +553,7 @@ async def inspect_cache_state(
 
             if cache_type in ["all", "file"]:
                 try:
-                    from ...services.file_cache_service import get_file_cache_service
+                    from src.services.file_cache_service import get_file_cache_service
 
                     cache_services["file"] = await get_file_cache_service()
                 except Exception as e:
@@ -691,14 +691,14 @@ async def debug_cache_key(
         },
     ):
         try:
-            from ...services.cache_service import get_cache_service
+            from src.services.cache_service import get_cache_service
 
             # Get all cache services
             cache_services = {}
 
             if cache_type in ["all", "embedding"]:
                 try:
-                    from ...services.embedding_cache_service import get_embedding_cache_service
+                    from src.services.embedding_cache_service import get_embedding_cache_service
 
                     cache_services["embedding"] = await get_embedding_cache_service()
                 except Exception as e:
@@ -706,7 +706,7 @@ async def debug_cache_key(
 
             if cache_type in ["all", "search"]:
                 try:
-                    from ...services.search_cache_service import get_search_cache_service
+                    from src.services.search_cache_service import get_search_cache_service
 
                     cache_services["search"] = await get_search_cache_service()
                 except Exception as e:
@@ -714,7 +714,7 @@ async def debug_cache_key(
 
             if cache_type in ["all", "project"]:
                 try:
-                    from ...services.project_cache_service import get_project_cache_service
+                    from src.services.project_cache_service import get_project_cache_service
 
                     cache_services["project"] = await get_project_cache_service()
                 except Exception as e:
@@ -722,7 +722,7 @@ async def debug_cache_key(
 
             if cache_type in ["all", "file"]:
                 try:
-                    from ...services.file_cache_service import get_file_cache_service
+                    from src.services.file_cache_service import get_file_cache_service
 
                     cache_services["file"] = await get_file_cache_service()
                 except Exception as e:
@@ -816,7 +816,7 @@ async def get_cache_invalidation_stats() -> dict[str, Any]:
     """
     with log_tool_usage("get_cache_invalidation_stats", {}):
         try:
-            from ...services.cache_invalidation_service import get_cache_invalidation_service
+            from src.services.cache_invalidation_service import get_cache_invalidation_service
 
             # Get invalidation service
             invalidation_service = await get_cache_invalidation_service()
@@ -867,7 +867,7 @@ async def get_cache_invalidation_stats() -> dict[str, Any]:
             }
 
         except Exception as e:
-            from tools.core.error_utils import handle_caught_exception
+            from src.tools.core.error_utils import handle_caught_exception
 
             return handle_caught_exception(e, "get_cache_invalidation_stats", {})
 
@@ -891,7 +891,7 @@ async def get_project_invalidation_policy(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import get_cache_invalidation_service
+            from src.services.cache_invalidation_service import get_cache_invalidation_service
 
             # Get invalidation service
             invalidation_service = await get_cache_invalidation_service()
@@ -968,7 +968,7 @@ async def set_project_invalidation_policy(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationStrategy,
                 ProjectInvalidationPolicy,
                 ProjectInvalidationScope,
@@ -1075,7 +1075,7 @@ async def warm_cache_for_project(
         },
     ):
         try:
-            from ...services.cache_warmup_service import get_cache_warmup_service
+            from src.services.cache_warmup_service import get_cache_warmup_service
 
             # Get cache warmup service
             warmup_service = await get_cache_warmup_service()
@@ -1177,8 +1177,8 @@ async def preload_embedding_cache(
         },
     ):
         try:
-            from ...services.embedding_cache_service import get_embedding_cache_service
-            from ...services.embedding_service import get_embedding_service
+            from src.services.embedding_cache_service import get_embedding_cache_service
+            from src.services.embedding_service import get_embedding_service
 
             # Get services
             cache_service = await get_embedding_cache_service()
@@ -1286,8 +1286,8 @@ async def preload_search_cache(
         },
     ):
         try:
-            from ...services.search_cache_service import get_search_cache_service
-            from ...tools.indexing.search_tools import search as perform_search
+            from src.services.search_cache_service import get_search_cache_service
+            from src.tools.indexing.search_tools import search as perform_search
 
             # Get search cache service
             cache_service = await get_search_cache_service()
@@ -1426,7 +1426,7 @@ async def get_comprehensive_cache_stats(
 
             # Embedding cache statistics
             try:
-                from ...services.embedding_cache_service import get_embedding_cache_service
+                from src.services.embedding_cache_service import get_embedding_cache_service
 
                 embedding_service = await get_embedding_cache_service()
                 if hasattr(embedding_service, "get_cache_stats"):
@@ -1438,7 +1438,7 @@ async def get_comprehensive_cache_stats(
 
             # Search cache statistics
             try:
-                from ...services.search_cache_service import get_search_cache_service
+                from src.services.search_cache_service import get_search_cache_service
 
                 search_service = await get_search_cache_service()
                 if hasattr(search_service, "get_cache_stats"):
@@ -1450,7 +1450,7 @@ async def get_comprehensive_cache_stats(
 
             # Project cache statistics
             try:
-                from ...services.project_cache_service import get_project_cache_service
+                from src.services.project_cache_service import get_project_cache_service
 
                 project_service = await get_project_cache_service()
                 if hasattr(project_service, "get_cache_stats"):
@@ -1462,7 +1462,7 @@ async def get_comprehensive_cache_stats(
 
             # File cache statistics
             try:
-                from ...services.file_cache_service import get_file_cache_service
+                from src.services.file_cache_service import get_file_cache_service
 
                 file_service = await get_file_cache_service()
                 if hasattr(file_service, "get_cache_stats"):
@@ -1481,7 +1481,7 @@ async def get_comprehensive_cache_stats(
 
             # Memory profiling statistics
             try:
-                from ...services.cache_memory_profiler import get_cache_memory_profiler
+                from src.services.cache_memory_profiler import get_cache_memory_profiler
 
                 memory_profiler = await get_cache_memory_profiler()
                 if hasattr(memory_profiler, "get_memory_stats"):
@@ -1512,7 +1512,7 @@ async def get_comprehensive_cache_stats(
             historical_data = {}
             if include_historical:
                 try:
-                    from ...utils.performance_monitor import get_performance_monitor
+                    from src.utils.performance_monitor import get_performance_monitor
 
                     perf_monitor = get_performance_monitor()
                     historical_data = perf_monitor.get_cache_metrics_history(hours=time_range_hours, project_name=project_name)
@@ -1776,7 +1776,7 @@ async def invalidate_chunks(
         },
     ):
         try:
-            from ...services.cache_invalidation_service import (
+            from src.services.cache_invalidation_service import (
                 InvalidationReason,
                 get_cache_invalidation_service,
             )
@@ -1860,7 +1860,7 @@ async def verify_cache_consistency(
         },
     ):
         try:
-            from ...services.cache_consistency_service import ConsistencyCheckLevel, get_cache_consistency_service
+            from src.services.cache_consistency_service import ConsistencyCheckLevel, get_cache_consistency_service
 
             # Map check level string to enum
             level_mapping = {
@@ -1958,7 +1958,7 @@ async def get_cache_health_report(
         {"include_consistency": include_consistency, "include_performance": include_performance, "include_statistics": include_statistics},
     ):
         try:
-            from ...services.cache_service import get_cache_service
+            from src.services.cache_service import get_cache_service
 
             health_report = {"success": True, "timestamp": time.time(), "overall_health": "unknown"}
 
@@ -2087,7 +2087,7 @@ async def create_cache_backup(
         },
     ):
         try:
-            from ...services.cache_backup_service import BackupType, get_cache_backup_service
+            from src.services.cache_backup_service import BackupType, get_cache_backup_service
 
             # Map backup type string to enum
             type_mapping = {
@@ -2167,7 +2167,7 @@ async def restore_cache_from_backup(
         },
     ):
         try:
-            from ...services.cache_backup_service import RecoveryStrategy, get_cache_backup_service
+            from src.services.cache_backup_service import RecoveryStrategy, get_cache_backup_service
 
             # Map strategy string to enum
             strategy_mapping = {
@@ -2222,7 +2222,7 @@ async def list_cache_backups(backup_type: str | None = None, max_age_days: int |
     """
     with log_tool_usage("list_cache_backups", {"backup_type": backup_type, "max_age_days": max_age_days, "limit": limit}):
         try:
-            from ...services.cache_backup_service import BackupType, get_cache_backup_service
+            from src.services.cache_backup_service import BackupType, get_cache_backup_service
 
             # Get backup service
             backup_service = await get_cache_backup_service()
@@ -2291,7 +2291,7 @@ async def verify_backup_integrity(backup_id: str) -> dict[str, Any]:
     """
     with log_tool_usage("verify_backup_integrity", {"backup_id": backup_id}):
         try:
-            from ...services.cache_backup_service import get_cache_backup_service
+            from src.services.cache_backup_service import get_cache_backup_service
 
             # Get backup service
             backup_service = await get_cache_backup_service()
@@ -2321,7 +2321,7 @@ async def delete_cache_backup(backup_id: str, confirm: bool = False) -> dict[str
             if not confirm:
                 return {"success": False, "error": "Confirmation required. Set confirm=True to delete backup.", "backup_id": backup_id}
 
-            from ...services.cache_backup_service import get_cache_backup_service
+            from src.services.cache_backup_service import get_cache_backup_service
 
             # Get backup service
             backup_service = await get_cache_backup_service()
@@ -2349,7 +2349,7 @@ async def get_backup_disaster_recovery_plan() -> dict[str, Any]:
     """
     with log_tool_usage("get_backup_disaster_recovery_plan", {}):
         try:
-            from ...services.cache_backup_service import get_cache_backup_service
+            from src.services.cache_backup_service import get_cache_backup_service
 
             # Get backup service
             backup_service = await get_cache_backup_service()
@@ -2485,7 +2485,7 @@ async def configure_cache_failover(
             if not enable_failover:
                 return {"success": True, "message": "Failover disabled by configuration", "failover_enabled": False}
 
-            from ...services.cache_failover_service import FailoverConfiguration, get_cache_failover_service
+            from src.services.cache_failover_service import FailoverConfiguration, get_cache_failover_service
 
             # Create failover configuration
             FailoverConfiguration(
@@ -2530,7 +2530,7 @@ async def get_cache_failover_status() -> dict[str, Any]:
     """
     with log_tool_usage("get_cache_failover_status", {}):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # Get failover service
             failover_service = await get_cache_failover_service()
@@ -2556,7 +2556,7 @@ async def trigger_manual_failover(reason: str = "Manual failover requested") -> 
     """
     with log_tool_usage("trigger_manual_failover", {"reason": reason}):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # Get failover service
             failover_service = await get_cache_failover_service()
@@ -2589,7 +2589,7 @@ async def trigger_manual_recovery() -> dict[str, Any]:
     """
     with log_tool_usage("trigger_manual_recovery", {}):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # Get failover service
             failover_service = await get_cache_failover_service()
@@ -2629,7 +2629,7 @@ async def register_failover_service(service_type: str = "redis", connection_conf
         "register_failover_service", {"service_type": service_type, "has_connection_config": connection_config is not None}
     ):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # This is a placeholder implementation
             # In a real system, you would create the actual failover service
@@ -2661,7 +2661,7 @@ async def test_cache_failover_scenario(scenario_type: str = "connection_failure"
     """
     with log_tool_usage("test_cache_failover_scenario", {"scenario_type": scenario_type, "duration_seconds": duration_seconds}):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # Get failover service
             failover_service = await get_cache_failover_service()
@@ -2706,7 +2706,7 @@ async def get_failover_performance_metrics() -> dict[str, Any]:
     """
     with log_tool_usage("get_failover_performance_metrics", {}):
         try:
-            from ...services.cache_failover_service import get_cache_failover_service
+            from src.services.cache_failover_service import get_cache_failover_service
 
             # Get failover service
             failover_service = await get_cache_failover_service()
@@ -2764,7 +2764,7 @@ async def get_cache_performance_summary() -> dict[str, Any]:
     """
     with log_tool_usage("get_cache_performance_summary", {}):
         try:
-            from ...services.cache_performance_service import get_cache_performance_service
+            from src.services.cache_performance_service import get_cache_performance_service
 
             # Get performance service
             performance_service = await get_cache_performance_service()
@@ -2796,7 +2796,7 @@ async def get_performance_degradation_events(
         "get_performance_degradation_events", {"limit": limit, "active_only": active_only, "severity_filter": severity_filter}
     ):
         try:
-            from ...services.cache_performance_service import get_cache_performance_service
+            from src.services.cache_performance_service import get_cache_performance_service
 
             # Get performance service
             performance_service = await get_cache_performance_service()
@@ -2840,7 +2840,7 @@ async def trigger_performance_remediation(
         "trigger_performance_remediation", {"action": action, "target_metric": target_metric, "has_metadata": metadata is not None}
     ):
         try:
-            from ...services.cache_performance_service import PerformanceMetricType, RemediationAction, get_cache_performance_service
+            from src.services.cache_performance_service import PerformanceMetricType, RemediationAction, get_cache_performance_service
 
             # Map action string to enum
             action_mapping = {
@@ -2933,7 +2933,7 @@ async def configure_performance_monitoring(
         },
     ):
         try:
-            from ...services.cache_performance_service import PerformanceConfiguration
+            from src.services.cache_performance_service import PerformanceConfiguration
 
             # Default alert thresholds
             default_alert_thresholds = {
@@ -2993,7 +2993,7 @@ async def analyze_performance_trends(time_window_hours: int = 24, metric_types: 
     """
     with log_tool_usage("analyze_performance_trends", {"time_window_hours": time_window_hours, "metric_types": metric_types}):
         try:
-            from ...services.cache_performance_service import get_cache_performance_service
+            from src.services.cache_performance_service import get_cache_performance_service
 
             # Get performance service
             performance_service = await get_cache_performance_service()
@@ -3078,7 +3078,7 @@ async def get_performance_recommendations() -> dict[str, Any]:
     """
     with log_tool_usage("get_performance_recommendations", {}):
         try:
-            from ...services.cache_performance_service import get_cache_performance_service
+            from src.services.cache_performance_service import get_cache_performance_service
 
             # Get performance service
             performance_service = await get_cache_performance_service()

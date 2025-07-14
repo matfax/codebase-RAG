@@ -3,19 +3,19 @@
 This module contains tools for indexing, searching, and analyzing codebases.
 """
 
-from tools.indexing.chunking_tools import (
+from src.tools.indexing.chunking_tools import (
     get_chunking_metrics,
     register_chunking_tools,
     reset_chunking_metrics,
 )
-from tools.indexing.index_tools import index_directory, index_directory_sync
-from tools.indexing.parser_tools import diagnose_parser_health, register_parser_tools
-from tools.indexing.progress_tools import (
+from src.tools.indexing.index_tools import index_directory, index_directory_sync
+from src.tools.indexing.parser_tools import diagnose_parser_health, register_parser_tools
+from src.tools.indexing.progress_tools import (
     check_index_status,
     get_indexing_progress,
     register_progress_tools,
 )
-from tools.indexing.search_tools import (
+from src.tools.indexing.search_tools import (
     analyze_repository_tool,
     check_index_status_tool,
     get_file_filtering_stats_tool,

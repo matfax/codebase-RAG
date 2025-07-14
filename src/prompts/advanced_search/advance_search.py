@@ -58,7 +58,7 @@ class AdvanceSearchPrompt(BasePromptImplementation):
         """Discover all indexed projects and their information."""
         try:
             # Use the project utilities to list indexed projects
-            from tools.project.project_utils import list_indexed_projects
+            from src.tools.project.project_utils import list_indexed_projects
 
             return list_indexed_projects()
 

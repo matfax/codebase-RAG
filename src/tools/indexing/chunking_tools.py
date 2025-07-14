@@ -10,8 +10,8 @@ from datetime import datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import ChunkingError
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import ChunkingError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
     """
     with log_tool_usage("get_chunking_metrics", {"language": language, "export_path": bool(export_path)}):
         try:
-            from ...services.code_parser_service import CodeParserService
+            from src.services.code_parser_service import CodeParserService
 
             parser_service = CodeParserService()
 
@@ -62,7 +62,7 @@ def get_chunking_metrics(language: str | None = None, export_path: str | None = 
                 performance_report = parser_service.get_performance_summary()
 
                 # Parse the report to extract key metrics
-                from ...utils.chunking_metrics_tracker import chunking_metrics_tracker
+                from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
 
                 all_metrics = chunking_metrics_tracker.get_all_metrics()
 
@@ -109,7 +109,7 @@ def reset_chunking_metrics() -> dict[str, Any]:
     """
     with log_tool_usage("reset_chunking_metrics", {}):
         try:
-            from ...services.code_parser_service import CodeParserService
+            from src.services.code_parser_service import CodeParserService
 
             parser_service = CodeParserService()
             parser_service.reset_session_metrics()

@@ -21,8 +21,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import MCP tools for testing (using new modular structure)
-from tools.indexing.index_tools import index_directory
-from tools.indexing.search_tools import search
+from src.tools.indexing.index_tools import index_directory
+from src.tools.indexing.search_tools import search
 
 
 class TestEndToEndWorkflow:

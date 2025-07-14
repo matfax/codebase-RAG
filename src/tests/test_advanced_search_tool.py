@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 # Import the search function from the correct module
-from tools.indexing.search_tools import search_sync
+from src.tools.indexing.search_tools import search_sync
 
 
 class TestAdvancedSearchTool:

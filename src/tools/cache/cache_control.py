@@ -17,8 +17,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import CacheError
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import CacheError
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ async def get_cache_configuration(
         },
     ):
         try:
-            from ...config.cache_config import get_global_cache_config
+            from config.cache_config import get_global_cache_config
 
             # Get global cache configuration
             cache_config = get_global_cache_config()
@@ -135,7 +135,7 @@ async def get_cache_configuration(
             }
 
         except Exception as e:
-            from tools.core.error_utils import handle_caught_exception
+            from src.tools.core.error_utils import handle_caught_exception
 
             return handle_caught_exception(
                 e,
@@ -172,7 +172,7 @@ async def update_cache_configuration(
         },
     ):
         try:
-            from ...config.cache_config import get_global_cache_config
+            from config.cache_config import get_global_cache_config
 
             # Get current configuration
             current_config = get_global_cache_config()
@@ -542,19 +542,19 @@ async def get_cache_health_status(
                 try:
                     # Import and get service dynamically
                     if service_name == "embedding":
-                        from ...services.embedding_cache_service import get_embedding_cache_service
+                        from services.embedding_cache_service import get_embedding_cache_service
 
                         service = await get_embedding_cache_service()
                     elif service_name == "search":
-                        from ...services.search_cache_service import get_search_cache_service
+                        from services.search_cache_service import get_search_cache_service
 
                         service = await get_search_cache_service()
                     elif service_name == "project":
-                        from ...services.project_cache_service import get_project_cache_service
+                        from services.project_cache_service import get_project_cache_service
 
                         service = await get_project_cache_service()
                     elif service_name == "file":
-                        from ...services.file_cache_service import get_file_cache_service
+                        from services.file_cache_service import get_file_cache_service
 
                         service = await get_file_cache_service()
                     else:

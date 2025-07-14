@@ -20,7 +20,7 @@ from services.file_metadata_service import FileMetadataService
 from services.indexing_service import IndexingService
 from services.project_analysis_service import ProjectAnalysisService
 from services.qdrant_service import QdrantService
-from utils.performance_monitor import MemoryMonitor
+from src.utils.performance_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +357,7 @@ class IndexingPipeline:
         try:
             relevant_files = self.project_analysis.get_relevant_files(directory)
 
-            from models.file_metadata import FileMetadata
+            from src.models.file_metadata import FileMetadata
 
             metadata_list = []
 

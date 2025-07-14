@@ -9,8 +9,8 @@ import asyncio
 import logging
 from typing import Any
 
-from ...services.file_monitoring_integration import get_file_monitoring_integration
-from ...services.file_monitoring_service import MonitoringMode
+from src.services.file_monitoring_integration import get_file_monitoring_integration
+from src.services.file_monitoring_service import MonitoringMode
 
 logger = logging.getLogger(__name__)
 

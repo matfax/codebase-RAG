@@ -15,15 +15,15 @@ from unittest.mock import Mock, patch
 import pytest
 import redis.asyncio as redis
 
-from ...config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy
-from ...services.cache_service import MultiTierCacheService, get_cache_service
-from ...services.embedding_cache_service import EmbeddingCacheService
-from ...services.file_cache_service import FileCacheService
-from ...services.project_cache_service import ProjectCacheService
-from ...services.search_cache_service import SearchCacheService
-from ...utils.cache_key_optimization import KeyOptimizationManager
-from ...utils.cache_performance_optimization import AdaptivePerformanceOptimizer, PerformanceProfile
-from ...utils.cache_serialization_optimization import OptimizedCacheSerializer
+from src.config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy
+from src.services.cache_service import MultiTierCacheService, get_cache_service
+from src.services.embedding_cache_service import EmbeddingCacheService
+from src.services.file_cache_service import FileCacheService
+from src.services.project_cache_service import ProjectCacheService
+from src.services.search_cache_service import SearchCacheService
+from src.utils.cache_key_optimization import KeyOptimizationManager
+from src.utils.cache_performance_optimization import AdaptivePerformanceOptimizer, PerformanceProfile
+from src.utils.cache_serialization_optimization import OptimizedCacheSerializer
 
 
 @pytest.fixture

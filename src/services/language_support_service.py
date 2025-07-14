@@ -13,8 +13,8 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from models.code_chunk import ChunkType
-from utils.tree_sitter_manager import TreeSitterManager
+from src.models.code_chunk import ChunkType
+from src.utils.tree_sitter_manager import TreeSitterManager
 
 
 class LanguageSupportService:
