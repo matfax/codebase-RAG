@@ -24,10 +24,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from models.code_chunk import ParseResult
 from services.code_parser_service import CodeParserService
 from services.indexing_service import IndexingService
-from utils.performance_monitor import MemoryMonitor, ProgressTracker
+
+from src.models.code_chunk import ParseResult
+from src.utils.performance_monitor import MemoryMonitor, ProgressTracker
 
 
 @dataclass

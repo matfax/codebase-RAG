@@ -3,7 +3,7 @@
 This module contains fundamental tools for system health and resource management.
 """
 
-from tools.core.error_utils import (
+from src.tools.core.error_utils import (
     chain_exceptions,
     create_error_context,
     format_error_details,
@@ -13,7 +13,7 @@ from tools.core.error_utils import (
     validate_field_types,
     validate_required_fields,
 )
-from tools.core.errors import (
+from src.tools.core.errors import (
     ChunkingError,
     CollectionError,
     ConfigurationError,
@@ -28,8 +28,9 @@ from tools.core.errors import (
     ServiceError,
     ValidationError,
 )
-from tools.core.health import basic_health_check, health_check
-from tools.core.memory_utils import (
+from src.tools.core.health import basic_health_check, health_check
+from src.tools.core.retry_utils import retry_operation, retry_with_context
+from src.utils.memory_utils import (
     check_memory_usage,
     clear_processing_variables,
     force_memory_cleanup,
@@ -39,7 +40,6 @@ from tools.core.memory_utils import (
     log_memory_usage,
     should_cleanup_memory,
 )
-from tools.core.retry_utils import retry_operation, retry_with_context
 
 __all__ = [
     "health_check",

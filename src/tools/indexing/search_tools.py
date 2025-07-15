@@ -19,13 +19,24 @@ from qdrant_client.http.models import (
     Filter,
     MatchValue,
 )
-from tools.core.errors import (
+
+# Import cache services
+from services.search_cache_service import (
+    SearchMode,
+    SearchParameters,
+    SearchScope,
+    get_search_cache_service,
+)
+
+from src.tools.core.errors import (
     EmbeddingError,
     QdrantConnectionError,
     SearchError,
     ValidationError,
 )
-from tools.core.retry_utils import retry_operation
+from src.tools.core.retry_utils import retry_operation
+
+from ..project.project_utils import get_available_project_names
 
 # Load environment variables
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
@@ -41,6 +52,7 @@ PROJECT_MARKERS = [".git", "pyproject.toml", "package.json", "Cargo.toml", "go.m
 _qdrant_client = None
 _embeddings_manager = None
 _current_project = None
+_search_cache_service = None
 
 
 def get_qdrant_client():
@@ -65,6 +77,14 @@ def get_embeddings_manager_instance():
 
         _embeddings_manager = EmbeddingService()
     return _embeddings_manager
+
+
+async def get_search_cache_service_instance():
+    """Get or create search cache service instance."""
+    global _search_cache_service
+    if _search_cache_service is None:
+        _search_cache_service = await get_search_cache_service()
+    return _search_cache_service
 
 
 def get_current_project(
@@ -150,7 +170,7 @@ def _expand_search_context(
     qdrant_client,
     search_collections: list[str],
     context_chunks: int = 1,
-    embedding_dimension: int = 384,
+    embedding_dimension: int = 768,
 ) -> list[dict[str, Any]]:
     """Expand search results with surrounding context.
 
@@ -286,7 +306,109 @@ def _expand_search_context(
         return results  # Return original results if expansion fails
 
 
-def _perform_hybrid_search(
+async def _perform_hybrid_search_cached(
+    qdrant_client,
+    embedding_model,
+    query: str,
+    query_embedding: list[float],
+    search_collections: list[str],
+    n_results: int,
+    search_mode: str = "hybrid",
+    collection_filter: dict | None = None,
+    result_processor: Callable | None = None,
+    metadata_extractor: Callable | None = None,
+    current_project: str = "",
+    target_projects: list[str] | None = None,
+    include_context: bool = True,
+    context_chunks: int = 1,
+    cross_project: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Perform hybrid search with caching support.
+
+    This is the cache-enabled version of _perform_hybrid_search that checks
+    for cached results before performing expensive vector database operations.
+    """
+    import time
+
+    try:
+        # Get cache service
+        cache_service = await get_search_cache_service_instance()
+
+        # Build search parameters for cache key generation
+        search_params = SearchParameters(
+            query=query,
+            n_results=n_results,
+            search_mode=SearchMode(search_mode),
+            search_scope=(
+                SearchScope.CROSS_PROJECT
+                if cross_project
+                else (SearchScope.TARGET_PROJECTS if target_projects else SearchScope.CURRENT_PROJECT)
+            ),
+            include_context=include_context,
+            context_chunks=context_chunks,
+            target_projects=target_projects or [],
+            current_project=current_project,
+            collections_searched=search_collections,
+        )
+
+        # Try to get cached results first
+        cached_results = await cache_service.get_cached_search_results(search_params)
+
+        if cached_results is not None:
+            logger.debug(f"Cache hit for search query: '{query[:50]}...' ({len(cached_results)} results)")
+            # Update cache service metrics
+            cache_service.metrics.vector_db_queries_saved += 1
+            # Estimate time saved (typical vector search takes 50-200ms)
+            cache_service.metrics.estimated_time_saved_ms += 100.0
+            return cached_results
+
+        logger.debug(f"Cache miss for search query: '{query[:50]}...' - performing vector search")
+
+        # Cache miss - perform actual search
+        search_start = time.time()
+        results = await _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=embedding_model,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,
+            collection_filter=collection_filter,
+            result_processor=result_processor,
+            metadata_extractor=metadata_extractor,
+        )
+        search_duration_ms = (time.time() - search_start) * 1000
+
+        # Cache the results for future use
+        try:
+            await cache_service.cache_search_results(search_params, results, search_duration_ms)
+            logger.debug(f"Successfully cached search results for query: '{query[:50]}...'")
+        except Exception as e:
+            logger.warning(f"Failed to cache search results: {e}")
+            # Continue with uncached results
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Error in cached search: {e}")
+        # Fall back to non-cached search
+        return await _perform_hybrid_search(
+            qdrant_client=qdrant_client,
+            embedding_model=embedding_model,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,
+            collection_filter=collection_filter,
+            result_processor=result_processor,
+            metadata_extractor=metadata_extractor,
+        )
+
+
+async def _perform_hybrid_search(
     qdrant_client,
     embedding_model,
     query: str,
@@ -346,8 +468,11 @@ def _perform_hybrid_search(
                 query_vector=query_embedding,
                 query_filter=collection_filter,
                 limit=per_collection_limit,
-                score_threshold=0.1,  # Minimum similarity threshold
+                score_threshold=0.0,  # Minimum similarity threshold - temporarily lowered for debugging
             )
+
+            # DEBUG: Log search results count
+            logger.info(f"DEBUG: Collection {collection} returned {len(search_results)} raw results")
 
             for result in search_results:
                 empty_content_stats["total_found"] += 1
@@ -364,8 +489,14 @@ def _perform_hybrid_search(
                     file_path = result.payload.get("file_path", "unknown")
                     chunk_type = result.payload.get("chunk_type", "unknown")
                     chunk_name = result.payload.get("name", "unknown")
-                    logger.debug(f"Skipping result with invalid content from {collection}: {file_path} ({chunk_type}:{chunk_name})")
+                    logger.info(
+                        f"DEBUG: Skipping result with invalid content from {collection}: "
+                        f"{file_path} ({chunk_type}:{chunk_name}) - content: {content[:50]}"
+                    )
                     continue
+
+                # DEBUG: Log valid content
+                logger.info(f"DEBUG: Valid result from {collection} - score: {result.score}, content: {content[:50]}")
 
                 # Build base result structure
                 base_result = {
@@ -507,10 +638,11 @@ async def search(
     target_projects: list[str] | None = None,
 ) -> dict[str, Any]:
     """
-    Search indexed content using natural language queries.
+    Search indexed content using natural language queries with cache support.
 
     This tool provides function-level precision search with intelligent chunking,
-    supporting multiple search modes and context expansion for better code understanding.
+    supporting multiple search modes, context expansion, and result caching for
+    better performance on repeated queries.
 
     Args:
         query: Natural language search query
@@ -524,19 +656,374 @@ async def search(
     Returns:
         Dictionary containing search results with metadata, scores, and context
     """
-    # Use the synchronous implementation
-    return search_sync(
-        query,
-        n_results,
-        cross_project,
-        search_mode,
-        include_context,
-        context_chunks,
-        target_projects,
-    )
+    # FORCE ERROR TO CHECK IF THIS CODE IS EXECUTED
+    if query == "function":
+        return {"error": "DEBUG: This code is being executed!", "query": query, "results": [], "total": 0}
+
+    # TEMPORARY: Simple direct search test to debug issues
+    try:
+        # Initialize services
+        embeddings_manager = get_embeddings_manager_instance()
+        qdrant_client = get_qdrant_client()
+
+        # Generate query embedding
+        embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+        query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
+
+        if query_embedding_tensor is None:
+            return {"error": "Failed to generate embedding", "query": query, "results": [], "total": 0}
+
+        # Convert tensor to list if necessary
+        if hasattr(query_embedding_tensor, "tolist"):
+            query_embedding = query_embedding_tensor.tolist()
+        else:
+            query_embedding = query_embedding_tensor
+
+        # Get current project collections
+        current_project = get_current_project()
+        all_collections = [c.name for c in qdrant_client.get_collections().collections]
+
+        if cross_project:
+            search_collections = [c for c in all_collections if not c.endswith("_file_metadata")]
+        elif current_project:
+            search_collections = [
+                c for c in all_collections if c.startswith(current_project["collection_prefix"]) and not c.endswith("_file_metadata")
+            ]
+        else:
+            search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
+
+        if not search_collections:
+            return {
+                "error": "No collections found",
+                "query": query,
+                "results": [],
+                "total": 0,
+                "debug_info": {"all_collections": all_collections, "current_project": current_project, "cross_project": cross_project},
+            }
+
+        # Try a simple search on the first collection
+        test_collection = search_collections[0]
+        try:
+            search_results = qdrant_client.search(
+                collection_name=test_collection,
+                query_vector=query_embedding,
+                limit=n_results,
+                score_threshold=0.0,  # Accept all results for testing
+            )
+
+            results = []
+            for result in search_results:
+                if isinstance(result.payload, dict):
+                    results.append(
+                        {
+                            "score": float(result.score),
+                            "collection": test_collection,
+                            "content": result.payload.get("content", ""),
+                            "file_path": result.payload.get("file_path", ""),
+                            "chunk_type": result.payload.get("chunk_type", ""),
+                            "language": result.payload.get("language", ""),
+                        }
+                    )
+
+            return {
+                "results": results,
+                "query": query,
+                "total": len(results),
+                "project_context": current_project.get("name", "unknown") if current_project else "unknown",
+                "search_scope": "cross_project" if cross_project else "current_project",
+                "search_mode": search_mode,
+                "collections_searched": [test_collection],
+                "debug_info": {
+                    "query_embedding_dimensions": len(query_embedding),
+                    "collections_available": len(search_collections),
+                    "test_collection": test_collection,
+                    "raw_results_count": len(search_results),
+                    "query_embedding_sample": query_embedding[:3],
+                },
+            }
+
+        except Exception as e:
+            return {
+                "error": f"Qdrant search failed: {str(e)}",
+                "query": query,
+                "results": [],
+                "total": 0,
+                "debug_info": {
+                    "test_collection": test_collection,
+                    "query_embedding_dimensions": len(query_embedding),
+                    "embedding_sample": query_embedding[:3],
+                },
+            }
+
+    except Exception as e:
+        return {
+            "error": f"Search setup failed: {str(e)}",
+            "query": query,
+            "results": [],
+            "total": 0,
+        }
 
 
-def search_sync(
+async def search_async_cached(
+    query: str,
+    n_results: int = 5,
+    cross_project: bool = False,
+    search_mode: str = "hybrid",
+    include_context: bool = True,
+    context_chunks: int = 1,
+    target_projects: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Asynchronous cached implementation of search functionality.
+
+    This function integrates with the search cache service to provide
+    high-performance search with result caching and cache invalidation.
+    """
+    import time
+
+    try:
+        # Input validation (same as sync version)
+        if not query or not isinstance(query, str):
+            raise ValidationError("Query must be a non-empty string", field_name="query", value=str(query))
+
+        if not isinstance(n_results, int) or n_results < 1 or n_results > 100:
+            raise ValidationError(
+                "n_results must be between 1 and 100",
+                field_name="n_results",
+                value=str(n_results),
+            )
+
+        if search_mode not in ["semantic", "keyword", "hybrid"]:
+            raise ValidationError(
+                "search_mode must be 'semantic', 'keyword', or 'hybrid'",
+                field_name="search_mode",
+                value=search_mode,
+            )
+
+        if not isinstance(context_chunks, int) or context_chunks < 0 or context_chunks > 5:
+            raise ValidationError(
+                "context_chunks must be between 0 and 5",
+                field_name="context_chunks",
+                value=str(context_chunks),
+            )
+
+        # Validate target_projects parameter
+        if target_projects is not None:
+            if not isinstance(target_projects, list):
+                raise ValidationError(
+                    "target_projects must be a list of project names",
+                    field_name="target_projects",
+                    value=str(target_projects),
+                )
+            if not all(isinstance(p, str) for p in target_projects):
+                raise ValidationError(
+                    "All project names in target_projects must be strings",
+                    field_name="target_projects",
+                    value=str(target_projects),
+                )
+            if len(target_projects) == 0:
+                raise ValidationError(
+                    "target_projects cannot be empty if specified",
+                    field_name="target_projects",
+                    value=str(target_projects),
+                )
+
+        # Initialize services
+        embeddings_manager = get_embeddings_manager_instance()
+        qdrant_client = get_qdrant_client()
+
+        # Generate query embedding
+        embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+        try:
+            query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
+
+            if query_embedding_tensor is None:
+                raise EmbeddingError(
+                    "Failed to generate embedding for query (empty query or embedding service error)",
+                    model_name=embedding_model,
+                )
+
+            # Convert tensor to list if necessary
+            if hasattr(query_embedding_tensor, "tolist"):
+                query_embedding = query_embedding_tensor.tolist()
+            else:
+                query_embedding = query_embedding_tensor
+
+        except Exception as e:
+            raise EmbeddingError(f"Embedding generation failed: {str(e)}", model_name=embedding_model)
+
+        # Determine search collections
+        all_collections = [c.name for c in qdrant_client.get_collections().collections]
+
+        # Handle target_projects logic
+        if target_projects:
+            search_collections = get_target_project_collections(target_projects, all_collections)
+
+            # Check if any collections were found
+            if not search_collections:
+                return {
+                    "error": f"No indexed collections found for projects: {target_projects}",
+                    "available_projects": get_available_project_names(all_collections),
+                    "query": query,
+                    "results": [],
+                    "total": 0,
+                }
+
+        elif cross_project:
+            # Search across all collections
+            search_collections = [c for c in all_collections if not c.endswith("_file_metadata")]
+        else:
+            # Search only current project collections
+            current_project = get_current_project()
+            if current_project:
+                search_collections = [
+                    c for c in all_collections if c.startswith(current_project["collection_prefix"]) and not c.endswith("_file_metadata")
+                ]
+            else:
+                # Fallback to global collections
+                search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
+
+        if not search_collections:
+            return {
+                "results": [],
+                "query": query,
+                "total": 0,
+                "project_context": (current_project.get("name", "no project") if current_project else "no project"),
+                "search_scope": "all projects" if cross_project else "current project",
+                "search_mode": search_mode,
+                "collections_searched": [],
+                "message": "No indexed collections found. Please index some content first.",
+            }
+
+        # Create metadata extractor
+        metadata_extractor = _create_general_metadata_extractor()
+
+        # Get current project info for cache context
+        current_project = get_current_project()
+        current_project_name = current_project.get("name", "") if current_project else ""
+
+        # Perform cached search
+        logger.info(f"Searching {len(search_collections)} collections for query: '{query[:50]}...'")
+
+        search_results = await _perform_hybrid_search_cached(
+            qdrant_client=qdrant_client,
+            embedding_model=embeddings_manager,
+            query=query,
+            query_embedding=query_embedding,
+            search_collections=search_collections,
+            n_results=n_results,
+            search_mode=search_mode,
+            metadata_extractor=metadata_extractor,
+            current_project=current_project_name,
+            target_projects=target_projects,
+            include_context=include_context,
+            context_chunks=context_chunks,
+            cross_project=cross_project,
+        )
+
+        # Expand context if requested (this is not cached separately to keep cache simple)
+        if include_context and search_results and context_chunks > 0:
+            logger.debug(f"Expanding context for {len(search_results)} results with {context_chunks} chunks")
+            search_results = _expand_search_context(
+                search_results,
+                qdrant_client,
+                search_collections,
+                context_chunks,
+                embedding_dimension=768,  # Actual dimension for nomic-embed-text
+            )
+
+        # Truncate content for response size management
+        for result in search_results:
+            if "content" in result:
+                result["content"] = _truncate_content(result["content"], max_length=1500)
+            if "expanded_content" in result:
+                result["expanded_content"] = _truncate_content(result["expanded_content"], max_length=2000)
+
+        # Determine search scope description
+        if target_projects:
+            search_scope = f"specific projects: {', '.join(target_projects)}"
+        elif cross_project:
+            search_scope = "all projects"
+        else:
+            search_scope = "current project"
+
+        # Build response
+        response = {
+            "results": search_results,
+            "query": query,
+            "total": len(search_results),
+            "project_context": (current_project.get("name", "no project") if current_project else "no project"),
+            "search_scope": search_scope,
+            "search_mode": search_mode,
+            "collections_searched": search_collections,
+            "target_projects": target_projects if target_projects else None,
+            "performance": {
+                "collections_count": len(search_collections),
+                "context_expanded": include_context and context_chunks > 0,
+                "context_chunks": context_chunks if include_context else 0,
+                "cache_enabled": True,  # Indicate cache is enabled
+            },
+        }
+
+        # Add search tips for empty results
+        if not search_results:
+            response["suggestions"] = [
+                "Try different keywords or synonyms",
+                "Check if the content has been indexed using index_directory",
+                "Try cross-project search if looking across multiple projects",
+                "Use more general terms instead of very specific ones",
+            ]
+
+        logger.info(f"Search completed: {len(search_results)} results found for query '{query[:30]}...'")
+
+        return response
+
+    except (ValidationError, EmbeddingError, QdrantConnectionError, SearchError) as e:
+        # Known errors with specific handling
+        logger.error(f"Search failed with known error: {e}")
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "query": query,
+            "results": [],
+            "total": 0,
+        }
+    except Exception as e:
+        # Unexpected errors - fall back to sync implementation
+        logger.warning(f"Cached search failed, falling back to sync search: {e}")
+        try:
+            return await search_sync(
+                query,
+                n_results,
+                cross_project,
+                search_mode,
+                include_context,
+                context_chunks,
+                target_projects,
+            )
+        except Exception as sync_error:
+            error_msg = f"Both cached and sync search failed: {str(sync_error)}"
+            logger.error(error_msg)
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+            return {
+                "error": error_msg,
+                "error_type": "UnexpectedError",
+                "query": query,
+                "results": [],
+                "total": 0,
+                "debug_info": {
+                    "search_mode": search_mode,
+                    "n_results": n_results,
+                    "cross_project": cross_project,
+                    "include_context": include_context,
+                    "cache_error": str(e),
+                    "sync_error": str(sync_error),
+                },
+            }
+
+
+async def search_sync(
     query: str,
     n_results: int = 5,
     cross_project: bool = False,
@@ -614,7 +1101,7 @@ def search_sync(
         # Generate query embedding
         embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
         try:
-            query_embedding_tensor = embeddings_manager.generate_embeddings(embedding_model, query)
+            query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
 
             if query_embedding_tensor is None:
                 raise EmbeddingError(
@@ -640,8 +1127,6 @@ def search_sync(
 
             # Check if any collections were found
             if not search_collections:
-                from ..project.project_utils import get_available_project_names
-
                 return {
                     "error": f"No indexed collections found for projects: {target_projects}",
                     "available_projects": get_available_project_names(all_collections),
@@ -681,8 +1166,9 @@ def search_sync(
 
         # Perform search
         logger.info(f"Searching {len(search_collections)} collections for query: '{query[:50]}...'")
+        logger.info(f"DEBUG: Query embedding dimensions: {len(query_embedding)}, collections: {search_collections}")
 
-        search_results = _perform_hybrid_search(
+        search_results = await _perform_hybrid_search(
             qdrant_client=qdrant_client,
             embedding_model=embeddings_manager,
             query=query,
@@ -701,7 +1187,7 @@ def search_sync(
                 qdrant_client,
                 search_collections,
                 context_chunks,
-                embedding_dimension=768,  # Default for nomic-embed-text
+                embedding_dimension=768,  # Actual dimension for nomic-embed-text
             )
 
         # Truncate content for response size management

@@ -6,10 +6,16 @@ import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 import ollama
 import torch
+
+from .embedding_cache_service import (
+    EmbeddingCacheService,
+    EmbeddingType,
+    get_embedding_cache_service,
+)
 
 
 @dataclass
@@ -119,6 +125,22 @@ class EmbeddingService:
         self.current_batch_metrics: BatchMetrics | None = None
         self._metrics_enabled = os.getenv("EMBEDDING_METRICS_ENABLED", "true").lower() == "true"
 
+        # Cache configuration
+        self.cache_enabled = os.getenv("EMBEDDING_CACHE_ENABLED", "true").lower() == "true"
+        self._cache_service: EmbeddingCacheService | None = None
+        self._cache_initialized = False
+
+    async def _ensure_cache_initialized(self) -> None:
+        """Ensure the cache service is initialized."""
+        if self.cache_enabled and not self._cache_initialized:
+            try:
+                self._cache_service = await get_embedding_cache_service()
+                self._cache_initialized = True
+                self.logger.info("Embedding cache service initialized")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize embedding cache: {e}")
+                self.cache_enabled = False
+
     def _get_device(self):
         if platform.system() == "Darwin":
             if torch.backends.mps.is_available():
@@ -195,8 +217,8 @@ class EmbeddingService:
 
         return [left_batch, right_batch]
 
-    def generate_embeddings(self, model: str, text: str | list[str]) -> torch.Tensor | list[torch.Tensor] | None:
-        """Generate embeddings for single text or batch of texts.
+    async def generate_embeddings(self, model: str, text: str | list[str]) -> torch.Tensor | list[torch.Tensor] | None:
+        """Generate embeddings for single text or batch of texts with cache integration.
 
         Args:
             model: The embedding model to use
@@ -205,13 +227,49 @@ class EmbeddingService:
         Returns:
             Single tensor for single text, list of tensors for batch, or None on error
         """
+        # Ensure cache is initialized
+        await self._ensure_cache_initialized()
+
         # Handle both single text and batch processing
         if isinstance(text, str):
-            return self._generate_single_embedding(model, text)
+            return await self._generate_single_embedding_with_cache(model, text)
         elif isinstance(text, list):
-            return self._generate_batch_embeddings(model, text)
+            return await self._generate_batch_embeddings_with_cache(model, text)
         else:
             self.logger.error(f"Invalid input type for text: {type(text)}")
+            return None
+
+    async def _generate_single_embedding_with_cache(self, model: str, text: str) -> torch.Tensor | None:
+        """Generate embedding for a single text with cache integration."""
+        try:
+            # Check cache first if enabled
+            if self.cache_enabled and self._cache_service:
+                cached_embedding = await self._cache_service.get_cached_embedding(text, model, EmbeddingType.QUERY_TEXT)
+                if cached_embedding is not None:
+                    self.logger.debug(f"Cache hit for single embedding: {model}")
+                    # Update cache metrics
+                    if hasattr(self._cache_service, "metrics"):
+                        self._cache_service.metrics.ollama_calls_saved += 1
+                    return cached_embedding
+
+            # Cache miss or cache disabled - generate embedding
+            generation_start = time.time()
+            embedding = self._generate_single_embedding(model, text)
+            generation_time_ms = (time.time() - generation_start) * 1000
+
+            # Cache the result if enabled and generation was successful
+            if self.cache_enabled and self._cache_service and embedding is not None:
+                try:
+                    await self._cache_service.cache_embedding(text, embedding, model, EmbeddingType.QUERY_TEXT, generation_time_ms)
+                    if hasattr(self._cache_service, "metrics"):
+                        self._cache_service.metrics.estimated_time_saved_ms += generation_time_ms
+                except Exception as cache_error:
+                    self.logger.warning(f"Failed to cache embedding: {cache_error}")
+
+            return embedding
+
+        except Exception as e:
+            self.logger.error(f"Error in single embedding generation with cache: {e}")
             return None
 
     def _generate_single_embedding(self, model: str, text: str) -> torch.Tensor | None:
@@ -243,6 +301,84 @@ class EmbeddingService:
 
         except Exception as e:
             self.logger.error(f"An error occurred while generating single embedding: {e}")
+            return None
+
+    async def _generate_batch_embeddings_with_cache(self, model: str, texts: list[str]) -> list[torch.Tensor] | None:
+        """Generate embeddings for multiple texts using cache with intelligent batching."""
+        if not texts:
+            self.logger.warning("Empty text list provided for batch embedding")
+            return []
+
+        try:
+            # Check cache for all texts if enabled
+            cached_embeddings = [None] * len(texts)
+            uncached_texts = []
+            uncached_indices = []
+
+            if self.cache_enabled and self._cache_service:
+                self.logger.debug(f"Checking cache for {len(texts)} texts")
+
+                for i, text in enumerate(texts):
+                    cached_embedding = await self._cache_service.get_cached_embedding(text, model, EmbeddingType.BATCH_OPERATION)
+                    if cached_embedding is not None:
+                        cached_embeddings[i] = cached_embedding
+                        # Update cache metrics
+                        if hasattr(self._cache_service, "metrics"):
+                            self._cache_service.metrics.ollama_calls_saved += 1
+                    else:
+                        uncached_texts.append(text)
+                        uncached_indices.append(i)
+
+                cache_hits = len(texts) - len(uncached_texts)
+                self.logger.info(f"Cache hits: {cache_hits}/{len(texts)} texts")
+            else:
+                # Cache disabled - all texts need generation
+                uncached_texts = texts
+                uncached_indices = list(range(len(texts)))
+
+            # Generate embeddings for uncached texts
+            generated_embeddings = []
+            generation_times = []
+
+            if uncached_texts:
+                self.logger.info(f"Generating embeddings for {len(uncached_texts)} uncached texts")
+                generation_start = time.time()
+                generated_embeddings = self._generate_batch_embeddings(model, uncached_texts)
+                total_generation_time = (time.time() - generation_start) * 1000
+
+                if generated_embeddings:
+                    # Estimate time per embedding
+                    time_per_embedding = total_generation_time / len(generated_embeddings)
+                    generation_times = [time_per_embedding] * len(generated_embeddings)
+
+                    # Cache the newly generated embeddings
+                    if self.cache_enabled and self._cache_service:
+                        try:
+                            await self._cache_service.cache_batch_embeddings(
+                                uncached_texts, generated_embeddings, model, EmbeddingType.BATCH_OPERATION, generation_times
+                            )
+
+                            # Update metrics
+                            if hasattr(self._cache_service, "metrics"):
+                                self._cache_service.metrics.estimated_time_saved_ms += total_generation_time
+
+                        except Exception as cache_error:
+                            self.logger.warning(f"Failed to cache batch embeddings: {cache_error}")
+
+            # Combine cached and generated embeddings
+            final_embeddings = cached_embeddings[:]
+            for i, embedding in enumerate(generated_embeddings or []):
+                if i < len(uncached_indices):
+                    final_embeddings[uncached_indices[i]] = embedding
+
+            # Count successful embeddings
+            successful_count = sum(1 for emb in final_embeddings if emb is not None)
+            self.logger.info(f"Successfully obtained {successful_count}/{len(texts)} embeddings (cached + generated)")
+
+            return final_embeddings
+
+        except Exception as e:
+            self.logger.error(f"Error in batch embedding generation with cache: {e}")
             return None
 
     def _generate_batch_embeddings(self, model: str, texts: list[str]) -> list[torch.Tensor] | None:
@@ -589,7 +725,7 @@ class EmbeddingService:
         if not self._metrics_enabled:
             return {"metrics_enabled": False}
 
-        return {
+        metrics = {
             "metrics_enabled": True,
             "cumulative": {
                 "total_batches": self.cumulative_metrics.total_batches,
@@ -606,12 +742,48 @@ class EmbeddingService:
             },
         }
 
+        # Add cache metrics if available
+        try:
+            cache_stats = self.get_cache_stats()
+            metrics["cache"] = cache_stats
+        except Exception as e:
+            metrics["cache"] = {"error": str(e)}
+
+        return metrics
+
     def reset_metrics(self) -> None:
         """Reset all metrics for a new operation."""
         if self._metrics_enabled:
             self.cumulative_metrics = CumulativeMetrics()
             self.current_batch_metrics = None
             self.logger.info("Embedding metrics reset for new operation")
+
+        # Also reset cache metrics if available
+        if self.cache_enabled and self._cache_service:
+            try:
+                self._cache_service.reset_metrics()
+            except Exception as e:
+                self.logger.warning(f"Failed to reset cache metrics: {e}")
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics if cache is enabled."""
+        if self.cache_enabled and self._cache_service:
+            try:
+                return self._cache_service.get_cache_stats()
+            except Exception as e:
+                self.logger.error(f"Failed to get cache stats: {e}")
+                return {"error": str(e)}
+        return {"cache_enabled": False}
+
+    async def invalidate_model_cache(self, model_name: str) -> int:
+        """Invalidate cache for a specific model."""
+        if self.cache_enabled and self._cache_service:
+            try:
+                return await self._cache_service.invalidate_model_cache(model_name)
+            except Exception as e:
+                self.logger.error(f"Failed to invalidate model cache: {e}")
+                return 0
+        return 0
 
     def _setup_logging(self) -> None:
         """Setup logging configuration for embedding service."""
@@ -632,7 +804,7 @@ class EmbeddingService:
             self.logger.propagate = False
 
     # Backward compatibility method (deprecated)
-    def generate_embedding(self, model: str, text: str) -> torch.Tensor | None:
+    async def generate_embedding(self, model: str, text: str) -> torch.Tensor | None:
         """Deprecated: Use generate_embeddings instead."""
         self.logger.warning("generate_embedding is deprecated, use generate_embeddings instead")
-        return self._generate_single_embedding(model, text)
+        return await self._generate_single_embedding_with_cache(model, text)

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypeVar
 
-from tools.core.errors import MCPToolError, ServiceError, ValidationError
+from src.tools.core.errors import MCPToolError, ServiceError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +299,68 @@ def handle_tool_error(func: Callable[..., T], *args, **kwargs) -> dict[str, Any]
         return error_info
 
 
+def handle_caught_exception(exception: Exception, operation_name: str, context: dict[str, Any] = None) -> dict[str, Any]:
+    """Handle an already caught exception and return standardized error information.
+
+    Args:
+        exception: The caught exception
+        operation_name: Name of the operation that failed
+        context: Additional context information
+
+    Returns:
+        Dictionary with error information
+    """
+    context = context or {}
+
+    if isinstance(exception, MCPToolError):
+        # Handle known MCP tool errors
+        error_info = {
+            "error": str(exception),
+            "error_type": type(exception).__name__,
+            "timestamp": datetime.now().isoformat(),
+            "operation": operation_name,
+        }
+
+        if hasattr(exception, "details") and exception.details:
+            error_info["details"] = exception.details
+
+        # Add specific error attributes
+        for attr in [
+            "file_path",
+            "service_name",
+            "collection_name",
+            "query",
+            "language",
+        ]:
+            if hasattr(exception, attr):
+                value = getattr(exception, attr)
+                if value:
+                    error_info[attr] = value
+
+        # Add context information
+        error_info.update(context)
+
+        logger.error(f"MCP Tool Error in {operation_name}: {format_error_details(exception)}")
+        return error_info
+
+    else:
+        # Handle unexpected errors
+        error_info = {
+            "error": f"Unexpected error in {operation_name}: {str(exception)}",
+            "error_type": type(exception).__name__,
+            "timestamp": datetime.now().isoformat(),
+            "operation": operation_name,
+            "details": str(exception),
+        }
+
+        # Add context information
+        error_info.update(context)
+
+        logger.error(f"Unexpected error in {operation_name}: {str(exception)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return error_info
+
+
 class log_tool_usage:
     """Context manager for logging tool usage and performance.
 
@@ -341,8 +403,9 @@ class log_tool_usage:
             # Success
             self.logger.info(f"Completed tool: {self.tool_name} in {duration:.2f}s")
         else:
-            # Error occurred
-            self.logger.error(f"Tool failed: {self.tool_name} after {duration:.2f}s - {exc_type.__name__}: {exc_val}")
+            # Error occurred - safely get error type name
+            error_type = getattr(exc_type, "__name__", str(type(exc_type)))
+            self.logger.error(f"Tool failed: {self.tool_name} after {duration:.2f}s - {error_type}: {exc_val}")
 
         # Don't suppress exceptions
         return False

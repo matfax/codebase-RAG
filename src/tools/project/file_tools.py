@@ -11,7 +11,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from tools.core.error_utils import handle_tool_error, log_tool_usage
 from tools.core.errors import FileOperationError
-from tools.project.project_utils import delete_file_chunks
+
+from src.tools.project.project_utils import delete_file_chunks
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from models.prompt_context import (
+from src.models.prompt_context import (
     DifficultyLevel,
     PromptContext,
     PromptResult,
@@ -24,7 +24,7 @@ from models.prompt_context import (
     UserRole,
     WorkflowState,
 )
-from models.recommendation import (
+from src.models.recommendation import (
     ConfidenceLevel,
     PriorityLevel,
     RecommendationAction,

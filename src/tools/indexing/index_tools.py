@@ -9,7 +9,7 @@ import os
 import time
 import traceback
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,23 +21,24 @@ from qdrant_client.http.models import (
     PointStruct,
     VectorParams,
 )
-from tools.core.errors import (
+
+from src.tools.core.errors import (
     QdrantConnectionError,
 )
-from tools.core.memory_utils import (
+from src.tools.core.retry_utils import retry_operation
+from src.tools.database.qdrant_utils import (
+    check_qdrant_health,
+    log_database_metrics,
+    retry_individual_points,
+    retry_qdrant_operation,
+)
+from src.utils.memory_utils import (
     clear_processing_variables,
     force_memory_cleanup,
     get_adaptive_batch_size,
     get_memory_usage_mb,
     log_memory_usage,
     should_cleanup_memory,
-)
-from tools.core.retry_utils import retry_operation
-from tools.database.qdrant_utils import (
-    check_qdrant_health,
-    log_database_metrics,
-    retry_individual_points,
-    retry_qdrant_operation,
 )
 
 # Load environment variables
@@ -371,9 +372,9 @@ def clear_project_collections() -> dict[str, Any]:
     }
 
 
-def _process_chunk_batch_for_streaming(
+async def _process_chunk_batch_for_streaming(
     chunks: list[Any], embeddings_manager, batch_size: int = 20
-) -> Generator[tuple[str, list[PointStruct]], None, None]:
+) -> AsyncGenerator[tuple[str, list[PointStruct]], None]:
     """
     Process chunks in batches and yield (collection_name, points) for streaming insertion.
 
@@ -461,7 +462,7 @@ def _process_chunk_batch_for_streaming(
 
                 # Generate embeddings in batch
                 start_time = time.time()
-                embeddings = embeddings_manager.generate_embeddings(
+                embeddings = await embeddings_manager.generate_embeddings(
                     os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text"),
                     texts,
                 )
@@ -780,7 +781,7 @@ def index_directory_sync(
     """
     try:
         # Initialize memory monitoring
-        from utils.performance_monitor import MemoryMonitor
+        from src.utils.performance_monitor import MemoryMonitor
 
         memory_threshold = float(os.getenv("MEMORY_WARNING_THRESHOLD_MB", "1000"))
         memory_monitor = MemoryMonitor(warning_threshold_mb=memory_threshold)

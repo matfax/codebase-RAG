@@ -85,6 +85,50 @@ class FileDiscoveryService:
             total_files = analysis_result.get("relevant_files", 0)
             total_size_mb = analysis_result.get("size_analysis", {}).get("total_size_mb", 0)
 
+            # For incremental mode, estimate changed files only
+            if mode == "incremental":
+                # Try to get actual change detection if possible
+                try:
+                    from services.change_detector_service import ChangeDetectorService
+                    from services.file_metadata_service import FileMetadataService
+                    from services.qdrant_service import QdrantService
+
+                    # Get project name
+                    project_name = self.project_analysis._get_project_name(directory)
+
+                    # Get relevant files
+                    relevant_files = self.project_analysis.get_relevant_files(directory)
+
+                    # Initialize change detection services
+                    metadata_service = FileMetadataService(QdrantService())
+                    change_detector = ChangeDetectorService(metadata_service)
+
+                    # Detect changes
+                    changes = change_detector.detect_changes(
+                        project_name=project_name,
+                        current_files=relevant_files,
+                        project_root=directory,
+                    )
+
+                    changed_files = changes.get_files_to_reindex()
+                    total_files = len(changed_files)
+
+                    # Estimate size for changed files only
+                    if changed_files:
+                        # Calculate proportional size based on changed files
+                        size_ratio = len(changed_files) / len(relevant_files) if relevant_files else 0
+                        total_size_mb = total_size_mb * size_ratio
+                    else:
+                        total_size_mb = 0
+
+                    self.logger.info(f"Incremental mode: {total_files}/{len(relevant_files)} files need processing")
+
+                except Exception as e:
+                    self.logger.warning(f"Could not perform accurate change detection for estimation: {e}")
+                    # Fallback: estimate roughly 20% of files changed for incremental
+                    total_files = int(total_files * 0.2)
+                    total_size_mb = total_size_mb * 0.2
+
             # Calculate estimates
             base_rate = 100  # files per minute baseline
             size_factor = max(1.0, total_size_mb / 10)  # Adjust for file size

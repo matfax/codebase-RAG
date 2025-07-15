@@ -513,3 +513,79 @@ MEMORY_WARNING_THRESHOLD_MB=1000 # Adjust for available RAM
 - Find inconsistent implementation patterns
 - Locate outdated or deprecated code
 - Identify security or performance antipatterns
+
+## Manual Indexing Tool
+
+For large codebases or operations that might take several minutes, use the standalone manual indexing tool:
+
+```bash
+# Full indexing (clear existing data)
+uv run python manual_indexing.py -d /path/to/large/repo -m clear_existing
+
+# Incremental indexing (only changed files)
+uv run python manual_indexing.py -d /path/to/repo -m incremental
+
+# With verbose output
+uv run python manual_indexing.py -d /path/to/repo -m incremental --verbose
+
+# Skip confirmation prompts
+uv run python manual_indexing.py -d /path/to/repo -m clear_existing --no-confirm
+```
+
+### Manual Tool Features
+- **Pre-indexing Analysis**: Shows file count, size, and time estimates
+- **Change Detection**: In incremental mode, shows exactly which files changed
+- **Progress Reporting**: Real-time progress with ETA and memory usage
+- **Error Handling**: Graceful handling of individual file failures
+- **Dependency Validation**: Checks Qdrant and embedding service availability
+
+### When to Use Manual Tool
+- Large repositories (1000+ files)
+- Operations estimated to take >5 minutes
+- Heavy indexing that shouldn't block interactive workflows
+- Batch processing scenarios
+
+## Incremental Indexing
+
+Incremental indexing dramatically reduces processing time by only handling changed files:
+
+### How It Works
+1. **File Metadata Tracking**: Stores modification times and content hashes
+2. **Change Detection**: Compares current file state with stored metadata
+3. **Selective Processing**: Only re-indexes files that have changed
+4. **Smart Updates**: Handles file additions, modifications, and deletions
+
+### Performance Benefits
+- **80%+ Time Savings**: For typical development scenarios (5-50 changed files)
+- **Memory Efficient**: Only processes changed content
+- **Network Friendly**: Fewer embedding API calls
+
+## File Filtering
+
+Create a `.ragignore` file in your project root to exclude directories:
+```
+node_modules/
+.git/
+dist/
+build/
+__pycache__/
+.venv/
+*.pyc
+*.log
+```
+
+## Intelligent Chunking Error Handling
+
+The system includes sophisticated error handling for syntax errors and malformed code:
+
+- **Syntax Error Tolerance**: Files with syntax errors are processed using smart error recovery
+- **Graceful Fallback**: When intelligent chunking fails, the system automatically falls back to whole-file processing
+- **Error Reporting**: Detailed error statistics are provided in manual indexing tool output
+- **Partial Processing**: Correct code sections are preserved even when parts of the file have errors
+
+Example error handling in action:
+```bash
+# Manual indexing with verbose error reporting
+python manual_indexing.py -d /path/to/project --verbose
+# Output includes syntax error statistics and affected files
+```

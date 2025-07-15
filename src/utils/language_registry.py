@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from models.code_chunk import ChunkType
+from src.models.code_chunk import ChunkType
 
 
 class LanguageComplexity(Enum):

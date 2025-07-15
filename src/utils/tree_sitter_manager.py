@@ -295,7 +295,7 @@ class TreeSitterManager:
         return {
             "total_languages": total_languages,
             "successful_languages": successful_languages,
-            "failed_languages": failed_languages,
+            "failed_languages_count": failed_languages,
             "success_rate": (successful_languages / total_languages if total_languages > 0 else 0),
             "supported_languages": list(self._parsers.keys()),
             "failed_languages": list(self._failed_languages),

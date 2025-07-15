@@ -3,7 +3,7 @@
 This module contains tools for database operations and collection management.
 """
 
-from tools.database.qdrant_utils import (
+from src.tools.database.qdrant_utils import (
     check_existing_index,
     check_qdrant_health,
     ensure_collection,

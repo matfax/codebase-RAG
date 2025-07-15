@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from models.code_chunk import ParseResult
+from src.models.code_chunk import ParseResult
 
 
 class ChunkingMetric(NamedTuple):

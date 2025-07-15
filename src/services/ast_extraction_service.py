@@ -8,8 +8,9 @@ extraction, and semantic analysis.
 
 import logging
 
-from models.code_chunk import ChunkType, CodeChunk, CodeSyntaxError
 from tree_sitter import Node
+
+from src.models.code_chunk import ChunkType, CodeChunk, CodeSyntaxError
 
 
 class AstExtractionService:

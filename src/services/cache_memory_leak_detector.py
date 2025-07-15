@@ -1,39 +1,32 @@
 """
-Cache memory leak detection service for identifying and analyzing memory leaks in cache operations.
+Cache memory leak detection service.
 
-This module provides comprehensive memory leak detection capabilities including:
-- Memory usage tracking over time
-- Leak pattern detection and analysis
-- Threshold-based leak detection
-- Memory growth trend analysis
-- Automatic leak reporting and alerting
+This module provides comprehensive memory leak detection capabilities for cache
+systems including leak pattern recognition, growth trend analysis, orphaned
+reference detection, and automated leak alerts.
 """
 
 import asyncio
-import gc
 import logging
-import threading
 import time
-import tracemalloc
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Optional
-from weakref import WeakSet
+from statistics import mean, median, stdev
+from threading import Lock
+from typing import Any, Optional, Union
 
-try:
-    import psutil
-
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-
-logger = logging.getLogger(__name__)
+from ..utils.memory_utils import (
+    CacheMemoryEvent,
+    get_memory_stats,
+    get_system_memory_pressure,
+    get_total_cache_memory_usage,
+    track_cache_memory_event,
+)
 
 
 class LeakSeverity(Enum):
-    """Severity levels for memory leaks."""
+    """Memory leak severity levels."""
 
     LOW = "low"
     MEDIUM = "medium"
@@ -42,661 +35,714 @@ class LeakSeverity(Enum):
 
 
 class LeakType(Enum):
-    """Types of memory leaks that can be detected."""
+    """Types of memory leaks."""
 
-    GRADUAL_GROWTH = "gradual_growth"  # Slow, steady memory growth
-    RAPID_GROWTH = "rapid_growth"  # Fast memory growth
-    PERIODIC_SPIKE = "periodic_spike"  # Periodic memory spikes
-    SUSTAINED_HIGH = "sustained_high"  # Sustained high memory usage
-    CACHE_BLOAT = "cache_bloat"  # Cache growing beyond expected limits
-    FRAGMENTATION = "fragmentation"  # Memory fragmentation issues
-
-
-@dataclass
-class MemorySnapshot:
-    """Represents a point-in-time memory snapshot."""
-
-    timestamp: datetime
-    total_memory_mb: float
-    rss_memory_mb: float
-    vms_memory_mb: float
-    cache_memory_mb: float
-    cache_entry_count: int
-    cache_name: str
-    thread_id: int
-    gc_stats: dict[str, Any]
-    tracemalloc_stats: dict[str, Any] | None = None
+    GRADUAL_GROWTH = "gradual_growth"  # Slow but steady memory growth
+    SUDDEN_SPIKE = "sudden_spike"  # Sudden memory increase
+    ORPHANED_REFERENCES = "orphaned_references"  # Unreferenced cached objects
+    FRAGMENTATION = "fragmentation"  # Memory fragmentation
+    RETENTION_LEAK = "retention_leak"  # Objects not being released
+    CIRCULAR_REFERENCE = "circular_reference"  # Circular references preventing GC
 
 
 @dataclass
-class MemoryLeak:
-    """Represents a detected memory leak."""
+class LeakEvidence:
+    """Evidence of a memory leak."""
 
-    leak_id: str
-    cache_name: str
+    timestamp: float
     leak_type: LeakType
     severity: LeakSeverity
-    detected_at: datetime
-    start_memory_mb: float
-    current_memory_mb: float
-    memory_growth_mb: float
-    growth_rate_mb_per_minute: float
-    duration_minutes: float
-    snapshots: list[MemorySnapshot]
-    stack_traces: list[str] = field(default_factory=list)
-    recommendations: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    cache_name: str
+    description: str
+    metrics: dict[str, Any] = field(default_factory=dict)
+    suggested_actions: list[str] = field(default_factory=list)
+    confidence_score: float = 0.0  # 0.0 to 1.0
+    related_keys: list[str] = field(default_factory=list)
+    stack_trace: list[str] = field(default_factory=list)
+
+    @property
+    def age(self) -> float:
+        """Age of the leak evidence in seconds."""
+        return time.time() - self.timestamp
 
 
 @dataclass
 class LeakDetectionConfig:
     """Configuration for memory leak detection."""
 
-    # Detection thresholds
-    memory_growth_threshold_mb: float = 100.0  # MB growth before flagging
-    growth_rate_threshold_mb_per_min: float = 5.0  # MB/min growth rate threshold
-    sustained_high_threshold_mb: float = 500.0  # Sustained high memory threshold
+    # Growth detection thresholds
+    growth_threshold_mb: float = 50.0  # MB growth to trigger detection
+    growth_time_window_minutes: int = 30  # Time window for growth detection
+    growth_rate_threshold_mb_per_min: float = 2.0  # MB/minute growth rate threshold
 
-    # Time windows
-    detection_window_minutes: int = 30  # Time window for leak detection
-    rapid_growth_window_minutes: int = 5  # Window for rapid growth detection
-    baseline_calculation_minutes: int = 60  # Window for baseline calculation
+    # Retention detection thresholds
+    retention_threshold_minutes: int = 60  # Minutes before considering object retained
+    retention_ratio_threshold: float = 0.8  # Ratio of retained objects to trigger alert
 
-    # Snapshot configuration
-    snapshot_interval_seconds: int = 30  # Interval between snapshots
-    max_snapshots_per_cache: int = 1000  # Max snapshots to keep per cache
+    # Fragmentation detection
+    fragmentation_threshold: float = 0.3  # Fragmentation ratio threshold
+    fragmentation_check_interval_minutes: int = 15  # Check interval for fragmentation
 
-    # Advanced detection
-    enable_tracemalloc: bool = True  # Enable tracemalloc for stack traces
-    enable_gc_monitoring: bool = True  # Enable garbage collection monitoring
-    statistical_analysis: bool = True  # Enable statistical analysis
+    # Orphaned reference detection
+    orphaned_check_interval_minutes: int = 30  # Check interval for orphaned references
+    orphaned_threshold_count: int = 100  # Number of orphaned objects to trigger alert
 
-    # Cleanup
-    auto_cleanup_old_data: bool = True  # Auto cleanup old detection data
-    cleanup_interval_hours: int = 24  # Hours between cleanup cycles
+    # Leak confirmation settings
+    confirmation_samples: int = 3  # Number of samples to confirm leak
+    confirmation_interval_minutes: int = 5  # Interval between confirmation samples
+
+    # Alert settings
+    alert_cooldown_minutes: int = 30  # Cooldown period between alerts
+    max_alerts_per_hour: int = 5  # Maximum alerts per hour
+
+
+@dataclass
+class MemoryGrowthPattern:
+    """Pattern of memory growth over time."""
+
+    cache_name: str
+    start_time: float
+    end_time: float
+    start_memory_mb: float
+    end_memory_mb: float
+    growth_rate_mb_per_min: float
+    confidence: float
+    data_points: int
+    trend_slope: float
+    correlation_coefficient: float
+
+    @property
+    def total_growth_mb(self) -> float:
+        """Total memory growth in MB."""
+        return self.end_memory_mb - self.start_memory_mb
+
+    @property
+    def duration_minutes(self) -> float:
+        """Duration of the growth pattern in minutes."""
+        return (self.end_time - self.start_time) / 60.0
+
+
+@dataclass
+class RetentionAnalysis:
+    """Analysis of object retention patterns."""
+
+    cache_name: str
+    total_objects: int
+    retained_objects: int
+    retention_ratio: float
+    avg_retention_time_minutes: float
+    max_retention_time_minutes: float
+    retention_threshold_minutes: float
+    old_objects_count: int
+    very_old_objects_count: int
+
+    @property
+    def is_leak_suspected(self) -> bool:
+        """Check if retention suggests a leak."""
+        return self.retention_ratio > 0.8 and self.avg_retention_time_minutes > 60
 
 
 class CacheMemoryLeakDetector:
     """
-    Advanced memory leak detector for cache operations.
+    Comprehensive cache memory leak detector.
 
-    Provides comprehensive memory leak detection including:
-    - Real-time memory monitoring
-    - Pattern-based leak detection
-    - Statistical analysis of memory trends
-    - Automatic alerting and reporting
+    This service analyzes cache memory usage patterns to detect various types
+    of memory leaks including gradual growth, sudden spikes, orphaned references,
+    fragmentation, and retention leaks.
     """
 
     def __init__(self, config: LeakDetectionConfig | None = None):
-        """Initialize the memory leak detector."""
         self.config = config or LeakDetectionConfig()
-        self._memory_snapshots: dict[str, deque] = defaultdict(lambda: deque(maxlen=self.config.max_snapshots_per_cache))
-        self._detected_leaks: dict[str, list[MemoryLeak]] = defaultdict(list)
-        self._cache_baselines: dict[str, float] = {}
-        self._monitoring_active: dict[str, bool] = defaultdict(bool)
-        self._monitoring_tasks: dict[str, asyncio.Task] = {}
-        self._lock = threading.RLock()
+        self.logger = logging.getLogger(__name__)
 
-        # Setup tracemalloc if enabled
-        if self.config.enable_tracemalloc and not tracemalloc.is_tracing():
-            tracemalloc.start(25)  # Keep 25 frames in stack traces
+        # Detection state
+        self.is_monitoring = False
+        self.monitoring_lock = Lock()
 
-        # Global monitoring state
-        self._global_monitoring = False
-        self._global_task: asyncio.Task | None = None
+        # Memory tracking
+        self.memory_history: deque[tuple[float, dict[str, float]]] = deque(maxlen=1000)
+        self.growth_patterns: dict[str, deque[MemoryGrowthPattern]] = defaultdict(lambda: deque(maxlen=100))
 
-        logger.info("Cache memory leak detector initialized")
+        # Leak evidence
+        self.leak_evidence: deque[LeakEvidence] = deque(maxlen=500)
+        self.evidence_lock = Lock()
 
-    async def start_monitoring(self, cache_name: str) -> None:
-        """Start memory leak monitoring for a specific cache."""
-        async with asyncio.Lock():
-            if self._monitoring_active[cache_name]:
-                logger.warning(f"Memory leak monitoring already active for cache: {cache_name}")
-                return
+        # Object retention tracking
+        self.object_lifecycles: dict[str, dict[str, float]] = defaultdict(dict)  # cache_name -> {key: creation_time}
+        self.retention_analyses: dict[str, RetentionAnalysis] = {}
 
-            self._monitoring_active[cache_name] = True
+        # Alert management
+        self.recent_alerts: deque[tuple[float, str]] = deque(maxlen=100)
+        self.alert_counts: dict[str, int] = defaultdict(int)
 
-            # Create monitoring task
-            task = asyncio.create_task(self._monitor_cache_memory(cache_name))
-            self._monitoring_tasks[cache_name] = task
+        # Background tasks
+        self.monitoring_task: asyncio.Task | None = None
+        self.analysis_task: asyncio.Task | None = None
 
-            logger.info(f"Started memory leak monitoring for cache: {cache_name}")
+        # Statistics
+        self.detection_stats = {
+            "total_leaks_detected": 0,
+            "leaks_by_type": defaultdict(int),
+            "leaks_by_severity": defaultdict(int),
+            "false_positives": 0,
+            "confirmed_leaks": 0,
+        }
 
-    async def stop_monitoring(self, cache_name: str) -> None:
-        """Stop memory leak monitoring for a specific cache."""
-        async with asyncio.Lock():
-            if not self._monitoring_active.get(cache_name, False):
-                return
+    async def initialize(self) -> None:
+        """Initialize the leak detector."""
+        self.is_monitoring = True
 
-            self._monitoring_active[cache_name] = False
+        # Start background monitoring
+        self.monitoring_task = asyncio.create_task(self._monitoring_loop())
+        self.analysis_task = asyncio.create_task(self._analysis_loop())
 
-            # Cancel monitoring task
-            if cache_name in self._monitoring_tasks:
-                task = self._monitoring_tasks.pop(cache_name)
-                if not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
+        self.logger.info("Cache memory leak detector initialized")
 
-            logger.info(f"Stopped memory leak monitoring for cache: {cache_name}")
+    async def shutdown(self) -> None:
+        """Shutdown the leak detector."""
+        self.is_monitoring = False
 
-    async def start_global_monitoring(self) -> None:
-        """Start global memory leak monitoring for all caches."""
-        async with asyncio.Lock():
-            if self._global_monitoring:
-                logger.warning("Global memory leak monitoring already active")
-                return
-
-            self._global_monitoring = True
-            self._global_task = asyncio.create_task(self._global_memory_monitor())
-
-            logger.info("Started global memory leak monitoring")
-
-    async def stop_global_monitoring(self) -> None:
-        """Stop global memory leak monitoring."""
-        async with asyncio.Lock():
-            if not self._global_monitoring:
-                return
-
-            self._global_monitoring = False
-
-            if self._global_task and not self._global_task.done():
-                self._global_task.cancel()
-                try:
-                    await self._global_task
-                except asyncio.CancelledError:
-                    pass
-
-            logger.info("Stopped global memory leak monitoring")
-
-    async def take_snapshot(self, cache_name: str, cache_entry_count: int = 0, cache_memory_mb: float = 0.0) -> MemorySnapshot:
-        """Take a memory snapshot for the specified cache."""
-        timestamp = datetime.now()
-        thread_id = threading.get_ident()
-
-        # Get memory stats
-        if PSUTIL_AVAILABLE:
+        # Cancel background tasks
+        if self.monitoring_task:
+            self.monitoring_task.cancel()
             try:
-                process = psutil.Process()
-                memory_info = process.memory_info()
-                total_memory_mb = memory_info.rss / (1024 * 1024)
-                rss_memory_mb = memory_info.rss / (1024 * 1024)
-                vms_memory_mb = memory_info.vms / (1024 * 1024)
-            except Exception as e:
-                logger.warning(f"Failed to get memory info: {e}")
-                total_memory_mb = rss_memory_mb = vms_memory_mb = 0.0
-        else:
-            total_memory_mb = rss_memory_mb = vms_memory_mb = 0.0
+                await self.monitoring_task
+            except asyncio.CancelledError:
+                pass
 
-        # Get garbage collection stats
-        gc_stats = {}
-        if self.config.enable_gc_monitoring:
+        if self.analysis_task:
+            self.analysis_task.cancel()
             try:
-                gc_stats = {
-                    "counts": gc.get_count(),
-                    "threshold": gc.get_threshold(),
-                    "collected": gc.collect(0),  # Only collect generation 0
-                }
-            except Exception as e:
-                logger.debug(f"Failed to get GC stats: {e}")
+                await self.analysis_task
+            except asyncio.CancelledError:
+                pass
 
-        # Get tracemalloc stats
-        tracemalloc_stats = None
-        if self.config.enable_tracemalloc and tracemalloc.is_tracing():
-            try:
-                current, peak = tracemalloc.get_traced_memory()
-                tracemalloc_stats = {"current_mb": current / (1024 * 1024), "peak_mb": peak / (1024 * 1024)}
-            except Exception as e:
-                logger.debug(f"Failed to get tracemalloc stats: {e}")
+        self.logger.info("Cache memory leak detector shutdown")
 
-        snapshot = MemorySnapshot(
-            timestamp=timestamp,
-            total_memory_mb=total_memory_mb,
-            rss_memory_mb=rss_memory_mb,
-            vms_memory_mb=vms_memory_mb,
-            cache_memory_mb=cache_memory_mb,
-            cache_entry_count=cache_entry_count,
-            cache_name=cache_name,
-            thread_id=thread_id,
-            gc_stats=gc_stats,
-            tracemalloc_stats=tracemalloc_stats,
-        )
+    def track_object_lifecycle(self, cache_name: str, key: str, operation: str) -> None:
+        """Track object lifecycle for retention analysis."""
+        current_time = time.time()
 
-        # Store snapshot
-        with self._lock:
-            self._memory_snapshots[cache_name].append(snapshot)
+        if operation == "create":
+            self.object_lifecycles[cache_name][key] = current_time
+        elif operation == "delete":
+            self.object_lifecycles[cache_name].pop(key, None)
+        elif operation == "access":
+            # Update last access time (if tracking granular access)
+            if key in self.object_lifecycles[cache_name]:
+                self.object_lifecycles[cache_name][key] = current_time
 
-        return snapshot
+    def record_memory_snapshot(self, cache_breakdown: dict[str, float]) -> None:
+        """Record a memory snapshot for analysis."""
+        current_time = time.time()
+        self.memory_history.append((current_time, cache_breakdown.copy()))
 
-    async def analyze_memory_leaks(self, cache_name: str) -> list[MemoryLeak]:
-        """Analyze memory snapshots to detect potential memory leaks."""
-        with self._lock:
-            snapshots = list(self._memory_snapshots.get(cache_name, []))
+        # Trigger growth pattern analysis
+        self._analyze_growth_patterns(cache_breakdown)
 
-        if len(snapshots) < 3:
-            return []  # Need at least 3 snapshots for analysis
+    def _analyze_growth_patterns(self, current_memory: dict[str, float]) -> None:
+        """Analyze memory growth patterns."""
+        if len(self.memory_history) < 2:
+            return
 
-        detected_leaks = []
+        current_time = time.time()
+        window_seconds = self.config.growth_time_window_minutes * 60
+        cutoff_time = current_time - window_seconds
 
-        # Gradual growth detection
-        gradual_leak = await self._detect_gradual_growth(cache_name, snapshots)
-        if gradual_leak:
-            detected_leaks.append(gradual_leak)
+        # Filter recent history
+        recent_history = [(t, m) for t, m in self.memory_history if t >= cutoff_time]
 
-        # Rapid growth detection
-        rapid_leak = await self._detect_rapid_growth(cache_name, snapshots)
-        if rapid_leak:
-            detected_leaks.append(rapid_leak)
+        if len(recent_history) < 2:
+            return
 
-        # Sustained high usage detection
-        sustained_leak = await self._detect_sustained_high_usage(cache_name, snapshots)
-        if sustained_leak:
-            detected_leaks.append(sustained_leak)
+        # Analyze growth for each cache
+        for cache_name in current_memory:
+            cache_history = [(t, m.get(cache_name, 0)) for t, m in recent_history]
+            self._detect_growth_leak(cache_name, cache_history)
 
-        # Periodic spike detection
-        periodic_leak = await self._detect_periodic_spikes(cache_name, snapshots)
-        if periodic_leak:
-            detected_leaks.append(periodic_leak)
+    def _detect_growth_leak(self, cache_name: str, memory_history: list[tuple[float, float]]) -> None:
+        """Detect gradual growth leaks."""
+        if len(memory_history) < 3:
+            return
 
-        # Store detected leaks
-        if detected_leaks:
-            with self._lock:
-                self._detected_leaks[cache_name].extend(detected_leaks)
-
-        return detected_leaks
-
-    async def _detect_gradual_growth(self, cache_name: str, snapshots: list[MemorySnapshot]) -> MemoryLeak | None:
-        """Detect gradual memory growth patterns."""
-        if len(snapshots) < 10:
-            return None
-
-        # Calculate baseline from first 25% of snapshots
-        baseline_count = max(3, len(snapshots) // 4)
-        baseline_memory = sum(s.total_memory_mb for s in snapshots[:baseline_count]) / baseline_count
-
-        # Get recent memory usage (last 25% of snapshots)
-        recent_count = max(3, len(snapshots) // 4)
-        recent_memory = sum(s.total_memory_mb for s in snapshots[-recent_count:]) / recent_count
-
-        memory_growth = recent_memory - baseline_memory
-
-        if memory_growth < self.config.memory_growth_threshold_mb:
-            return None
+        # Extract time and memory values
+        times = [t for t, _ in memory_history]
+        memories = [m for _, m in memory_history]
 
         # Calculate growth rate
-        time_span = (snapshots[-1].timestamp - snapshots[0].timestamp).total_seconds() / 60
-        growth_rate = memory_growth / time_span if time_span > 0 else 0
+        start_time, start_memory = times[0], memories[0]
+        end_time, end_memory = times[-1], memories[-1]
+        duration_minutes = (end_time - start_time) / 60.0
 
-        if growth_rate < self.config.growth_rate_threshold_mb_per_min:
-            return None
+        if duration_minutes <= 0:
+            return
 
-        # Determine severity
-        severity = self._calculate_leak_severity(memory_growth, growth_rate)
+        growth_rate = (end_memory - start_memory) / duration_minutes
+        total_growth = end_memory - start_memory
 
-        # Generate recommendations
-        recommendations = [
-            "Monitor cache eviction policies and ensure they're working correctly",
-            "Check for circular references or objects not being properly dereferenced",
-            "Review cache size limits and consider implementing stricter bounds",
-            "Analyze memory allocation patterns for optimization opportunities",
-        ]
+        # Check for significant growth
+        if total_growth >= self.config.growth_threshold_mb and growth_rate >= self.config.growth_rate_threshold_mb_per_min:
+            # Calculate trend strength
+            trend_slope, correlation = self._calculate_trend_strength(times, memories)
 
-        leak = MemoryLeak(
-            leak_id=f"{cache_name}_gradual_{int(time.time())}",
-            cache_name=cache_name,
+            # Create growth pattern
+            pattern = MemoryGrowthPattern(
+                cache_name=cache_name,
+                start_time=start_time,
+                end_time=end_time,
+                start_memory_mb=start_memory,
+                end_memory_mb=end_memory,
+                growth_rate_mb_per_min=growth_rate,
+                confidence=min(correlation, 1.0),
+                data_points=len(memory_history),
+                trend_slope=trend_slope,
+                correlation_coefficient=correlation,
+            )
+
+            self.growth_patterns[cache_name].append(pattern)
+
+            # Generate leak evidence if pattern is strong
+            if correlation > 0.7:  # Strong positive correlation
+                self._generate_growth_leak_evidence(pattern)
+
+    def _calculate_trend_strength(self, times: list[float], values: list[float]) -> tuple[float, float]:
+        """Calculate trend strength using linear regression."""
+        if len(times) < 2:
+            return 0.0, 0.0
+
+        # Normalize times to start from 0
+        normalized_times = [t - times[0] for t in times]
+
+        # Calculate means
+        mean_time = mean(normalized_times)
+        mean_value = mean(values)
+
+        # Calculate slope and correlation
+        numerator = sum((t - mean_time) * (v - mean_value) for t, v in zip(normalized_times, values, strict=False))
+        denominator_time = sum((t - mean_time) ** 2 for t in normalized_times)
+        denominator_value = sum((v - mean_value) ** 2 for v in values)
+
+        if denominator_time == 0:
+            return 0.0, 0.0
+
+        slope = numerator / denominator_time
+        correlation = numerator / (denominator_time * denominator_value) ** 0.5 if denominator_value > 0 else 0.0
+
+        return slope, correlation
+
+    def _generate_growth_leak_evidence(self, pattern: MemoryGrowthPattern) -> None:
+        """Generate leak evidence for growth pattern."""
+        # Determine severity based on growth rate
+        if pattern.growth_rate_mb_per_min >= 10:
+            severity = LeakSeverity.CRITICAL
+        elif pattern.growth_rate_mb_per_min >= 5:
+            severity = LeakSeverity.HIGH
+        elif pattern.growth_rate_mb_per_min >= 2:
+            severity = LeakSeverity.MEDIUM
+        else:
+            severity = LeakSeverity.LOW
+
+        # Generate evidence
+        evidence = LeakEvidence(
+            timestamp=pattern.end_time,
             leak_type=LeakType.GRADUAL_GROWTH,
             severity=severity,
-            detected_at=datetime.now(),
-            start_memory_mb=baseline_memory,
-            current_memory_mb=recent_memory,
-            memory_growth_mb=memory_growth,
-            growth_rate_mb_per_minute=growth_rate,
-            duration_minutes=time_span,
-            snapshots=snapshots,
-            recommendations=recommendations,
-            metadata={"baseline_snapshots": baseline_count, "recent_snapshots": recent_count},
+            cache_name=pattern.cache_name,
+            description=f"Gradual memory growth detected: {pattern.total_growth_mb:.1f}MB over {pattern.duration_minutes:.1f} minutes",
+            metrics={
+                "growth_rate_mb_per_min": pattern.growth_rate_mb_per_min,
+                "total_growth_mb": pattern.total_growth_mb,
+                "duration_minutes": pattern.duration_minutes,
+                "confidence": pattern.confidence,
+                "correlation_coefficient": pattern.correlation_coefficient,
+            },
+            suggested_actions=[
+                "Review cache eviction policies",
+                "Check for objects not being properly released",
+                "Investigate allocation patterns",
+                "Consider reducing cache size limits",
+            ],
+            confidence_score=pattern.confidence,
         )
 
-        return leak
+        self._record_leak_evidence(evidence)
 
-    async def _detect_rapid_growth(self, cache_name: str, snapshots: list[MemorySnapshot]) -> MemoryLeak | None:
-        """Detect rapid memory growth patterns."""
-        window_minutes = self.config.rapid_growth_window_minutes
-        cutoff_time = datetime.now() - timedelta(minutes=window_minutes)
+    def _detect_sudden_spike(self, cache_name: str, current_memory: float) -> None:
+        """Detect sudden memory spikes."""
+        if len(self.memory_history) < 2:
+            return
 
-        # Get snapshots within the rapid growth window
-        recent_snapshots = [s for s in snapshots if s.timestamp >= cutoff_time]
+        # Get previous memory usage
+        prev_time, prev_memory = self.memory_history[-2]
+        prev_cache_memory = prev_memory.get(cache_name, 0)
 
-        if len(recent_snapshots) < 3:
-            return None
+        # Check for sudden spike
+        memory_increase = current_memory - prev_cache_memory
+        time_diff = time.time() - prev_time
 
-        start_memory = recent_snapshots[0].total_memory_mb
-        end_memory = recent_snapshots[-1].total_memory_mb
-        memory_growth = end_memory - start_memory
+        if memory_increase >= 100 and time_diff < 300:  # 100MB increase in less than 5 minutes
+            severity = LeakSeverity.CRITICAL if memory_increase >= 500 else LeakSeverity.HIGH
 
-        time_span = (recent_snapshots[-1].timestamp - recent_snapshots[0].timestamp).total_seconds() / 60
-        growth_rate = memory_growth / time_span if time_span > 0 else 0
+            evidence = LeakEvidence(
+                timestamp=time.time(),
+                leak_type=LeakType.SUDDEN_SPIKE,
+                severity=severity,
+                cache_name=cache_name,
+                description=f"Sudden memory spike detected: {memory_increase:.1f}MB increase in {time_diff:.1f} seconds",
+                metrics={
+                    "memory_increase_mb": memory_increase,
+                    "time_seconds": time_diff,
+                    "rate_mb_per_sec": memory_increase / time_diff if time_diff > 0 else 0,
+                },
+                suggested_actions=[
+                    "Investigate recent cache operations",
+                    "Check for bulk insertions without proper cleanup",
+                    "Review application logic for memory leaks",
+                    "Consider emergency cache clearing",
+                ],
+                confidence_score=0.9,
+            )
 
-        # Check if growth rate exceeds threshold
-        rapid_threshold = self.config.growth_rate_threshold_mb_per_min * 3  # 3x normal threshold
+            self._record_leak_evidence(evidence)
 
-        if growth_rate < rapid_threshold:
-            return None
+    def _analyze_object_retention(self, cache_name: str) -> None:
+        """Analyze object retention patterns."""
+        if cache_name not in self.object_lifecycles:
+            return
 
-        severity = LeakSeverity.HIGH if growth_rate > rapid_threshold * 2 else LeakSeverity.MEDIUM
+        current_time = time.time()
+        threshold_seconds = self.config.retention_threshold_minutes * 60
 
-        recommendations = [
-            "Investigate recent operations that may have caused rapid memory growth",
-            "Check for batch operations or bulk data loading without proper cleanup",
-            "Review memory allocation patterns during high-load periods",
-            "Consider implementing circuit breakers for memory-intensive operations",
-        ]
+        objects = self.object_lifecycles[cache_name]
+        retention_times = [(current_time - creation_time) / 60.0 for creation_time in objects.values()]
 
-        leak = MemoryLeak(
-            leak_id=f"{cache_name}_rapid_{int(time.time())}",
+        if not retention_times:
+            return
+
+        # Calculate retention metrics
+        retained_objects = sum(1 for rt in retention_times if rt * 60 >= threshold_seconds)
+        retention_ratio = retained_objects / len(retention_times)
+        avg_retention_minutes = mean(retention_times)
+        max_retention_minutes = max(retention_times)
+
+        # Count old objects
+        old_objects = sum(1 for rt in retention_times if rt >= 60)  # 1 hour
+        very_old_objects = sum(1 for rt in retention_times if rt >= 240)  # 4 hours
+
+        # Create retention analysis
+        analysis = RetentionAnalysis(
             cache_name=cache_name,
-            leak_type=LeakType.RAPID_GROWTH,
-            severity=severity,
-            detected_at=datetime.now(),
-            start_memory_mb=start_memory,
-            current_memory_mb=end_memory,
-            memory_growth_mb=memory_growth,
-            growth_rate_mb_per_minute=growth_rate,
-            duration_minutes=time_span,
-            snapshots=recent_snapshots,
-            recommendations=recommendations,
-            metadata={"rapid_growth_window_minutes": window_minutes},
+            total_objects=len(retention_times),
+            retained_objects=retained_objects,
+            retention_ratio=retention_ratio,
+            avg_retention_time_minutes=avg_retention_minutes,
+            max_retention_time_minutes=max_retention_minutes,
+            retention_threshold_minutes=self.config.retention_threshold_minutes,
+            old_objects_count=old_objects,
+            very_old_objects_count=very_old_objects,
         )
 
-        return leak
+        self.retention_analyses[cache_name] = analysis
 
-    async def _detect_sustained_high_usage(self, cache_name: str, snapshots: list[MemorySnapshot]) -> MemoryLeak | None:
-        """Detect sustained high memory usage patterns."""
-        if len(snapshots) < 10:
-            return None
+        # Check for retention leak
+        if analysis.is_leak_suspected:
+            self._generate_retention_leak_evidence(analysis)
 
-        # Check if memory usage has been consistently high
-        high_usage_threshold = self.config.sustained_high_threshold_mb
-        high_usage_snapshots = [s for s in snapshots if s.total_memory_mb > high_usage_threshold]
+    def _generate_retention_leak_evidence(self, analysis: RetentionAnalysis) -> None:
+        """Generate leak evidence for retention analysis."""
+        severity = LeakSeverity.HIGH if analysis.retention_ratio > 0.9 else LeakSeverity.MEDIUM
 
-        # Need at least 80% of snapshots to be high usage
-        high_usage_ratio = len(high_usage_snapshots) / len(snapshots)
-
-        if high_usage_ratio < 0.8:
-            return None
-
-        avg_memory = sum(s.total_memory_mb for s in snapshots) / len(snapshots)
-        time_span = (snapshots[-1].timestamp - snapshots[0].timestamp).total_seconds() / 60
-
-        severity = self._calculate_sustained_severity(avg_memory, high_usage_ratio)
-
-        recommendations = [
-            "Review cache size limits and consider reducing maximum cache size",
-            "Implement more aggressive eviction policies",
-            "Analyze cache hit ratios to ensure cache efficiency",
-            "Consider partitioning cache across multiple instances",
-        ]
-
-        leak = MemoryLeak(
-            leak_id=f"{cache_name}_sustained_{int(time.time())}",
-            cache_name=cache_name,
-            leak_type=LeakType.SUSTAINED_HIGH,
+        evidence = LeakEvidence(
+            timestamp=time.time(),
+            leak_type=LeakType.RETENTION_LEAK,
             severity=severity,
-            detected_at=datetime.now(),
-            start_memory_mb=snapshots[0].total_memory_mb,
-            current_memory_mb=snapshots[-1].total_memory_mb,
-            memory_growth_mb=avg_memory - snapshots[0].total_memory_mb,
-            growth_rate_mb_per_minute=0.0,  # Not applicable for sustained high usage
-            duration_minutes=time_span,
-            snapshots=snapshots,
-            recommendations=recommendations,
-            metadata={"high_usage_ratio": high_usage_ratio, "average_memory_mb": avg_memory},
+            cache_name=analysis.cache_name,
+            description=f"Object retention leak detected: {analysis.retention_ratio:.1%} objects retained beyond threshold",
+            metrics={
+                "retention_ratio": analysis.retention_ratio,
+                "avg_retention_minutes": analysis.avg_retention_time_minutes,
+                "max_retention_minutes": analysis.max_retention_time_minutes,
+                "old_objects_count": analysis.old_objects_count,
+                "very_old_objects_count": analysis.very_old_objects_count,
+            },
+            suggested_actions=[
+                "Review cache expiration policies",
+                "Check for objects with missing TTL",
+                "Investigate reference counting issues",
+                "Consider more aggressive eviction policies",
+            ],
+            confidence_score=0.8,
         )
 
-        return leak
+        self._record_leak_evidence(evidence)
 
-    async def _detect_periodic_spikes(self, cache_name: str, snapshots: list[MemorySnapshot]) -> MemoryLeak | None:
-        """Detect periodic memory spike patterns."""
-        if len(snapshots) < 20:
-            return None
+    def _detect_fragmentation_leak(self, cache_name: str) -> None:
+        """Detect memory fragmentation issues."""
+        # This would typically require more detailed memory analysis
+        # For now, we'll use a heuristic based on allocation patterns
 
-        # Calculate memory usage differences between consecutive snapshots
-        memory_diffs = []
-        for i in range(1, len(snapshots)):
-            diff = snapshots[i].total_memory_mb - snapshots[i - 1].total_memory_mb
-            memory_diffs.append(diff)
-
-        # Find large positive spikes (>50MB increase)
-        spike_threshold = 50.0
-        spikes = [i for i, diff in enumerate(memory_diffs) if diff > spike_threshold]
-
-        if len(spikes) < 3:
-            return None
-
-        # Check for periodicity
-        spike_intervals = []
-        for i in range(1, len(spikes)):
-            interval = spikes[i] - spikes[i - 1]
-            spike_intervals.append(interval)
-
-        # If intervals are similar, it suggests periodic behavior
-        if len(spike_intervals) > 0:
-            avg_interval = sum(spike_intervals) / len(spike_intervals)
-            interval_variance = sum((x - avg_interval) ** 2 for x in spike_intervals) / len(spike_intervals)
-
-            # If variance is low, it's likely periodic
-            if interval_variance < (avg_interval * 0.3) ** 2:  # 30% variance threshold
-                severity = LeakSeverity.MEDIUM
-
-                recommendations = [
-                    "Investigate periodic operations that cause memory spikes",
-                    "Review scheduled tasks or batch processing that may cause spikes",
-                    "Consider smoothing out memory allocation patterns",
-                    "Implement memory pre-allocation for predictable spike patterns",
-                ]
-
-                time_span = (snapshots[-1].timestamp - snapshots[0].timestamp).total_seconds() / 60
-
-                leak = MemoryLeak(
-                    leak_id=f"{cache_name}_periodic_{int(time.time())}",
-                    cache_name=cache_name,
-                    leak_type=LeakType.PERIODIC_SPIKE,
-                    severity=severity,
-                    detected_at=datetime.now(),
-                    start_memory_mb=snapshots[0].total_memory_mb,
-                    current_memory_mb=snapshots[-1].total_memory_mb,
-                    memory_growth_mb=max(memory_diffs),
-                    growth_rate_mb_per_minute=0.0,
-                    duration_minutes=time_span,
-                    snapshots=snapshots,
-                    recommendations=recommendations,
-                    metadata={"spike_count": len(spikes), "average_interval": avg_interval, "interval_variance": interval_variance},
-                )
-
-                return leak
-
-        return None
-
-    def _calculate_leak_severity(self, memory_growth_mb: float, growth_rate_mb_per_min: float) -> LeakSeverity:
-        """Calculate the severity of a memory leak based on growth metrics."""
-        if memory_growth_mb > 1000 or growth_rate_mb_per_min > 20:
-            return LeakSeverity.CRITICAL
-        elif memory_growth_mb > 500 or growth_rate_mb_per_min > 10:
-            return LeakSeverity.HIGH
-        elif memory_growth_mb > 200 or growth_rate_mb_per_min > 5:
-            return LeakSeverity.MEDIUM
-        else:
-            return LeakSeverity.LOW
-
-    def _calculate_sustained_severity(self, avg_memory_mb: float, high_usage_ratio: float) -> LeakSeverity:
-        """Calculate severity for sustained high memory usage."""
-        if avg_memory_mb > 2000 and high_usage_ratio > 0.95:
-            return LeakSeverity.CRITICAL
-        elif avg_memory_mb > 1000 and high_usage_ratio > 0.9:
-            return LeakSeverity.HIGH
-        elif avg_memory_mb > 500 and high_usage_ratio > 0.8:
-            return LeakSeverity.MEDIUM
-        else:
-            return LeakSeverity.LOW
-
-    async def _monitor_cache_memory(self, cache_name: str) -> None:
-        """Background task to monitor memory for a specific cache."""
-        logger.info(f"Starting memory monitoring loop for cache: {cache_name}")
-
+        # Get recent allocation patterns from memory profiler if available
         try:
-            while self._monitoring_active.get(cache_name, False):
-                # Take memory snapshot
-                await self.take_snapshot(cache_name)
+            from .cache_memory_profiler import get_memory_profiler
 
-                # Analyze for leaks every 5 snapshots
-                with self._lock:
-                    snapshot_count = len(self._memory_snapshots.get(cache_name, []))
+            profiler = get_memory_profiler()
+            if profiler:
+                patterns = profiler.get_allocation_patterns(cache_name, window_minutes=30)
+                if patterns and not patterns.get("error"):
+                    # Calculate fragmentation indicator
+                    alloc_count = patterns["allocations"]["count"]
+                    dealloc_count = patterns["deallocations"]["count"]
 
-                if snapshot_count % 5 == 0:
-                    leaks = await self.analyze_memory_leaks(cache_name)
-                    if leaks:
-                        for leak in leaks:
-                            logger.warning(
-                                f"Memory leak detected: {leak.leak_type.value} " f"in cache {cache_name}, severity: {leak.severity.value}"
+                    if alloc_count > 0 and dealloc_count > 0:
+                        fragmentation_ratio = 1.0 - (dealloc_count / alloc_count)
+
+                        if fragmentation_ratio > self.config.fragmentation_threshold:
+                            severity = LeakSeverity.MEDIUM if fragmentation_ratio > 0.5 else LeakSeverity.LOW
+
+                            evidence = LeakEvidence(
+                                timestamp=time.time(),
+                                leak_type=LeakType.FRAGMENTATION,
+                                severity=severity,
+                                cache_name=cache_name,
+                                description=f"Memory fragmentation detected: {fragmentation_ratio:.1%} fragmentation ratio",
+                                metrics={
+                                    "fragmentation_ratio": fragmentation_ratio,
+                                    "allocation_count": alloc_count,
+                                    "deallocation_count": dealloc_count,
+                                },
+                                suggested_actions=[
+                                    "Consider cache compaction",
+                                    "Review allocation patterns",
+                                    "Implement memory pooling",
+                                    "Optimize object sizes",
+                                ],
+                                confidence_score=0.6,
                             )
 
-                # Wait for next snapshot
-                await asyncio.sleep(self.config.snapshot_interval_seconds)
+                            self._record_leak_evidence(evidence)
+        except ImportError:
+            pass
 
-        except asyncio.CancelledError:
-            logger.info(f"Memory monitoring cancelled for cache: {cache_name}")
-        except Exception as e:
-            logger.error(f"Error in memory monitoring for cache {cache_name}: {e}")
+    def _record_leak_evidence(self, evidence: LeakEvidence) -> None:
+        """Record leak evidence and manage alerts."""
+        with self.evidence_lock:
+            self.leak_evidence.append(evidence)
 
-    async def _global_memory_monitor(self) -> None:
-        """Global memory monitoring task."""
-        logger.info("Starting global memory monitoring loop")
+        # Update statistics
+        self.detection_stats["total_leaks_detected"] += 1
+        self.detection_stats["leaks_by_type"][evidence.leak_type.value] += 1
+        self.detection_stats["leaks_by_severity"][evidence.severity.value] += 1
 
-        try:
-            while self._global_monitoring:
-                # Take global snapshot
-                await self.take_snapshot("global", 0, 0.0)
+        # Check if we should send an alert
+        if self._should_send_alert(evidence):
+            self._send_leak_alert(evidence)
 
-                # Cleanup old data if enabled
-                if self.config.auto_cleanup_old_data:
-                    await self._cleanup_old_data()
+        # Track memory event
+        track_cache_memory_event(
+            evidence.cache_name,
+            CacheMemoryEvent.PRESSURE,
+            0.0,
+            {
+                "leak_type": evidence.leak_type.value,
+                "severity": evidence.severity.value,
+                "confidence": evidence.confidence_score,
+            },
+        )
 
-                # Wait for next check
-                await asyncio.sleep(self.config.snapshot_interval_seconds * 2)  # Less frequent than cache-specific
+    def _should_send_alert(self, evidence: LeakEvidence) -> bool:
+        """Check if an alert should be sent for this evidence."""
+        current_time = time.time()
+        cache_name = evidence.cache_name
 
-        except asyncio.CancelledError:
-            logger.info("Global memory monitoring cancelled")
-        except Exception as e:
-            logger.error(f"Error in global memory monitoring: {e}")
+        # Check cooldown period
+        cooldown_seconds = self.config.alert_cooldown_minutes * 60
+        recent_alerts = [(t, name) for t, name in self.recent_alerts if current_time - t < cooldown_seconds and name == cache_name]
 
-    async def _cleanup_old_data(self) -> None:
-        """Clean up old monitoring data."""
-        cutoff_time = datetime.now() - timedelta(hours=self.config.cleanup_interval_hours)
+        if recent_alerts:
+            return False
 
-        with self._lock:
-            for cache_name in list(self._memory_snapshots.keys()):
-                # Clean old snapshots
-                snapshots = self._memory_snapshots[cache_name]
-                original_count = len(snapshots)
+        # Check hourly rate limit
+        hour_seconds = 3600
+        hour_alerts = [(t, name) for t, name in self.recent_alerts if current_time - t < hour_seconds and name == cache_name]
 
-                # Keep only recent snapshots
-                while snapshots and snapshots[0].timestamp < cutoff_time:
-                    snapshots.popleft()
+        if len(hour_alerts) >= self.config.max_alerts_per_hour:
+            return False
 
-                cleaned_count = original_count - len(snapshots)
-                if cleaned_count > 0:
-                    logger.debug(f"Cleaned {cleaned_count} old snapshots for cache: {cache_name}")
+        # Check severity threshold
+        if evidence.severity in [LeakSeverity.CRITICAL, LeakSeverity.HIGH]:
+            return True
 
-                # Clean old leaks
-                if cache_name in self._detected_leaks:
-                    original_leak_count = len(self._detected_leaks[cache_name])
-                    self._detected_leaks[cache_name] = [
-                        leak for leak in self._detected_leaks[cache_name] if leak.detected_at >= cutoff_time
-                    ]
-                    cleaned_leak_count = original_leak_count - len(self._detected_leaks[cache_name])
-                    if cleaned_leak_count > 0:
-                        logger.debug(f"Cleaned {cleaned_leak_count} old leaks for cache: {cache_name}")
+        return False
 
-    def get_cache_snapshots(self, cache_name: str, limit: int | None = None) -> list[MemorySnapshot]:
-        """Get memory snapshots for a specific cache."""
-        with self._lock:
-            snapshots = list(self._memory_snapshots.get(cache_name, []))
+    def _send_leak_alert(self, evidence: LeakEvidence) -> None:
+        """Send a leak alert."""
+        current_time = time.time()
+        self.recent_alerts.append((current_time, evidence.cache_name))
 
-        if limit:
-            return snapshots[-limit:]
-        return snapshots
+        # Log the alert
+        self.logger.warning(
+            f"MEMORY LEAK DETECTED: {evidence.leak_type.value} in cache '{evidence.cache_name}' "
+            f"(Severity: {evidence.severity.value}, Confidence: {evidence.confidence_score:.2f})"
+        )
+        self.logger.warning(f"Description: {evidence.description}")
+        self.logger.warning(f"Suggested actions: {', '.join(evidence.suggested_actions)}")
 
-    def get_detected_leaks(self, cache_name: str | None = None, severity: LeakSeverity | None = None) -> list[MemoryLeak]:
-        """Get detected memory leaks, optionally filtered by cache name and severity."""
-        with self._lock:
-            if cache_name:
-                leaks = list(self._detected_leaks.get(cache_name, []))
-            else:
-                leaks = []
-                for cache_leaks in self._detected_leaks.values():
-                    leaks.extend(cache_leaks)
+        # Here you could integrate with external alerting systems
+        # e.g., send to Slack, email, PagerDuty, etc.
 
-        if severity:
-            leaks = [leak for leak in leaks if leak.severity == severity]
+    async def _monitoring_loop(self) -> None:
+        """Background monitoring loop."""
+        while self.is_monitoring:
+            try:
+                await asyncio.sleep(60)  # Check every minute
 
-        return sorted(leaks, key=lambda x: x.detected_at, reverse=True)
+                # Get current memory usage
+                cache_memory = get_total_cache_memory_usage()
 
-    def get_monitoring_status(self) -> dict[str, Any]:
-        """Get current monitoring status."""
-        with self._lock:
-            cache_statuses = {}
-            for cache_name, active in self._monitoring_active.items():
-                snapshot_count = len(self._memory_snapshots.get(cache_name, []))
-                leak_count = len(self._detected_leaks.get(cache_name, []))
+                # Record snapshot (this would be integrated with the profiler)
+                cache_breakdown = {"total": cache_memory}
+                self.record_memory_snapshot(cache_breakdown)
 
-                cache_statuses[cache_name] = {"monitoring_active": active, "snapshot_count": snapshot_count, "leak_count": leak_count}
+                # Check for sudden spikes
+                if cache_breakdown:
+                    for cache_name, memory_mb in cache_breakdown.items():
+                        self._detect_sudden_spike(cache_name, memory_mb)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in monitoring loop: {e}")
+
+    async def _analysis_loop(self) -> None:
+        """Background analysis loop."""
+        while self.is_monitoring:
+            try:
+                await asyncio.sleep(self.config.fragmentation_check_interval_minutes * 60)
+
+                # Analyze object retention for all caches
+                for cache_name in self.object_lifecycles:
+                    self._analyze_object_retention(cache_name)
+
+                # Check for fragmentation
+                for cache_name in self.object_lifecycles:
+                    self._detect_fragmentation_leak(cache_name)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in analysis loop: {e}")
+
+    def get_leak_summary(self, cache_name: str | None = None) -> dict[str, Any]:
+        """Get summary of detected leaks."""
+        with self.evidence_lock:
+            relevant_evidence = [e for e in self.leak_evidence if cache_name is None or e.cache_name == cache_name]
+
+        if not relevant_evidence:
+            return {"total_leaks": 0, "leaks_by_type": {}, "leaks_by_severity": {}}
+
+        # Aggregate by type and severity
+        leaks_by_type = defaultdict(int)
+        leaks_by_severity = defaultdict(int)
+
+        for evidence in relevant_evidence:
+            leaks_by_type[evidence.leak_type.value] += 1
+            leaks_by_severity[evidence.severity.value] += 1
 
         return {
-            "global_monitoring": self._global_monitoring,
-            "cache_monitoring": cache_statuses,
-            "config": {
-                "snapshot_interval_seconds": self.config.snapshot_interval_seconds,
-                "memory_growth_threshold_mb": self.config.memory_growth_threshold_mb,
-                "growth_rate_threshold_mb_per_min": self.config.growth_rate_threshold_mb_per_min,
-            },
+            "total_leaks": len(relevant_evidence),
+            "leaks_by_type": dict(leaks_by_type),
+            "leaks_by_severity": dict(leaks_by_severity),
+            "recent_leaks": [
+                {
+                    "timestamp": e.timestamp,
+                    "type": e.leak_type.value,
+                    "severity": e.severity.value,
+                    "cache_name": e.cache_name,
+                    "description": e.description,
+                    "confidence": e.confidence_score,
+                }
+                for e in sorted(relevant_evidence, key=lambda x: x.timestamp, reverse=True)[:10]
+            ],
         }
+
+    def get_detection_stats(self) -> dict[str, Any]:
+        """Get detection statistics."""
+        return {
+            "total_leaks_detected": self.detection_stats["total_leaks_detected"],
+            "leaks_by_type": dict(self.detection_stats["leaks_by_type"]),
+            "leaks_by_severity": dict(self.detection_stats["leaks_by_severity"]),
+            "false_positives": self.detection_stats["false_positives"],
+            "confirmed_leaks": self.detection_stats["confirmed_leaks"],
+            "detection_accuracy": (self.detection_stats["confirmed_leaks"] / max(1, self.detection_stats["total_leaks_detected"])),
+        }
+
+    def get_retention_analysis(self, cache_name: str) -> dict[str, Any] | None:
+        """Get retention analysis for a cache."""
+        analysis = self.retention_analyses.get(cache_name)
+        if not analysis:
+            return None
+
+        return {
+            "cache_name": analysis.cache_name,
+            "total_objects": analysis.total_objects,
+            "retained_objects": analysis.retained_objects,
+            "retention_ratio": analysis.retention_ratio,
+            "avg_retention_time_minutes": analysis.avg_retention_time_minutes,
+            "max_retention_time_minutes": analysis.max_retention_time_minutes,
+            "old_objects_count": analysis.old_objects_count,
+            "very_old_objects_count": analysis.very_old_objects_count,
+            "is_leak_suspected": analysis.is_leak_suspected,
+        }
+
+    def mark_false_positive(self, evidence_timestamp: float) -> bool:
+        """Mark a leak detection as false positive."""
+        with self.evidence_lock:
+            for evidence in self.leak_evidence:
+                if evidence.timestamp == evidence_timestamp:
+                    # Update statistics
+                    self.detection_stats["false_positives"] += 1
+                    return True
+        return False
+
+    def mark_confirmed_leak(self, evidence_timestamp: float) -> bool:
+        """Mark a leak detection as confirmed."""
+        with self.evidence_lock:
+            for evidence in self.leak_evidence:
+                if evidence.timestamp == evidence_timestamp:
+                    # Update statistics
+                    self.detection_stats["confirmed_leaks"] += 1
+                    return True
+        return False
+
+    def clear_leak_evidence(self, older_than_hours: int = 24) -> int:
+        """Clear old leak evidence."""
+        cutoff_time = time.time() - (older_than_hours * 3600)
+
+        with self.evidence_lock:
+            old_count = len(self.leak_evidence)
+            self.leak_evidence = deque([e for e in self.leak_evidence if e.timestamp >= cutoff_time], maxlen=500)
+            cleared_count = old_count - len(self.leak_evidence)
+
+        self.logger.info(f"Cleared {cleared_count} old leak evidence entries")
+        return cleared_count
 
 
 # Global leak detector instance
-_global_leak_detector: CacheMemoryLeakDetector | None = None
+_leak_detector: CacheMemoryLeakDetector | None = None
 
 
 async def get_leak_detector(config: LeakDetectionConfig | None = None) -> CacheMemoryLeakDetector:
-    """Get or create the global memory leak detector instance."""
-    global _global_leak_detector
-
-    if _global_leak_detector is None:
-        _global_leak_detector = CacheMemoryLeakDetector(config)
-
-    return _global_leak_detector
-
-
-async def start_cache_leak_monitoring(cache_name: str) -> None:
-    """Start memory leak monitoring for a specific cache."""
-    detector = await get_leak_detector()
-    await detector.start_monitoring(cache_name)
+    """Get the global leak detector instance."""
+    global _leak_detector
+    if _leak_detector is None:
+        _leak_detector = CacheMemoryLeakDetector(config)
+        await _leak_detector.initialize()
+    return _leak_detector
 
 
-async def stop_cache_leak_monitoring(cache_name: str) -> None:
-    """Stop memory leak monitoring for a specific cache."""
-    detector = await get_leak_detector()
-    await detector.stop_monitoring(cache_name)
-
-
-async def analyze_cache_memory_leaks(cache_name: str) -> list[MemoryLeak]:
-    """Analyze memory leaks for a specific cache."""
-    detector = await get_leak_detector()
-    return await detector.analyze_memory_leaks(cache_name)
-
-
-async def take_cache_memory_snapshot(cache_name: str, cache_entry_count: int = 0, cache_memory_mb: float = 0.0) -> MemorySnapshot:
-    """Take a memory snapshot for a specific cache."""
-    detector = await get_leak_detector()
-    return await detector.take_snapshot(cache_name, cache_entry_count, cache_memory_mb)
+async def shutdown_leak_detector() -> None:
+    """Shutdown the global leak detector."""
+    global _leak_detector
+    if _leak_detector:
+        await _leak_detector.shutdown()
+        _leak_detector = None

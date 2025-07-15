@@ -215,9 +215,9 @@ class ManualIndexingTool:
 
             # Execute appropriate indexing pipeline
             if mode == "clear_existing":
-                result = self.pipeline.execute_full_indexing(directory, project_name, clear_existing=True)
+                result = await self.pipeline.execute_full_indexing(directory, project_name, clear_existing=True)
             elif mode == "incremental":
-                result = self.pipeline.execute_incremental_indexing(directory, project_name)
+                result = await self.pipeline.execute_incremental_indexing(directory, project_name)
             else:
                 self.logger.error(f"Unknown indexing mode: {mode}")
                 return False

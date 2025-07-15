@@ -33,7 +33,8 @@ from services.search_strategies import (
     SearchParameters,
     search_strategy_registry,
 )
-from tools.indexing.search_tools import (
+
+from src.tools.indexing.search_tools import (
     get_current_project,
     search_sync,
 )

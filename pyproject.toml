@@ -24,6 +24,18 @@ dependencies = [
     "tree-sitter-rust==0.21.2",
     "tree-sitter-java",
     "tree-sitter-cpp",
+    "redis>=5.0.0,<6",
+    "cryptography>=42.0.0,<43",
+    "watchdog>=3.0.0,<4",
+    # OpenTelemetry dependencies for distributed tracing
+    "opentelemetry-api>=1.20.0,<2",
+    "opentelemetry-sdk>=1.20.0,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0,<2",
+    "opentelemetry-exporter-jaeger-thrift>=1.20.0,<2",
+    "opentelemetry-exporter-zipkin-json>=1.20.0,<2",
+    "opentelemetry-instrumentation-requests>=0.41b0,<1",
+    "opentelemetry-instrumentation-urllib3>=0.41b0,<1",
+    "opentelemetry-instrumentation-redis>=0.41b0,<1",
 ]
 
 [dependency-groups]
@@ -92,6 +104,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "demo_*.py" = ["T201", "BLE001"]  # Allow print and bare except in demos
 "test_*.py" = ["T201", "BLE001", "N806"]  # Allow print, bare except, and variable naming in test files
 "manual_indexing.py" = ["T201", "BLE001"]  # Allow print and bare except in manual tool
+"validate_cache_config.py" = ["T201", "BLE001"]  # Allow print and bare except in validation script
 "src/**/*.test.py" = ["T201", "BLE001", "N806", "N999"]  # Allow print, bare except, variable naming, and module naming in test files
 "src/utils/workflow_orchestrator.py" = ["BLE001"]  # Allow bare except for error handling
 "src/mcp_prompts.py" = ["BLE001", "E501"]  # Allow bare except and long lines in template prompts

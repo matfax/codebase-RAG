@@ -20,7 +20,8 @@ from services.file_metadata_service import FileMetadataService
 from services.indexing_service import IndexingService
 from services.project_analysis_service import ProjectAnalysisService
 from services.qdrant_service import QdrantService
-from utils.performance_monitor import MemoryMonitor
+
+from src.utils.performance_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class IndexingPipeline:
         """Set callback function for progress reporting."""
         self._progress_callback = callback
 
-    def execute_full_indexing(self, directory: str, project_name: str, clear_existing: bool = True) -> PipelineResult:
+    async def execute_full_indexing(self, directory: str, project_name: str, clear_existing: bool = True) -> PipelineResult:
         """
         Execute full indexing pipeline.
 
@@ -103,7 +104,7 @@ class IndexingPipeline:
 
             # Process codebase
             self._report_progress("Processing codebase for intelligent chunking")
-            chunks = self.indexing_service.process_codebase_for_indexing(directory)
+            chunks = await self.indexing_service.process_codebase_for_indexing(directory)
 
             if not chunks:
                 return PipelineResult(
@@ -119,7 +120,7 @@ class IndexingPipeline:
 
             # Generate embeddings and store
             self._report_progress("Generating embeddings and storing to vector database")
-            points_stored, collections_used = self._process_chunks_to_storage(
+            points_stored, collections_used = await self._process_chunks_to_storage(
                 chunks, {"project_name": project_name, "source_path": directory}
             )
 
@@ -162,7 +163,7 @@ class IndexingPipeline:
             except Exception:
                 pass
 
-    def execute_incremental_indexing(self, directory: str, project_name: str) -> PipelineResult:
+    async def execute_incremental_indexing(self, directory: str, project_name: str) -> PipelineResult:
         """
         Execute incremental indexing pipeline.
 
@@ -221,18 +222,19 @@ class IndexingPipeline:
             # Process changed files
             if files_to_reindex:
                 self._report_progress(f"Processing {len(files_to_reindex)} changed files")
-                chunks = self.indexing_service.process_specific_files(files_to_reindex, project_name, directory)
+                chunks = await self.indexing_service.process_specific_files(files_to_reindex, project_name, directory)
 
                 if chunks:
-                    points_stored, collections = self._process_chunks_to_storage(
+                    points_stored, collections = await self._process_chunks_to_storage(
                         chunks, {"project_name": project_name, "source_path": directory}
                     )
                     total_points_stored = points_stored
                     collections_used = collections
 
-            # Update file metadata
+            # Update file metadata only for processed files
             self._report_progress("Updating file metadata")
-            self._store_file_metadata(directory, project_name)
+            files_to_update_metadata = files_to_reindex if files_to_reindex else []
+            self._store_file_metadata(directory, project_name, specific_files=files_to_update_metadata)
 
             processing_time = time.time() - start_time
 
@@ -269,7 +271,7 @@ class IndexingPipeline:
             except Exception:
                 pass
 
-    def _process_chunks_to_storage(self, chunks: list, project_context: dict[str, Any]) -> tuple[int, list[str]]:
+    async def _process_chunks_to_storage(self, chunks: list, project_context: dict[str, Any]) -> tuple[int, list[str]]:
         """
         Process chunks into embeddings and store them.
 
@@ -312,7 +314,7 @@ class IndexingPipeline:
             try:
                 # Generate embeddings
                 texts = [chunk.content for chunk in collection_chunk_list]
-                embeddings = self.embedding_service.generate_embeddings(model_name, texts)
+                embeddings = await self.embedding_service.generate_embeddings(model_name, texts)
 
                 if embeddings is None:
                     self._report_error("embedding", collection_name, "Failed to generate embeddings", "Check Ollama service availability")
@@ -333,7 +335,7 @@ class IndexingPipeline:
 
                 if points:
                     # Ensure collection exists
-                    self._ensure_collection_exists(collection_name)
+                    await self._ensure_collection_exists(collection_name)
 
                     # Store points
                     stats = self.qdrant_service.batch_upsert_with_retry(collection_name, points)
@@ -352,34 +354,67 @@ class IndexingPipeline:
 
         return total_points, collections_used
 
-    def _store_file_metadata(self, directory: str, project_name: str):
-        """Store file metadata for change detection."""
-        try:
-            relevant_files = self.project_analysis.get_relevant_files(directory)
+    def _store_file_metadata(self, directory: str, project_name: str, specific_files: list[str] | None = None):
+        """
+        Store file metadata for change detection.
 
-            from models.file_metadata import FileMetadata
+        Args:
+            directory: Project directory
+            project_name: Name of the project
+            specific_files: Optional list of specific files to update metadata for (for incremental indexing)
+        """
+        try:
+            # For incremental indexing, only update metadata for specific files
+            if specific_files is not None:
+                files_to_process = specific_files
+                self.logger.info(f"Updating metadata for {len(specific_files)} specific files")
+            else:
+                # For full indexing, process all relevant files
+                files_to_process = self.project_analysis.get_relevant_files(directory)
+                self.logger.info(f"Storing metadata for {len(files_to_process)} files (full indexing)")
+
+            from src.models.file_metadata import FileMetadata
 
             metadata_list = []
+            successful_files = []
+            failed_files = []
 
-            for file_path in relevant_files:
+            for file_path in files_to_process:
                 try:
                     metadata = FileMetadata.from_file_path(file_path, directory)
                     metadata_list.append(metadata)
+                    successful_files.append(file_path)
+
+                    # Log individual file metadata for incremental indexing
+                    if specific_files is not None:
+                        self.logger.info(f"📄 Updated metadata for: {file_path}")
+                        self.logger.info(f"   Size: {metadata.file_size:,} bytes")
+                        self.logger.info(f"   Modified: {metadata.mtime_str}")
+                        self.logger.info(f"   Hash: {metadata.content_hash[:12]}...")
+
                 except Exception as e:
                     self.logger.warning(f"Failed to create metadata for {file_path}: {e}")
+                    failed_files.append(file_path)
 
-            success = self.metadata_service.store_file_metadata(project_name, metadata_list)
+            if metadata_list:
+                success = self.metadata_service.store_file_metadata(project_name, metadata_list)
 
-            if not success:
-                self._report_error("metadata", directory, "Failed to store file metadata")
+                if success:
+                    self.logger.info(f"✅ Successfully stored metadata for {len(successful_files)} files")
+                    if failed_files:
+                        self.logger.warning(f"⚠️  Failed to process metadata for {len(failed_files)} files")
+                else:
+                    self._report_error("metadata", directory, "Failed to store file metadata to Qdrant")
+            else:
+                self.logger.warning("No metadata to store - all files failed processing")
 
         except Exception as e:
             self._report_error("metadata", directory, f"Error storing file metadata: {str(e)}")
 
-    def _ensure_collection_exists(self, collection_name: str):
+    async def _ensure_collection_exists(self, collection_name: str):
         """Ensure collection exists before storing data."""
         try:
-            if not self.qdrant_service.collection_exists(collection_name):
+            if not await self.qdrant_service.collection_exists(collection_name):
                 from qdrant_client.http.models import Distance, VectorParams
 
                 self.qdrant_service.client.create_collection(

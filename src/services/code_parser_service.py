@@ -3,6 +3,7 @@ CodeParser service for intelligent code chunking using Tree-sitter.
 
 This refactored service acts as a coordinator that orchestrates the newly created
 specialized services and chunking strategies to provide semantic code parsing capabilities.
+Enhanced with file processing cache integration for improved performance.
 """
 
 import logging
@@ -14,18 +15,23 @@ try:
 except ImportError:
     raise ImportError("Tree-sitter dependencies not installed. Run: poetry install")
 
-from models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
-from services.ast_extraction_service import AstExtractionService
-from services.chunking_strategies import (
+from src.models.code_chunk import CodeChunk, CodeSyntaxError, ParseResult
+from src.models.file_metadata import FileMetadata
+from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+from src.utils.file_system_utils import get_file_mtime, get_file_size
+
+from .ast_extraction_service import AstExtractionService
+from .chunking_strategies import (
     FallbackChunkingStrategy,
     StructuredFileChunkingStrategy,
     chunking_strategy_registry,
 )
 
+# Import file cache service for performance optimization
+from .file_cache_service import get_file_cache_service
+
 # Import the new refactored services
-from services.language_support_service import LanguageSupportService
-from utils.chunking_metrics_tracker import chunking_metrics_tracker
-from utils.file_system_utils import get_file_mtime, get_file_size
+from .language_support_service import LanguageSupportService
 
 
 class CodeParserService:
@@ -44,6 +50,9 @@ class CodeParserService:
         self.language_support = LanguageSupportService()
         self.ast_extractor = AstExtractionService()
 
+        # Initialize file cache service (will be lazy-loaded)
+        self.file_cache_service = None
+
         # Get initialization summary for logging
         summary = self.language_support.get_initialization_summary()
         self.logger.info(
@@ -60,9 +69,16 @@ class CodeParserService:
             "total_processing_time_ms": 0,
             "strategy_usage": {},
             "error_recovery_count": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
         }
 
     # =================== Public API Methods ===================
+
+    async def _ensure_cache_service(self):
+        """Ensure file cache service is initialized."""
+        if self.file_cache_service is None:
+            self.file_cache_service = await get_file_cache_service()
 
     def get_supported_languages(self) -> list[str]:
         """Get list of supported programming languages."""
@@ -80,7 +96,7 @@ class CodeParserService:
         """
         return self.language_support.detect_language(file_path)
 
-    def parse_file(self, file_path: str, content: str | None = None) -> ParseResult:
+    async def parse_file(self, file_path: str, content: str | None = None) -> ParseResult:
         """
         Parse a source file into intelligent code chunks using the coordinator approach.
 
@@ -113,7 +129,29 @@ class CodeParserService:
                 if content is None:
                     return self._create_fallback_result(file_path, "", start_time, error=True)
 
-            # Step 3: Get appropriate chunking strategy
+            # Step 3: Cache lookup for file parsing results
+            await self._ensure_cache_service()
+            content_hash = self.file_cache_service.calculate_content_hash(content)
+
+            # Check if we have cached parsing results
+            cached_data = await self.file_cache_service.get_cached_parse_result(file_path, content_hash, language)
+
+            if cached_data:
+                # Cache hit - return cached parse result
+                self._parse_stats["cache_hits"] += 1
+                self.logger.debug(f"Cache hit for parsing {file_path}")
+
+                # Update statistics for cached result
+                cached_result = cached_data.parse_result
+                self._update_parsing_statistics(cached_result, language, None)
+
+                return cached_result
+
+            # Cache miss - proceed with parsing
+            self._parse_stats["cache_misses"] += 1
+            self.logger.debug(f"Cache miss for parsing {file_path}, proceeding with parsing")
+
+            # Step 4: Get appropriate chunking strategy
             strategy = self._get_chunking_strategy(language)
 
             # Step 4: Execute chunking based on strategy type
@@ -169,10 +207,32 @@ class CodeParserService:
                 valid_sections_count=len(validated_chunks),
             )
 
-            # Step 7: Update statistics and metrics
+            # Step 7: Cache the parsing results
+            try:
+                # Create file metadata for caching
+                file_metadata = FileMetadata.from_file_path(file_path)
+                file_metadata.language = language
+                file_metadata.chunk_count = len(validated_chunks)
+
+                # Cache the parse result
+                await self.file_cache_service.cache_parse_result(parse_result, file_metadata, content_hash)
+
+                # Also cache individual chunks if chunking strategy was used
+                if language not in ["json", "yaml", "markdown"]:
+                    await self.file_cache_service.cache_chunks(
+                        file_path, content_hash, language, validated_chunks, processing_time, strategy.__class__.__name__
+                    )
+
+                self.logger.debug(f"Cached parsing results for {file_path}")
+
+            except Exception as cache_error:
+                # Don't fail parsing if caching fails
+                self.logger.warning(f"Failed to cache parsing results for {file_path}: {cache_error}")
+
+            # Step 8: Update statistics and metrics
             self._update_parsing_statistics(parse_result, language, strategy)
 
-            # Step 8: Log results
+            # Step 9: Log results
             self._log_parsing_results(parse_result, file_path)
 
             return parse_result
@@ -281,9 +341,142 @@ class CodeParserService:
             for error in parse_result.syntax_errors[:5]:  # Limit to first 5 errors
                 self.logger.debug(f"  Error at line {error.line}: {error.error_text}")
 
+    async def parse_file_with_cache_optimization(
+        self, file_path: str, content: str | None = None, force_reparse: bool = False
+    ) -> ParseResult:
+        """
+        Parse a file with advanced cache optimization for large files.
+
+        Args:
+            file_path: Path to the source file
+            content: Optional file content (if None, will read from file)
+            force_reparse: Force reparsing even if cached results exist
+
+        Returns:
+            ParseResult containing extracted chunks and metadata
+        """
+        if force_reparse:
+            # Invalidate existing cache for this file
+            await self._ensure_cache_service()
+            await self.file_cache_service.invalidate_file_cache(file_path)
+
+        return await self.parse_file(file_path, content)
+
+    async def get_cached_chunks_only(self, file_path: str, content_hash: str, language: str) -> list[CodeChunk] | None:
+        """
+        Get only cached chunks without parsing if not available.
+
+        Args:
+            file_path: Path to the source file
+            content_hash: SHA256 hash of file content
+            language: Detected programming language
+
+        Returns:
+            List of cached chunks or None if not cached
+        """
+        await self._ensure_cache_service()
+        return await self.file_cache_service.get_cached_chunks(file_path, content_hash, language)
+
+    async def handle_incremental_parsing(self, file_paths: list[str], project_root: str | None = None) -> dict[str, ParseResult]:
+        """
+        Handle incremental parsing for multiple files, using cache for unchanged files.
+
+        Args:
+            file_paths: List of file paths to process
+            project_root: Optional project root for relative path calculation
+
+        Returns:
+            Dictionary mapping file paths to parse results
+        """
+        await self._ensure_cache_service()
+        results = {}
+
+        for file_path in file_paths:
+            try:
+                # Create current file metadata
+                current_metadata = FileMetadata.from_file_path(file_path, project_root)
+
+                # Check if file should be reparsed
+                should_reparse = await self.file_cache_service.should_reparse_file(
+                    file_path,
+                    current_metadata,
+                    None,  # We'd need to get cached metadata
+                )
+
+                if should_reparse:
+                    # Parse the file
+                    result = await self.parse_file(file_path)
+                    results[file_path] = result
+                else:
+                    # Try to get cached result
+                    cached_data = await self.file_cache_service.get_cached_parse_result(
+                        file_path, current_metadata.content_hash, current_metadata.language or "unknown"
+                    )
+
+                    if cached_data:
+                        results[file_path] = cached_data.parse_result
+                        self._parse_stats["cache_hits"] += 1
+                    else:
+                        # Fallback to parsing if cache miss
+                        result = await self.parse_file(file_path)
+                        results[file_path] = result
+
+            except Exception as e:
+                self.logger.error(f"Error processing {file_path} for incremental parsing: {e}")
+                # Create error result
+                results[file_path] = self._create_fallback_result(file_path, "", time.time(), error=True, exception_context=str(e))
+
+        return results
+
+    async def optimize_parsing_for_language(self, file_path: str, language: str, content: str) -> ParseResult:
+        """
+        Language-specific parsing optimizations with caching.
+
+        Args:
+            file_path: Path to the source file
+            language: Programming language
+            content: File content
+
+        Returns:
+            Optimized ParseResult
+        """
+        await self._ensure_cache_service()
+
+        # Check for language-specific cached results
+        content_hash = self.file_cache_service.calculate_content_hash(content)
+
+        # Language-specific cache lookup
+        cached_chunks = await self.file_cache_service.get_cached_chunks(file_path, content_hash, language)
+
+        if cached_chunks:
+            # Create parse result from cached chunks
+            self._parse_stats["cache_hits"] += 1
+            return ParseResult(
+                chunks=cached_chunks,
+                file_path=file_path,
+                language=language,
+                parse_success=True,
+                error_count=0,
+                fallback_used=False,
+                processing_time_ms=0.0,  # Cached, so no processing time
+                syntax_errors=[],
+                error_recovery_used=False,
+                valid_sections_count=len(cached_chunks),
+            )
+
+        # Proceed with regular parsing
+        return await self.parse_file(file_path, content)
+
     def get_parsing_statistics(self) -> dict:
-        """Get current parsing statistics."""
-        return self._parse_stats.copy()
+        """Get current parsing statistics including cache metrics."""
+        cache_total = self._parse_stats["cache_hits"] + self._parse_stats["cache_misses"]
+        cache_hit_rate = self._parse_stats["cache_hits"] / cache_total if cache_total > 0 else 0.0
+
+        stats = self._parse_stats.copy()
+        stats["cache_hit_rate"] = cache_hit_rate
+        stats["cache_total_requests"] = cache_total
+
+        return stats
 
     def reset_parsing_statistics(self):
         """Reset internal parsing statistics."""
@@ -293,6 +486,70 @@ class CodeParserService:
             "total_processing_time_ms": 0,
             "strategy_usage": {},
             "error_recovery_count": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+        }
+
+    def reset_session_metrics(self):
+        """
+        Reset session-specific chunking metrics.
+
+        This method resets both internal parsing statistics and external chunking metrics
+        while preserving historical data. Called by reset_chunking_metrics_tool.
+        """
+        # Reset internal parsing statistics
+        self.reset_parsing_statistics()
+
+        # Reset external chunking metrics tracker if available
+        try:
+            from src.utils.chunking_metrics_tracker import chunking_metrics_tracker
+
+            if chunking_metrics_tracker:
+                chunking_metrics_tracker.reset_session_metrics()
+                self.logger.debug("Reset session metrics for chunking tracker")
+        except ImportError:
+            self.logger.debug("Chunking metrics tracker not available for reset")
+        except Exception as e:
+            self.logger.warning(f"Failed to reset chunking metrics tracker: {e}")
+
+        self.logger.info("Session metrics reset completed")
+
+    def get_performance_summary(self) -> dict:
+        """
+        Get performance summary for chunking metrics.
+
+        Returns:
+            Dictionary with performance metrics and statistics
+        """
+        cache_total = self._parse_stats["cache_hits"] + self._parse_stats["cache_misses"]
+        cache_hit_rate = self._parse_stats["cache_hits"] / cache_total if cache_total > 0 else 0.0
+
+        # Calculate average processing time per file
+        avg_processing_time = (
+            self._parse_stats["total_processing_time_ms"] / self._parse_stats["total_files_processed"]
+            if self._parse_stats["total_files_processed"] > 0
+            else 0.0
+        )
+
+        # Calculate average chunks per file
+        avg_chunks_per_file = (
+            self._parse_stats["total_chunks_extracted"] / self._parse_stats["total_files_processed"]
+            if self._parse_stats["total_files_processed"] > 0
+            else 0.0
+        )
+
+        return {
+            "total_files_processed": self._parse_stats["total_files_processed"],
+            "total_chunks_extracted": self._parse_stats["total_chunks_extracted"],
+            "total_processing_time_ms": self._parse_stats["total_processing_time_ms"],
+            "average_processing_time_ms": avg_processing_time,
+            "average_chunks_per_file": avg_chunks_per_file,
+            "error_recovery_count": self._parse_stats["error_recovery_count"],
+            "cache_hit_rate": cache_hit_rate,
+            "cache_hits": self._parse_stats["cache_hits"],
+            "cache_misses": self._parse_stats["cache_misses"],
+            "strategy_usage": self._parse_stats["strategy_usage"].copy(),
+            "supported_languages": len(self.get_supported_languages()),
         }
 
     def _create_fallback_result(

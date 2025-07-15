@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from models.prompt_context import PromptContext, PromptType
+from src.models.prompt_context import PromptContext, PromptType
 
 
 class ErrorSeverity(Enum):

@@ -176,6 +176,11 @@ class FileMetadata:
             collection_name=data.get("collection_name"),
         )
 
+    @property
+    def mtime_str(self) -> str:
+        """Human-readable modification time."""
+        return datetime.fromtimestamp(self.mtime).strftime("%Y-%m-%d %H:%M:%S")
+
     def __str__(self) -> str:
         """String representation for debugging."""
         return f"FileMetadata(path={self.relative_path or self.file_path}, size={self.file_size}, hash={self.content_hash[:8]}...)"

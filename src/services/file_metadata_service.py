@@ -6,12 +6,13 @@ using a dedicated metadata collection in Qdrant to track file states.
 """
 
 import logging
-import uuid
 from typing import Any
 
 from models.file_metadata import FileMetadata
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.http.models import Distance, PointStruct, VectorParams
+from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from utils.point_id_generator import generate_deterministic_uuid
+from utils.point_id_validator import validate_point_id
 
 from .qdrant_service import QdrantService
 
@@ -88,7 +89,7 @@ class FileMetadataService:
 
     def store_file_metadata(self, project_name: str, metadata_list: list[FileMetadata]) -> bool:
         """
-        Store file metadata for a project.
+        Store file metadata for a project, updating existing entries.
 
         Args:
             project_name: Name of the project
@@ -107,10 +108,15 @@ class FileMetadataService:
         if not self._ensure_metadata_collection_exists(collection_name):
             return False
 
-        # Convert metadata to Qdrant points
+        # First, remove existing entries for these files to avoid duplicates
+        file_paths_to_update = [metadata.file_path for metadata in metadata_list]
+        self._remove_existing_metadata(collection_name, file_paths_to_update)
+
+        # Convert metadata to Qdrant points with consistent IDs
         points = []
         for metadata in metadata_list:
-            point_id = str(uuid.uuid4())
+            # Use hash of file path as consistent point ID
+            point_id = self._generate_point_id(metadata.file_path)
 
             # Create a dummy vector since Qdrant requires it
             vector = [0.0]
@@ -128,7 +134,7 @@ class FileMetadataService:
 
             if success:
                 self.logger.info(
-                    f"Successfully stored {stats.successful_insertions}/{stats.total_points} "
+                    f"Successfully updated {stats.successful_insertions}/{stats.total_points} "
                     f"file metadata entries for project '{project_name}'"
                 )
             else:
@@ -329,3 +335,53 @@ class FileMetadataService:
                 "collection_status": "error",
                 "error": str(e),
             }
+
+    def _generate_point_id(self, file_path: str) -> str:
+        """
+        Generate a consistent point ID based on file path.
+
+        Args:
+            file_path: File path to generate ID for
+
+        Returns:
+            Consistent UUID string ID for the file
+        """
+        # Generate deterministic UUID using the new utility
+        point_id = generate_deterministic_uuid(file_path)
+
+        # Validate the generated Point ID
+        validate_point_id(point_id, f"file_path: {file_path}")
+
+        return point_id
+
+    def _remove_existing_metadata(self, collection_name: str, file_paths: list[str]) -> None:
+        """
+        Remove existing metadata entries for specified files.
+
+        Args:
+            collection_name: Name of the metadata collection
+            file_paths: List of file paths to remove metadata for
+        """
+        if not file_paths:
+            return
+
+        try:
+            points_to_delete = []
+
+            # Find existing points for these files
+            for file_path in file_paths:
+                try:
+                    # Use consistent ID generation
+                    point_id = self._generate_point_id(file_path)
+                    points_to_delete.append(point_id)
+                except Exception as e:
+                    self.logger.warning(f"Failed to generate point ID for {file_path}: {e}")
+
+            if points_to_delete:
+                # Delete existing points
+                self.qdrant_service.client.delete(collection_name=collection_name, points_selector=points_to_delete)
+                self.logger.debug(f"Removed {len(points_to_delete)} existing metadata entries")
+
+        except Exception as e:
+            self.logger.warning(f"Failed to remove existing metadata: {e}")
+            # Continue anyway - upsert should still work

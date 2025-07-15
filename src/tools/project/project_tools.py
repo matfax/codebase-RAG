@@ -4,16 +4,137 @@ This module provides tools for managing project information, collections,
 and project-level operations.
 """
 
+import asyncio
 import logging
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import ProjectError
-from tools.project.project_utils import clear_project_collections, get_current_project
+
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import ProjectError
+from src.tools.project.project_utils import clear_project_collections, get_current_project
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
+    """
+    Get information about the current project (async version with caching).
+
+    Args:
+        directory: Directory to analyze for project information
+
+    Returns:
+        Dictionary with project information
+    """
+    with log_tool_usage("get_project_info_async", {"directory": directory}):
+        try:
+            from pathlib import Path
+
+            from services.project_analysis_service import ProjectAnalysisService
+            from services.project_cache_service import get_project_cache_service
+
+            dir_path = Path(directory).resolve()
+            if not dir_path.exists():
+                return {"error": f"Directory not found: {directory}"}
+
+            # Try to get from cache first
+            try:
+                cache_service = await get_project_cache_service()
+                cached_metadata = await cache_service.get_project_metadata(str(dir_path))
+
+                if cached_metadata:
+                    # Get collection information (this needs to be fetched from Qdrant)
+                    from src.tools.database.qdrant_utils import check_existing_index
+
+                    project_info = {
+                        "name": cached_metadata.project_name,
+                        "root": cached_metadata.directory,
+                        "collection_prefix": f"project_{cached_metadata.project_id}",
+                    }
+                    index_info = check_existing_index(project_info)
+
+                    return {
+                        "project_name": cached_metadata.project_name,
+                        "project_root": cached_metadata.directory,
+                        "collection_prefix": f"project_{cached_metadata.project_id}",
+                        "directory": str(dir_path),
+                        "project_type": cached_metadata.project_type,
+                        "file_count": cached_metadata.file_count,
+                        "total_size_mb": cached_metadata.total_size_mb,
+                        "language_breakdown": cached_metadata.language_breakdown,
+                        "has_indexed_data": index_info.get("has_existing_data", False),
+                        "collections": index_info.get("collections", []),
+                        "total_points": index_info.get("total_points", 0),
+                        "collection_details": index_info.get("collection_details", []),
+                        "cached": True,
+                    }
+            except Exception as e:
+                logger.warning(f"Cache lookup failed, proceeding without cache: {e}")
+
+            # If not in cache, compute the result
+            project_info = get_current_project(client_directory=str(dir_path))
+
+            if not project_info:
+                # Try using ProjectAnalysisService for project detection
+                analysis_service = ProjectAnalysisService()
+                project_context = await analysis_service.get_project_context_async(str(dir_path))
+
+                if project_context.get("error"):
+                    return {
+                        "error": "No project detected",
+                        "directory": str(dir_path),
+                        "message": "Could not detect project boundaries",
+                    }
+
+                # Create project_info from analysis
+                project_info = {
+                    "name": project_context["project_name"],
+                    "root": project_context["directory"],
+                    "collection_prefix": f"project_{project_context['project_name']}",
+                }
+
+            # Get additional project statistics
+            from src.tools.database.qdrant_utils import check_existing_index
+
+            index_info = check_existing_index(project_info)
+
+            result = {
+                "project_name": project_info["name"],
+                "project_root": project_info["root"],
+                "collection_prefix": project_info["collection_prefix"],
+                "directory": str(dir_path),
+                "has_indexed_data": index_info.get("has_existing_data", False),
+                "collections": index_info.get("collections", []),
+                "total_points": index_info.get("total_points", 0),
+                "collection_details": index_info.get("collection_details", []),
+                "cached": False,
+            }
+
+            # Cache the result if cache service is available
+            try:
+                cache_service = await get_project_cache_service()
+                from services.project_cache_service import ProjectMetadata
+
+                metadata = ProjectMetadata(
+                    project_name=project_info["name"],
+                    project_type="unknown",  # We don't detect this in the original flow
+                    directory=project_info["root"],
+                    project_id=project_info["name"],
+                    file_count=0,  # Would need additional analysis
+                    total_size_mb=0.0,  # Would need additional analysis
+                )
+                await cache_service.cache_project_metadata(str(dir_path), metadata)
+            except Exception as e:
+                logger.warning(f"Failed to cache project info: {e}")
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Failed to get project info: {str(e)}"
+            logger.error(error_msg)
+            raise ProjectError(error_msg) from e
 
 
 def get_project_info(directory: str = ".") -> dict[str, Any]:
@@ -44,7 +165,7 @@ def get_project_info(directory: str = ".") -> dict[str, Any]:
                 }
 
             # Get additional project statistics
-            from tools.database.qdrant_utils import check_existing_index
+            from src.tools.database.qdrant_utils import check_existing_index
 
             index_info = check_existing_index(project_info)
 
@@ -74,7 +195,7 @@ def list_indexed_projects() -> dict[str, Any]:
     """
     with log_tool_usage("list_indexed_projects", {}):
         try:
-            from tools.database.qdrant_utils import get_qdrant_client
+            from src.tools.database.qdrant_utils import get_qdrant_client
 
             client = get_qdrant_client()
             collections = client.get_collections().collections
@@ -191,7 +312,7 @@ def clear_project_data(project_name: str | None = None, directory: str = ".") ->
         try:
             if project_name:
                 # Clear specific project by name
-                from tools.database.qdrant_utils import get_qdrant_client
+                from src.tools.database.qdrant_utils import get_qdrant_client
 
                 client = get_qdrant_client()
                 collections = [c.name for c in client.get_collections().collections]
@@ -229,7 +350,23 @@ def clear_project_data(project_name: str | None = None, directory: str = ".") ->
 
 def get_project_info_sync(directory: str = ".") -> dict[str, Any]:
     """Synchronous wrapper for get_project_info."""
-    return handle_tool_error(get_project_info, directory=directory)
+    try:
+        # Try to use the async cached version first
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If we're already in an async context, run in a separate thread
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, get_project_info_async(directory))
+                return future.result()
+        else:
+            # If no event loop is running, we can run it directly
+            return asyncio.run(get_project_info_async(directory))
+    except Exception as e:
+        logger.warning(f"Async cache version failed, falling back to sync: {e}")
+        # Fall back to the original sync version
+        return handle_tool_error(get_project_info, directory=directory)
 
 
 def list_indexed_projects_sync() -> dict[str, Any]:

@@ -4,51 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
-### Environment Setup
-```bash
-# Install dependencies using uv (modern Python package manager)
-uv sync
-
-# Run tests
-uv run pytest tests/
-
-# Run specific test module
-uv run pytest tests/test_intelligent_chunking.py -v
-
-# Run code quality checks
-uv run ruff check src/
-uv run black --check src/
-```
-
-### MCP Server Operations
-```bash
-# Register with Claude Code (recommended)
-./register_mcp.sh
-
-# Manual registration alternative
-claude mcp add codebase-rag-mcp "$(pwd)/mcp_server"
-
-# Test MCP server startup
-echo '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "1.0.0", "capabilities": {}, "clientInfo": {"name": "test", "version": "1.0"}}}' | uv run python src/run_mcp.py
-```
-
-### Manual Indexing Tool
-```bash
-# Full indexing with progress tracking
-uv run python manual_indexing.py -d /path/to/repo -m clear_existing
-
-# Incremental indexing (only changed files)
-uv run python manual_indexing.py -d /path/to/repo -m incremental
-
-# With verbose output and no confirmation prompts
-uv run python manual_indexing.py -d /path/to/repo -m incremental --verbose --no-confirm
-```
-
-### Development Dependencies
-- **Docker**: For running Qdrant vector database
-- **Ollama**: For embedding generation (`ollama pull nomic-embed-text`)
-- **uv**: Modern Python package manager
-
 ## Architecture Overview
 
 This is a **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases using natural language with **function-level precision** through intelligent syntax-aware code chunking.
@@ -103,6 +58,29 @@ Root Files:
    Context Enhancement → Ranked Results with Breadcrumbs
    ```
 
+   **⚠️ IMPORTANT: Async/Await Search Chain**
+   The search pipeline uses async/await throughout. Key async functions:
+   - `search_sync()` in `search_tools.py` - Main entry point (despite name, is async)
+   - `SearchService.search()` - Async search orchestration
+   - `EmbeddingService.generate_embeddings()` - Returns async generator
+   - `CodeParserService.parse_file()` - Async file parsing
+
+   Common async issues and fixes:
+   ```python
+   # ❌ WRONG - Missing await causes "coroutine was never awaited"
+   embeddings = embedding_service.generate_embeddings([query])
+
+   # ✅ CORRECT - Properly await async calls
+   embeddings = await embedding_service.generate_embeddings([query])
+
+   # ❌ WRONG - Can't iterate coroutine directly
+   for chunk in parser.parse_file(path):
+
+   # ✅ CORRECT - Await async function first
+   chunks = await parser.parse_file(path)
+   for chunk in chunks:
+   ```
+
    **Manual Tool Flow:**
    ```
    CLI Input → Validation → Pre-analysis → Progress Tracking →
@@ -112,64 +90,11 @@ Root Files:
 ### Configuration
 
 Environment variables (`.env` file):
-```bash
-# Ollama Configuration
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_DEFAULT_EMBEDDING_MODEL=nomic-embed-text
-
-# Qdrant Configuration
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-
-# Performance Tuning
-INDEXING_CONCURRENCY=4
-INDEXING_BATCH_SIZE=20
-EMBEDDING_BATCH_SIZE=10
-QDRANT_BATCH_SIZE=500
-MEMORY_WARNING_THRESHOLD_MB=1000
-MAX_FILE_SIZE_MB=5
-MAX_DIRECTORY_DEPTH=20
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-### Core Service Architecture
-
-**Primary Services:**
-- **`IndexingService`**: Orchestrates parallel processing pipeline with batch optimization
-- **`CodeParserService`**: Implements Tree-sitter AST parsing for intelligent code chunking
-- **`QdrantService`**: Manages vector database operations with streaming and batch insertion
-- **`EmbeddingService`**: Handles Ollama integration with automatic batching and retry logic
-- **`ProjectAnalysisService`**: Analyzes project structure, respects .gitignore, filters relevant files
-
-**Supporting Services:**
-- **`FileMetadataService`**: Tracks file states for incremental indexing
-- **`ChangeDetectorService`**: Detects file changes using modification times and content hashes
-- **`IndexingReporter`**: Comprehensive reporting with progress tracking and ETA estimation
-- **`SearchStrategies`**: Multiple search algorithms (semantic, keyword, hybrid)
-- **`PerformanceMonitor`**: Real-time progress monitoring with memory usage tracking
-
-### Data Flow Architecture
-
-```
-Source Code → File Discovery → AST Parsing → Intelligent Chunking →
-Function/Class Extraction → Batch Embedding → Vector Storage → Metadata Tracking
-```
 
 ### MCP Tools Available
 
 #### `index_directory(directory, patterns, recursive, clear_existing, incremental, project_name)`
-Index a directory with intelligent recommendations and time estimation.
-
 #### `search(query, n_results, cross_project, search_mode, include_context, context_chunks, target_projects)`
-Search indexed content using natural language with function-level precision.
-
-#### Additional Tools
-- **`health_check`**: Verify Qdrant and Ollama connectivity
-- **`analyze_repository_tool`**: Get detailed repository statistics
-- **`get_chunking_metrics_tool`**: Performance metrics for intelligent chunking
-- **`diagnose_parser_health_tool`**: Tree-sitter parser diagnostics
 
 ## Intelligent Code Chunking System
 
@@ -236,57 +161,36 @@ Each intelligent chunk includes rich metadata:
   - Stores: file_path, mtime, content_hash, file_size, indexed_at, syntax_error_count
   - Used for: change detection, incremental processing, progress tracking, error monitoring
 
-## Key Development Patterns
+## Critical Implementation Notes
 
-### Service-Oriented Architecture
-- Clear separation of concerns with specialized services
-- Async/await throughout the codebase for concurrent operations
-- Rich error handling with automatic retry and exponential backoff
+### Async/Await Patterns in Search Pipeline
 
-### Performance Optimizations
-- **Incremental Indexing**: 80%+ time savings by only processing changed files
-- **Parallel Processing**: Configurable concurrency for large codebases
-- **Batch Operations**: Optimized batch sizes for memory and network efficiency
-- **Memory Management**: Automatic garbage collection with configurable thresholds
+The entire search pipeline is **async** and requires proper await handling:
 
-### Testing Strategy
-```bash
-# Run all tests
-uv run pytest tests/
+1. **Search Entry Points**:
+   ```python
+   # search_tools.py - Main MCP tool entry
+   async def search_sync(...):  # Despite name, this is async!
+       search_service = SearchService(...)
+       results = await search_service.search(...)  # Must await
+   ```
 
-# Test specific components
-uv run pytest tests/test_intelligent_chunking.py
-uv run pytest tests/test_code_parser_service.py
-uv run pytest tests/test_embedding_service.py
+2. **Common Async Chain Issues**:
+   - `RuntimeWarning: coroutine 'X' was never awaited` - Missing await
+   - `'coroutine' object has no attribute 'Y'` - Trying to use coroutine without await
+   - `TypeError: 'async_generator' object is not iterable` - Need async for
 
-# End-to-end workflow tests
-uv run pytest tests/test_end_to_end_workflow.py
+3. **Key Async Functions**:
+   - `EmbeddingService.generate_embeddings()` - Async embedding generation
+   - `SearchService.search()` - Main search orchestration
+   - `SearchCacheService.get_cached_results()` - Cache retrieval
+   - `CodeParserService.parse_file()` - File parsing (if used in search)
+   - `QdrantService.search()` - Vector database queries
 
-# Performance benchmarks
-uv run pytest tests/test_performance_benchmarks.py
-```
-
-### Code Quality Standards
-- **Ruff**: Linting with E, F, W, I, N, UP, YTT, BLE, B, A, C4, T20 rules
-- **Black**: Code formatting with 140 character line length
-- **Type Hints**: Required for all new code
-- **Error Handling**: Comprehensive error recovery and reporting
-
-### Development Workflow
-1. **Setup**: `uv sync` to install dependencies
-2. **Test**: Run relevant test suite before changes
-3. **Code**: Follow existing patterns and conventions
-4. **Validate**: Run tests and quality checks
-5. **Document**: Update CLAUDE.md if architecture changes
-
-### File Processing Conventions
-- **Supported Languages**: Python, JavaScript/TypeScript, Go, Rust, Java, C++
-- **Configuration Files**: JSON/YAML with object-level chunking
-- **Documentation**: Markdown with header-based chunking
-- **Error Tolerance**: Graceful handling of syntax errors with smart fallback
-
-### Integration Points
-- **Tree-sitter**: For syntax-aware parsing and intelligent chunking
-- **Qdrant**: Vector database for semantic search capabilities
-- **Ollama**: Local LLM for embedding generation
-- **FastMCP**: Model-Context-Provider integration framework
+4. **Debugging Async Issues**:
+   ```python
+   # Add these debug prints to trace async flow:
+   print(f"Before await: {type(result)}")  # Shows <class 'coroutine'>
+   result = await some_async_function()
+   print(f"After await: {type(result)}")   # Shows actual result type
+   ```

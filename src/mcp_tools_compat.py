@@ -12,8 +12,33 @@ from tools import register_tools
 # Error classes are exported through __all__ without importing them directly
 # to maintain backward compatibility without unused imports
 # Import functions from the new modular structure
-from tools.core.health import health_check
-from tools.core.memory_utils import (
+from src.tools.core.health import health_check
+from src.tools.core.retry_utils import retry_operation
+from src.tools.database.qdrant_utils import (
+    check_qdrant_health,
+    ensure_collection,
+    get_qdrant_client,
+    log_database_metrics,
+    retry_qdrant_operation,
+)
+from src.tools.indexing.chunking_tools import get_chunking_metrics, reset_chunking_metrics
+from src.tools.indexing.index_tools import index_directory
+from src.tools.indexing.parser_tools import diagnose_parser_health
+from src.tools.indexing.progress_tools import check_index_status, get_indexing_progress
+from src.tools.indexing.search_tools import search
+from src.tools.project.file_tools import (
+    clear_file_metadata,
+    get_file_metadata,
+    reindex_file,
+)
+from src.tools.project.project_tools import (
+    clear_project_data,
+    get_project_info,
+    list_indexed_projects,
+)
+from src.tools.project.project_utils import get_collection_name, get_current_project
+
+from .utils.memory_utils import (
     clear_processing_variables,
     force_memory_cleanup,
     get_adaptive_batch_size,
@@ -21,30 +46,6 @@ from tools.core.memory_utils import (
     log_memory_usage,
     should_cleanup_memory,
 )
-from tools.core.retry_utils import retry_operation
-from tools.database.qdrant_utils import (
-    check_qdrant_health,
-    ensure_collection,
-    get_qdrant_client,
-    log_database_metrics,
-    retry_qdrant_operation,
-)
-from tools.indexing.chunking_tools import get_chunking_metrics, reset_chunking_metrics
-from tools.indexing.index_tools import index_directory
-from tools.indexing.parser_tools import diagnose_parser_health
-from tools.indexing.progress_tools import check_index_status, get_indexing_progress
-from tools.indexing.search_tools import search
-from tools.project.file_tools import (
-    clear_file_metadata,
-    get_file_metadata,
-    reindex_file,
-)
-from tools.project.project_tools import (
-    clear_project_data,
-    get_project_info,
-    list_indexed_projects,
-)
-from tools.project.project_utils import get_collection_name, get_current_project
 
 # Compatibility aliases for renamed functions
 analyze_repository_tool = None  # Will be imported from search_tools
@@ -110,5 +111,5 @@ __all__ = [
     "clear_processing_variables",
     # Utility functions
     "retry_operation",
-    # Error classes (all errors from tools.core.errors)
+    # Error classes (all errors from src.tools.core.errors)
 ]

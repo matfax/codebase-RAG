@@ -3,19 +3,19 @@
 This module contains tools for managing project configuration and file operations.
 """
 
-from tools.project.file_tools import (
+from src.tools.project.file_tools import (
     clear_file_metadata,
     get_file_metadata,
     register_file_tools,
     reindex_file,
 )
-from tools.project.project_tools import (
+from src.tools.project.project_tools import (
     clear_project_data,
     get_project_info,
     list_indexed_projects,
     register_project_tools,
 )
-from tools.project.project_utils import (
+from src.tools.project.project_utils import (
     clear_project_collections,
     delete_file_chunks,
     get_collection_name,

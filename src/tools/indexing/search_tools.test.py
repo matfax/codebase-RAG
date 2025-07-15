@@ -8,8 +8,9 @@ from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from tools.core.errors import EmbeddingError, QdrantConnectionError, ValidationError
-from tools.indexing.search_tools import (
+
+from src.tools.core.errors import EmbeddingError, QdrantConnectionError, ValidationError
+from src.tools.indexing.search_tools import (
     _expand_search_context,
     _perform_hybrid_search,
     _truncate_content,
