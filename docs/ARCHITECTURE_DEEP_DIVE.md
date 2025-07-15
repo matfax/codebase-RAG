@@ -2,10 +2,10 @@
 
 ## Overview
 
-**Agentic-RAG** is a sophisticated **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases with **function-level precision** through intelligent syntax-aware code chunking.
+**Agentic-RAG** is a sophisticated **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases with **function-level precision** through intelligent syntax-aware code chunking and advanced query caching optimization.
 
-### Core Innovation: Intelligent Code Chunking
-Unlike traditional RAG systems that process entire files, this system uses **Tree-sitter AST parsing** to break code into semantically meaningful chunks (functions, classes, methods) with rich metadata.
+### Core Innovation: Intelligent Code Chunking with Query Caching Layer
+Unlike traditional RAG systems that process entire files, this system uses **Tree-sitter AST parsing** to break code into semantically meaningful chunks (functions, classes, methods) with rich metadata. The **query-caching-layer-wave** branch introduces a comprehensive multi-layer caching architecture with Redis integration for enhanced performance optimization.
 
 ## System Architecture & Data Flow
 
@@ -14,7 +14,7 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 - **`manual_indexing.py`**: Standalone heavy indexing operations
 - **`demo_mcp_usage.py`**: Usage demonstrations
 
-### Complete Data Flow
+### Complete Data Flow with Query Caching
 
 ```
 📁 Source Code
@@ -30,6 +30,8 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 💾 Vector Storage (qdrant_service.py + Qdrant)
     ↓
 📊 Metadata Tracking (file_metadata_service.py)
+    ↓
+🚀 Multi-Layer Cache (Redis + TTL optimization)
     ↓
 🔎 Natural Language Search → Function-level Results
 ```
@@ -69,10 +71,25 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 |---------|---------|--------------|
 | `indexing_service.py` | Orchestrates processing | Parallel processing, batch optimization |
 | `code_parser_service.py` | AST parsing | Tree-sitter integration, intelligent chunking |
-| `qdrant_service.py` | Vector database | Streaming operations, retry logic |
-| `embedding_service.py` | Embeddings | Ollama integration, batch processing |
+| `qdrant_service.py` | Vector database | Streaming operations, retry logic, cache integration |
+| `embedding_service.py` | Embeddings | Ollama integration, batch processing, embedding cache |
 | `project_analysis_service.py` | Repository analysis | File filtering, structure analysis |
 | `file_metadata_service.py` | Change tracking | Incremental indexing, metadata storage |
+| `search_cache_service.py` | Query caching | Redis integration, TTL management, cache optimization |
+
+### 🚀 Query Caching Layer (New in query-caching-layer-wave)
+
+**Multi-Tier Cache Architecture:**
+- **Embedding Cache**: 3600s TTL (1 hour) - Caches generated embeddings for repeated queries
+- **Search Cache**: 900s TTL (15 minutes) - Stores search results for identical queries
+- **Project Cache**: 7200s TTL (2 hours) - Maintains project metadata and configuration
+- **File Cache**: 1800s TTL (30 minutes) - Caches file metadata and parsing results
+
+**Performance Optimizations:**
+- **Async Cache Operations**: Non-blocking cache reads/writes using async/await patterns
+- **Redis Integration**: High-performance in-memory caching with persistence options
+- **Smart Cache Keys**: Hierarchical cache key design for efficient invalidation
+- **Cache Health Monitoring**: Real-time cache performance metrics and alerts
 
 ## Navigation Strategy & Development Workflow
 
@@ -84,11 +101,18 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 4. **Data Flow**: `src/services/indexing_service.py` - Parallel processing orchestration
 5. **Vector Operations**: `src/services/qdrant_service.py` - Database interactions
 
-### 🔄 Request/Data Flow
+### 🔄 Request/Data Flow with Caching
 ```
-MCP Client → FastMCP Tools → Services Layer → Tree-sitter Parser →
-Embedding Service → Qdrant Storage → Search Results
+MCP Client → FastMCP Tools → Cache Check → Services Layer → Tree-sitter Parser →
+Embedding Service → Cache Store → Qdrant Storage → Cache Results → Search Results
 ```
+
+**Cache-Optimized Search Flow:**
+1. **Query Reception**: MCP client submits natural language query
+2. **Cache Lookup**: Check Redis for cached embeddings and search results
+3. **Cache Miss Handling**: Generate embeddings and perform vector search if not cached
+4. **Result Caching**: Store results with appropriate TTL for future queries
+5. **Response Delivery**: Return function-level results with context
 
 ### Development Commands Quick Reference
 
@@ -133,11 +157,12 @@ python manual_indexing.py -d /path/to/repo -m incremental --verbose
 **Metadata Collection** (tracks file states):
 - `project_{name}_file_metadata`: File change tracking for incremental indexing
 
-**Example Collection Stats** (Current Project):
-- Code: 8,524 intelligent chunks
-- Config: 280 configuration chunks
-- Documentation: 2,559 documentation chunks
-- **Total**: 11,363 indexed chunks
+**Example Collection Stats** (Current Project - query-caching-layer-wave):
+- Code: 104,779 intelligent chunks
+- Config: 204 configuration chunks
+- Documentation: 13,253 documentation chunks
+- File Metadata: 324 file tracking records
+- **Total**: 118,560 indexed chunks
 
 ## Advanced Features
 
@@ -156,6 +181,7 @@ python manual_indexing.py -d /path/to/repo -m incremental --verbose
 
 ### Performance Optimization Features
 
+**Core Optimizations:**
 - **Parallel Processing**: Multi-threaded file reading and AST parsing
 - **Parser Caching**: Cached Tree-sitter parsers for improved performance
 - **Batch Operations**: Grouped embedding generation and database insertions
@@ -164,6 +190,16 @@ python manual_indexing.py -d /path/to/repo -m incremental --verbose
 - **Memory Management**: Automatic cleanup and garbage collection
 - **Adaptive Batching**: Dynamic batch size adjustment based on memory usage
 - **Retry Logic**: Exponential backoff for failed operations
+
+**Query Caching Optimizations:**
+- **Redis Cache Layer**: High-performance in-memory caching with configurable TTL
+- **Async Cache Operations**: Non-blocking cache reads/writes for improved throughput
+- **Smart Cache Invalidation**: Hierarchical cache key design for efficient updates
+- **Cache Warm-up**: Preemptive cache population for frequently accessed data
+- **Cache Health Monitoring**: Real-time metrics for cache hit rates and performance
+- **Memory-Efficient Caching**: Optimized serialization for large result sets
+- **Cache Compression**: Optional compression for large cached objects
+- **Distributed Cache Support**: Redis cluster support for horizontal scaling
 
 ### Configuration & Environment
 
@@ -176,6 +212,20 @@ OLLAMA_DEFAULT_EMBEDDING_MODEL=nomic-embed-text
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 
+# Redis Cache Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=
+REDIS_MAX_CONNECTIONS=20
+
+# Cache TTL Settings
+CACHE_DEFAULT_TTL=1800
+EMBEDDING_CACHE_TTL=3600
+SEARCH_CACHE_TTL=900
+PROJECT_CACHE_TTL=7200
+FILE_CACHE_TTL=1800
+
 # Performance Tuning
 INDEXING_CONCURRENCY=4
 INDEXING_BATCH_SIZE=20
@@ -184,6 +234,11 @@ QDRANT_BATCH_SIZE=500
 MEMORY_WARNING_THRESHOLD_MB=1000
 MAX_FILE_SIZE_MB=5
 MAX_DIRECTORY_DEPTH=20
+
+# Cache Performance Settings
+CACHE_COMPRESSION_ENABLED=true
+CACHE_WARM_UP_ENABLED=true
+CACHE_MONITORING_ENABLED=true
 
 # Development Settings
 LOG_LEVEL=INFO
@@ -194,12 +249,23 @@ FOLLOW_SYMLINKS=false
 
 ### How Components Work Together
 
+**Indexing Workflow:**
 1. **Project Discovery**: `ProjectAnalysisService` scans directories respecting `.ragignore`
 2. **AST Processing**: `CodeParserService` uses Tree-sitter to extract semantic chunks
 3. **Parallel Processing**: `IndexingService` coordinates batch processing across multiple threads
-4. **Vector Generation**: `EmbeddingService` creates embeddings via Ollama
+4. **Vector Generation**: `EmbeddingService` creates embeddings via Ollama with caching
 5. **Storage**: `QdrantService` streams data to vector database with retry logic
-6. **Search**: Natural language queries return function-level matches with context
+6. **Cache Population**: Initial cache warm-up for frequently accessed data
+
+**Search Workflow with Caching:**
+1. **Query Reception**: Natural language query received via MCP
+2. **Cache Check**: `SearchCacheService` checks Redis for cached results
+3. **Cache Hit**: Return cached results immediately (sub-millisecond response)
+4. **Cache Miss**: Generate embeddings (with embedding cache check)
+5. **Vector Search**: Query Qdrant for semantic matches
+6. **Result Processing**: Add context and metadata to function-level results
+7. **Cache Store**: Store results in Redis with appropriate TTL
+8. **Response**: Return enriched function-level matches with context
 
 ### Incremental Indexing Workflow
 
@@ -239,7 +305,7 @@ python test_full_functionality.py
 
 ## Key Takeaways
 
-This is a **production-ready, intelligent codebase RAG system** with:
+This is a **production-ready, intelligent codebase RAG system** with advanced query caching optimization:
 
 - ✅ **Function-level search precision**
 - ✅ **Multi-language support** via Tree-sitter
@@ -249,8 +315,13 @@ This is a **production-ready, intelligent codebase RAG system** with:
 - ✅ **Rich MCP tool ecosystem**
 - ✅ **Comprehensive performance monitoring**
 - ✅ **Memory-efficient streaming operations**
+- 🚀 **Multi-layer query caching** with Redis integration
+- 🚀 **Sub-millisecond cache hit responses**
+- 🚀 **Async cache operations** for non-blocking performance
+- 🚀 **Intelligent cache warming** and invalidation strategies
+- 🚀 **Real-time cache health monitoring** and optimization
 
-The system is designed for immediate productivity with advanced semantic search operations. You can start using the RAG search tools to explore code relationships and understand implementation patterns with unprecedented precision.
+The system is designed for immediate productivity with advanced semantic search operations and enterprise-grade caching performance. You can start using the RAG search tools to explore code relationships and understand implementation patterns with unprecedented precision and speed.
 
 ## External Dependencies
 
@@ -258,6 +329,8 @@ The system is designed for immediate productivity with advanced semantic search 
 - **Ollama**: Local embedding model service
 - **Tree-sitter**: Syntax-aware parsing for multiple languages
 - **FastMCP**: Model Context Protocol server framework
+- **Redis**: High-performance in-memory caching layer
+- **Python async/await**: Asynchronous processing for optimal performance
 
 ## File Organization Patterns
 
