@@ -15,6 +15,20 @@ if [ ! -f "$MCP_RUNNER" ]; then
     exit 1
 fi
 
-# Execute the MCP server using uv
-cd "$SCRIPT_DIR"
+# Ensure venv exists and is activated
+VENV_DIR="$SCRIPT_DIR/.venv"
+
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating virtual environment..."
+    uv venv "$VENV_DIR"
+fi
+
+# Activate venv
+source "$VENV_DIR/bin/activate"
+
+# Sync dependencies (assuming pyproject.toml or requirements.txt exists)
+echo "Syncing dependencies..."
+uv sync
+
+# Execute the MCP server using uv (but since we're in venv, we can run directly or keep uv run)
 exec uv run python "$MCP_RUNNER" "$@"
