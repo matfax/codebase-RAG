@@ -12,7 +12,8 @@ if str(Path(__file__).parent.parent.parent) not in sys.path:
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
-from prompts.base import BasePromptImplementation
+
+from ..base import BasePromptImplementation
 
 
 class AdvanceSearchPrompt(BasePromptImplementation):

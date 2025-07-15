@@ -11,7 +11,8 @@ if str(Path(__file__).parent.parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mcp.server.fastmcp import FastMCP
-from prompts.base import BasePromptImplementation
+
+from ..base import BasePromptImplementation
 
 
 class SuggestNextStepsPrompt(BasePromptImplementation):
