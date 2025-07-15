@@ -58,4 +58,4 @@ For more details on intelligent chunking, see [INTELLIGENT_CHUNKING_GUIDE.md](IN
 - **📊 Progress Tracking**: Real-time progress monitoring with ETA estimation and memory usage tracking
 - **🗂️ Smart Collection Management**: Automatic categorization into code, config, documentation, and metadata collections
 - **🌐 Multi-Language Support**: Support for 10+ programming languages with syntax-aware parsing
-- **🛡️ Error Tolerance**: Graceful handling of syntax errors with smart fallback mechanisms 
+- **🛡️ Error Tolerance**: Graceful handling of syntax errors with smart fallback mechanisms

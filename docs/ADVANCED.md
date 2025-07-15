@@ -133,4 +133,4 @@ The architecture documentation was created by:
 
 For comprehensive guides and references:
 - [MCP_TOOLS.md](MCP_TOOLS.md): Complete MCP tools reference with parameters and examples
-- [BEST_PRACTICES.md](BEST_PRACTICES.md): Best practices for search optimization and cross-project workflows" 
+- [BEST_PRACTICES.md](BEST_PRACTICES.md): Best practices for search optimization and cross-project workflows"

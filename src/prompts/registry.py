@@ -15,6 +15,9 @@ from mcp.server.fastmcp import FastMCP
 
 # Import prompt implementations
 try:
+    from ..services.embedding_service import EmbeddingService
+    from ..services.indexing_service import IndexingService
+    from ..services.project_analysis_service import ProjectAnalysisService
     from .advanced_search import AdvanceSearchPrompt
     from .exploration import (
         ExploreProjectPrompt,
@@ -23,9 +26,6 @@ try:
         UnderstandComponentPrompt,
     )
     from .recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
-    from ..services.embedding_service import EmbeddingService
-    from ..services.indexing_service import IndexingService
-    from ..services.project_analysis_service import ProjectAnalysisService
 except ImportError:
     # Fallback to absolute imports for compatibility
     from src.prompts.advanced_search import AdvanceSearchPrompt

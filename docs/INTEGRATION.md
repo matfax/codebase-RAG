@@ -9,7 +9,7 @@ This MCP server integrates seamlessly with various AI development environments:
 Register the server with Claude Code for use in conversations:
 
 ```bash
-git clone https://github.com/bluewings1211/codebase-RAG.git 
+git clone https://github.com/bluewings1211/codebase-RAG.git
 claude mcp add codebase-rag-mcp -- /path/to/this/repo/mcp_server
 ```
 
@@ -27,8 +27,8 @@ Edit ~/.gemini/settings.json
   "mcpServers": {
     "codebaseRAG": {
       "command": "/Users/jeff/Documents/personal/Agentic-RAG/trees/query-caching-layer-wave/mcp_server"
-    } 
-  } 
+    }
+  }
 }
 ```
 
@@ -41,8 +41,8 @@ Open VS Code and Ctrl + Shift + P and search MCP
   "mcpServers": {
     "codebaseRAG": {
       "command": "/Users/jeff/Documents/personal/Agentic-RAG/trees/query-caching-layer-wave/mcp_server"
-    } 
-  } 
+    }
+  }
 }
 ```
 
@@ -87,4 +87,4 @@ For other MCP-compatible clients, configure them to run:
 uv run python /path/to/this/repo/src/run_mcp.py
 ```
 
-Refer to your specific MCP client documentation for configuration details." 
+Refer to your specific MCP client documentation for configuration details."

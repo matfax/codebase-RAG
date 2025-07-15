@@ -104,4 +104,4 @@ This command will start Qdrant and map its default ports (6333 for gRPC, 6334 fo
     ```bash
     ollama pull nomic-embed-text
     ```
-    You can use any other embedding model available in Ollama, just ensure you specify its name correctly when making API calls." 
+    You can use any other embedding model available in Ollama, just ensure you specify its name correctly when making API calls."
