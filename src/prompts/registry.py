@@ -12,19 +12,33 @@ if str(Path(__file__).parent.parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mcp.server.fastmcp import FastMCP
-from prompts.advanced_search import AdvanceSearchPrompt
 
 # Import prompt implementations
-from prompts.exploration import (
-    ExploreProjectPrompt,
-    FindEntryPointsPrompt,
-    TraceFunctionalityPrompt,
-    UnderstandComponentPrompt,
-)
-from prompts.recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
-from services.embedding_service import EmbeddingService
-from services.indexing_service import IndexingService
-from services.project_analysis_service import ProjectAnalysisService
+try:
+    from .advanced_search import AdvanceSearchPrompt
+    from .exploration import (
+        ExploreProjectPrompt,
+        FindEntryPointsPrompt,
+        TraceFunctionalityPrompt,
+        UnderstandComponentPrompt,
+    )
+    from .recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
+    from ..services.embedding_service import EmbeddingService
+    from ..services.indexing_service import IndexingService
+    from ..services.project_analysis_service import ProjectAnalysisService
+except ImportError:
+    # Fallback to absolute imports for compatibility
+    from src.prompts.advanced_search import AdvanceSearchPrompt
+    from src.prompts.exploration import (
+        ExploreProjectPrompt,
+        FindEntryPointsPrompt,
+        TraceFunctionalityPrompt,
+        UnderstandComponentPrompt,
+    )
+    from src.prompts.recommendation import OptimizeSearchPrompt, SuggestNextStepsPrompt
+    from src.services.embedding_service import EmbeddingService
+    from src.services.indexing_service import IndexingService
+    from src.services.project_analysis_service import ProjectAnalysisService
 
 logger = logging.getLogger(__name__)
 
