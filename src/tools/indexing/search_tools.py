@@ -208,17 +208,45 @@ def _expand_search_context(
 
             # Search for context chunks in the same file
             try:
-                # Create filter for same file
-                file_filter = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=file_path))])
+                from pathlib import Path
 
-                # Search for chunks in the same file
+                # Normalize file path for robust matching
+                abs_path = Path(file_path).resolve() if Path(file_path).is_absolute() else Path.cwd() / file_path
+
+                # Create primary filter for absolute path
+                file_filter_abs = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+
+                # Try to create relative path filter as fallback
+                file_filter_rel = None
+                try:
+                    from tools.project.project_utils import get_current_project
+
+                    current_project = get_current_project(str(abs_path.parent))
+                    if current_project and current_project.get("root"):
+                        project_root = Path(current_project["root"])
+                        relative_path = abs_path.relative_to(project_root)
+                        file_filter_rel = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(relative_path)))])
+                except (ValueError, Exception):
+                    pass
+
+                # Try absolute path first
                 context_results = qdrant_client.search(
                     collection_name=collection,
                     query_vector=[0.0] * embedding_dimension,  # Dummy vector for filtering
-                    query_filter=file_filter,
+                    query_filter=file_filter_abs,
                     limit=50,  # Get many chunks to find context
                     score_threshold=0.0,  # Accept all results since we're filtering by file
                 )
+
+                # If no results and we have a relative path filter, try that
+                if not context_results and file_filter_rel is not None:
+                    context_results = qdrant_client.search(
+                        collection_name=collection,
+                        query_vector=[0.0] * embedding_dimension,
+                        query_filter=file_filter_rel,
+                        limit=50,
+                        score_threshold=0.0,
+                    )
 
                 # Find chunks that provide context (adjacent or overlapping line ranges)
                 context_before = []
@@ -656,112 +684,16 @@ async def search(
     Returns:
         Dictionary containing search results with metadata, scores, and context
     """
-    # FORCE ERROR TO CHECK IF THIS CODE IS EXECUTED
-    if query == "function":
-        return {"error": "DEBUG: This code is being executed!", "query": query, "results": [], "total": 0}
-
-    # TEMPORARY: Simple direct search test to debug issues
-    try:
-        # Initialize services
-        embeddings_manager = get_embeddings_manager_instance()
-        qdrant_client = get_qdrant_client()
-
-        # Generate query embedding
-        embedding_model = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
-        query_embedding_tensor = await embeddings_manager.generate_embeddings(embedding_model, query)
-
-        if query_embedding_tensor is None:
-            return {"error": "Failed to generate embedding", "query": query, "results": [], "total": 0}
-
-        # Convert tensor to list if necessary
-        if hasattr(query_embedding_tensor, "tolist"):
-            query_embedding = query_embedding_tensor.tolist()
-        else:
-            query_embedding = query_embedding_tensor
-
-        # Get current project collections
-        current_project = get_current_project()
-        all_collections = [c.name for c in qdrant_client.get_collections().collections]
-
-        if cross_project:
-            search_collections = [c for c in all_collections if not c.endswith("_file_metadata")]
-        elif current_project:
-            search_collections = [
-                c for c in all_collections if c.startswith(current_project["collection_prefix"]) and not c.endswith("_file_metadata")
-            ]
-        else:
-            search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
-
-        if not search_collections:
-            return {
-                "error": "No collections found",
-                "query": query,
-                "results": [],
-                "total": 0,
-                "debug_info": {"all_collections": all_collections, "current_project": current_project, "cross_project": cross_project},
-            }
-
-        # Try a simple search on the first collection
-        test_collection = search_collections[0]
-        try:
-            search_results = qdrant_client.search(
-                collection_name=test_collection,
-                query_vector=query_embedding,
-                limit=n_results,
-                score_threshold=0.0,  # Accept all results for testing
-            )
-
-            results = []
-            for result in search_results:
-                if isinstance(result.payload, dict):
-                    results.append(
-                        {
-                            "score": float(result.score),
-                            "collection": test_collection,
-                            "content": result.payload.get("content", ""),
-                            "file_path": result.payload.get("file_path", ""),
-                            "chunk_type": result.payload.get("chunk_type", ""),
-                            "language": result.payload.get("language", ""),
-                        }
-                    )
-
-            return {
-                "results": results,
-                "query": query,
-                "total": len(results),
-                "project_context": current_project.get("name", "unknown") if current_project else "unknown",
-                "search_scope": "cross_project" if cross_project else "current_project",
-                "search_mode": search_mode,
-                "collections_searched": [test_collection],
-                "debug_info": {
-                    "query_embedding_dimensions": len(query_embedding),
-                    "collections_available": len(search_collections),
-                    "test_collection": test_collection,
-                    "raw_results_count": len(search_results),
-                    "query_embedding_sample": query_embedding[:3],
-                },
-            }
-
-        except Exception as e:
-            return {
-                "error": f"Qdrant search failed: {str(e)}",
-                "query": query,
-                "results": [],
-                "total": 0,
-                "debug_info": {
-                    "test_collection": test_collection,
-                    "query_embedding_dimensions": len(query_embedding),
-                    "embedding_sample": query_embedding[:3],
-                },
-            }
-
-    except Exception as e:
-        return {
-            "error": f"Search setup failed: {str(e)}",
-            "query": query,
-            "results": [],
-            "total": 0,
-        }
+    # Delegate to the proper cached search implementation
+    return await search_async_cached(
+        query=query,
+        n_results=n_results,
+        cross_project=cross_project,
+        search_mode=search_mode,
+        include_context=include_context,
+        context_chunks=context_chunks,
+        target_projects=target_projects,
+    )
 
 
 async def search_async_cached(

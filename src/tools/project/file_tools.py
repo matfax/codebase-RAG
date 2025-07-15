@@ -48,22 +48,48 @@ def get_file_metadata(file_path: str) -> dict[str, Any]:
                 "total_chunks": 0,
             }
 
-            # Search for file chunks across all collections
-            filter_condition = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+            # Search for file chunks across all collections with dual path matching
+            # First try absolute path
+            filter_condition_abs = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+
+            # Also prepare relative path filter as fallback
+            filter_condition_rel = None
+            try:
+                from tools.project.project_utils import get_current_project
+
+                current_project = get_current_project(str(abs_path.parent))
+                if current_project and current_project.get("root"):
+                    project_root = Path(current_project["root"])
+                    relative_path = abs_path.relative_to(project_root)
+                    filter_condition_rel = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(relative_path)))])
+            except (ValueError, Exception):
+                pass  # Fallback to absolute path only
 
             for collection_name in collections:
                 if collection_name.endswith("_metadata"):
                     continue
 
                 try:
-                    # Count chunks in this collection
+                    # Try absolute path first
                     count_response = client.count(
                         collection_name=collection_name,
-                        count_filter=filter_condition,
+                        count_filter=filter_condition_abs,
                         exact=True,
                     )
 
                     chunk_count = count_response.count
+                    filter_to_use = filter_condition_abs
+
+                    # If no results with absolute path, try relative path
+                    if chunk_count == 0 and filter_condition_rel is not None:
+                        count_response = client.count(
+                            collection_name=collection_name,
+                            count_filter=filter_condition_rel,
+                            exact=True,
+                        )
+                        chunk_count = count_response.count
+                        filter_to_use = filter_condition_rel
+
                     if chunk_count > 0:
                         file_info["collections"][collection_name] = {"chunk_count": chunk_count}
                         file_info["total_chunks"] += chunk_count
@@ -73,7 +99,7 @@ def get_file_metadata(file_path: str) -> dict[str, Any]:
                             search_results = client.search(
                                 collection_name=collection_name,
                                 query_vector=[0.0] * 768,  # Dummy vector
-                                query_filter=filter_condition,
+                                query_filter=filter_to_use,
                                 limit=1,
                             )
 

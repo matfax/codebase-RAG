@@ -639,14 +639,39 @@ def delete_file_chunks(file_path: str, collection_name: str | None = None) -> di
         except Exception:
             return {"error": f"Could not access collection '{collection_name}'"}
 
-        # Count existing points for the file
-        filter_condition = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+        # Try to match both absolute and relative paths
+        # First try absolute path (current behavior)
+        filter_condition_abs = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(abs_path)))])
+        count_response_abs = qdrant_client.count(collection_name=collection_name, count_filter=filter_condition_abs, exact=True)
+        points_before = count_response_abs.count
 
-        count_response = qdrant_client.count(collection_name=collection_name, count_filter=filter_condition, exact=True)
-        points_before = count_response.count
+        # If no matches with absolute path, try relative path
+        if points_before == 0:
+            # Get project root for relative path calculation
+            current_project = get_current_project(str(abs_path.parent))
+            if current_project and current_project.get("root"):
+                project_root = Path(current_project["root"])
+                try:
+                    relative_path = abs_path.relative_to(project_root)
+                    filter_condition_rel = Filter(must=[FieldCondition(key="file_path", match=MatchValue(value=str(relative_path)))])
+                    count_response_rel = qdrant_client.count(collection_name=collection_name, count_filter=filter_condition_rel, exact=True)
+                    if count_response_rel.count > 0:
+                        points_before = count_response_rel.count
+                        filter_condition = filter_condition_rel
+                        logger.info(f"Found {points_before} points using relative path: {relative_path}")
+                    else:
+                        filter_condition = filter_condition_abs
+                except ValueError:
+                    # File is not under project root, use absolute path
+                    filter_condition = filter_condition_abs
+            else:
+                filter_condition = filter_condition_abs
+        else:
+            filter_condition = filter_condition_abs
 
-        # Delete the points
-        qdrant_client.delete(collection_name=collection_name, points_selector=filter_condition)
+        # Delete the points using the successful filter condition
+        if points_before > 0:
+            qdrant_client.delete(collection_name=collection_name, points_selector=filter_condition)
 
         logger.info(f"Deleted {points_before} points for {file_path} from {collection_name}")
 

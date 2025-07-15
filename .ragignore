@@ -116,3 +116,7 @@ data/
 datasets/
 models/
 qdrant_storage/
+
+# Indexing report files
+indexing_report*.json
+chunking_metrics.json
