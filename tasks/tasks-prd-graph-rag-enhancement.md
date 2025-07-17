@@ -40,12 +40,12 @@ Based on the PRD: `prd-graph-rag-enhancement.md`
   - [x] 1.4 更新現有的 code_parser_service.py，在解析時填充新的結構欄位
   - [x] 1.5 建立 breadcrumb 和 parent_name 的資料驗證和正規化機制
 
-- [ ] 2.0 實作 Graph RAG 核心服務層
-  - [ ] 2.1 建立 graph_rag_service.py 作為 Graph RAG 功能的主要控制器
-  - [ ] 2.2 實作 structure_relationship_builder.py，建構代碼結構關係圖
-  - [ ] 2.3 開發關係圖的層次遍歷和相關組件查找算法
-  - [ ] 2.4 實作結構關係的快取機制，提升查詢效能
-  - [ ] 2.5 建立與現有 Qdrant 服務的深度整合介面
+- [x] 2.0 實作 Graph RAG 核心服務層
+  - [x] 2.1 建立 graph_rag_service.py 作為 Graph RAG 功能的主要控制器
+  - [x] 2.2 實作 structure_relationship_builder.py，建構代碼結構關係圖
+  - [x] 2.3 開發關係圖的層次遍歷和相關組件查找算法
+  - [x] 2.4 實作結構關係的快取機制，提升查詢效能
+  - [x] 2.5 建立與現有 Qdrant 服務的深度整合介面
 
 - [ ] 3.0 開發跨專案搜尋和架構模式識別
   - [ ] 3.1 實作 cross_project_search_service.py，支援基於結構關係的跨專案搜尋
