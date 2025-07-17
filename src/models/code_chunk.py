@@ -81,12 +81,12 @@ class CodeChunk:
 
     # Semantic metadata
     name: str | None = None  # Function name, class name, variable name, etc.
-    parent_name: str | None = None  # Parent class or module name for context
+    parent_name: str | None = None  # Direct parent class/module name (e.g., "MyClass", "mymodule")
     signature: str | None = None  # Function signature, class definition, etc.
     docstring: str | None = None  # Associated documentation string
 
-    # Context enhancement
-    breadcrumb: str | None = None  # Full hierarchical path (module.class.method)
+    # Context enhancement for Graph RAG
+    breadcrumb: str | None = None  # Full hierarchical path (e.g., "module.class.method", "package::namespace::function")
     context_before: str | None = None  # 5 lines of code before this chunk
     context_after: str | None = None  # 5 lines of code after this chunk
 
@@ -125,11 +125,126 @@ class CodeChunk:
         """Calculate the number of characters in this chunk."""
         return len(self.content)
 
+    @property
+    def is_nested(self) -> bool:
+        """Check if this chunk is nested within another structure."""
+        return self.parent_name is not None
+
+    @property
+    def breadcrumb_depth(self) -> int:
+        """Calculate the depth of the breadcrumb hierarchy."""
+        if not self.breadcrumb:
+            return 0
+        # Count separators to determine depth
+        # Support both dot notation (Python/JS) and :: notation (C++/Rust)
+        dot_count = self.breadcrumb.count(".")
+        double_colon_count = self.breadcrumb.count("::")
+        return max(dot_count, double_colon_count) + 1
+
+    def get_breadcrumb_components(self) -> list[str]:
+        """
+        Split breadcrumb into its component parts.
+
+        Returns:
+            List of breadcrumb components from root to current chunk
+
+        Examples:
+            "module.class.method" -> ["module", "class", "method"]
+            "namespace::class::function" -> ["namespace", "class", "function"]
+        """
+        if not self.breadcrumb:
+            return []
+
+        # Support both dot notation and double colon notation
+        if "::" in self.breadcrumb:
+            return self.breadcrumb.split("::")
+        else:
+            return self.breadcrumb.split(".")
+
+    def get_parent_breadcrumb(self) -> str | None:
+        """
+        Get the breadcrumb of the parent (one level up).
+
+        Returns:
+            Parent breadcrumb or None if at root level
+
+        Examples:
+            "module.class.method" -> "module.class"
+            "namespace::class::function" -> "namespace::class"
+        """
+        if not self.breadcrumb:
+            return None
+
+        components = self.get_breadcrumb_components()
+        if len(components) <= 1:
+            return None
+
+        separator = "::" if "::" in self.breadcrumb else "."
+        return separator.join(components[:-1])
+
+    def build_breadcrumb(self, components: list[str], separator: str = ".") -> str:
+        """
+        Build a breadcrumb from components.
+
+        Args:
+            components: List of breadcrumb components
+            separator: Separator to use ('.' for Python/JS, '::' for C++/Rust)
+
+        Returns:
+            Formatted breadcrumb string
+        """
+        if not components:
+            return ""
+        return separator.join(components)
+
+    def validate_structure_fields(self) -> tuple[bool, list[str]]:
+        """
+        Validate the breadcrumb and parent_name fields for consistency.
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Check if parent_name is consistent with breadcrumb
+        if self.parent_name and self.breadcrumb:
+            components = self.get_breadcrumb_components()
+            if len(components) >= 2:
+                # Parent name should match the second-to-last component
+                expected_parent = components[-2]
+                if self.parent_name != expected_parent:
+                    errors.append(f"parent_name '{self.parent_name}' does not match breadcrumb parent '{expected_parent}'")
+
+        # Check if breadcrumb contains current name
+        if self.name and self.breadcrumb:
+            components = self.get_breadcrumb_components()
+            if components and components[-1] != self.name:
+                errors.append(f"chunk name '{self.name}' does not match breadcrumb tail '{components[-1]}'")
+
+        # Check for invalid characters in breadcrumb
+        if self.breadcrumb:
+            # Breadcrumb should not contain spaces (use _ instead)
+            if " " in self.breadcrumb:
+                errors.append("breadcrumb contains spaces - use underscores or camelCase")
+
+            # Should not start or end with separators
+            if self.breadcrumb.startswith((".", "::")):
+                errors.append("breadcrumb should not start with separator")
+            if self.breadcrumb.endswith((".", "::")):
+                errors.append("breadcrumb should not end with separator")
+
+            # Should not contain mixed separators
+            if "." in self.breadcrumb and "::" in self.breadcrumb:
+                errors.append("breadcrumb should not mix '.' and '::' separators")
+
+        return len(errors) == 0, errors
+
     def to_dict(self) -> dict[str, Any]:
         """
         Convert the CodeChunk to a dictionary for serialization.
 
         This is used for storing in vector databases and API responses.
+        Includes enhanced Graph RAG metadata and computed properties.
         """
         return {
             "chunk_id": self.chunk_id,
@@ -160,6 +275,11 @@ class CodeChunk:
             "error_details": self.error_details,
             "line_count": self.line_count,
             "char_count": self.char_count,
+            # Enhanced Graph RAG metadata
+            "is_nested": self.is_nested,
+            "breadcrumb_depth": self.breadcrumb_depth,
+            "breadcrumb_components": self.get_breadcrumb_components(),
+            "parent_breadcrumb": self.get_parent_breadcrumb(),
         }
 
     @classmethod
