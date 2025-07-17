@@ -181,11 +181,14 @@ async def find_function_path(
         if not start_result.success:
             results["success"] = False
             results["error"] = f"Failed to resolve start function: {start_result.error_message}"
-            results["suggestions"] = [
-                "Try using a more specific function name or description",
-                "Use the search tool to find the exact function name first",
-                "Check if the project has been indexed properly",
-            ]
+
+            # Enhanced error handling with intelligent suggestions
+            from src.tools.graph_rag.function_chain_analysis import _generate_enhanced_suggestions
+
+            enhanced_suggestions = await _generate_enhanced_suggestions(start_function, project_name, start_result, "start_function")
+            results["suggestions"] = enhanced_suggestions["suggestions"]
+            results["error_details"] = enhanced_suggestions["error_details"]
+            results["alternatives"] = enhanced_suggestions["alternatives"]
             return results
 
         # Resolve end function breadcrumb
@@ -194,11 +197,14 @@ async def find_function_path(
         if not end_result.success:
             results["success"] = False
             results["error"] = f"Failed to resolve end function: {end_result.error_message}"
-            results["suggestions"] = [
-                "Try using a more specific function name or description",
-                "Use the search tool to find the exact function name first",
-                "Check if the project has been indexed properly",
-            ]
+
+            # Enhanced error handling with intelligent suggestions
+            from src.tools.graph_rag.function_chain_analysis import _generate_enhanced_suggestions
+
+            enhanced_suggestions = await _generate_enhanced_suggestions(end_function, project_name, end_result, "end_function")
+            results["suggestions"] = enhanced_suggestions["suggestions"]
+            results["error_details"] = enhanced_suggestions["error_details"]
+            results["alternatives"] = enhanced_suggestions["alternatives"]
             return results
 
         start_breadcrumb = start_result.primary_candidate.breadcrumb
@@ -251,12 +257,30 @@ async def find_function_path(
         if not quality_paths:
             results["success"] = False
             results["error"] = "No paths found meeting the quality threshold"
-            results["suggestions"] = [
-                "Try lowering the quality threshold",
-                "Increase the maximum depth parameter",
-                "Check if the functions are actually connected",
-                "Use the search tool to find intermediate functions",
+
+            # Enhanced error handling for no paths found
+            from src.tools.graph_rag.function_chain_analysis import _generate_enhanced_suggestions
+
+            enhanced_suggestions = await _generate_enhanced_suggestions(
+                f"{start_function} -> {end_function}", project_name, None, "no_paths_found"
+            )
+
+            # Add specific suggestions for no paths found
+            specific_suggestions = [
+                "No paths found between the specified functions. Try these approaches:",
+                f"• Lower the quality threshold (current: {min_quality_threshold})",
+                f"• Increase the maximum depth (current: {max_depth})",
+                "• Check if the functions are in the same codebase",
+                "• Use the search tool to find intermediate functions",
+                "• Try different path finding strategies",
             ]
+
+            results["suggestions"] = specific_suggestions + enhanced_suggestions["suggestions"]
+            results["error_details"] = enhanced_suggestions["error_details"]
+            results["alternatives"] = enhanced_suggestions["alternatives"]
+            results["error_details"]["paths_analyzed"] = len(all_paths)
+            results["error_details"]["quality_threshold"] = min_quality_threshold
+            results["error_details"]["max_depth"] = max_depth
             return results
 
         # Sort paths by quality score (descending)
@@ -2268,3 +2292,86 @@ def _generate_selection_guidance(paths: list[FunctionPath], rankings: dict[str, 
     guidance.append("- For overall use: prioritize quality")
 
     return guidance
+
+
+def _find_paths_by_strategy(all_paths: list[FunctionPath], strategy: PathStrategy, max_paths: int) -> list[FunctionPath]:
+    """
+    Find paths using the specified strategy.
+
+    Args:
+        all_paths: All available paths
+        strategy: Path finding strategy
+        max_paths: Maximum number of paths to return
+
+    Returns:
+        Filtered and sorted list of paths
+    """
+    if not all_paths:
+        return []
+
+    # Apply strategy-specific filtering and sorting
+    filtered_paths = _apply_strategy_filtering(all_paths, strategy, max_paths)
+
+    return filtered_paths
+
+
+def _validate_path_finding_parameters(
+    start_function: str, end_function: str, project_name: str, strategy: str, max_paths: int, max_depth: int, min_quality_threshold: float
+) -> dict[str, Any]:
+    """
+    Validate input parameters for path finding.
+
+    Args:
+        start_function: Starting function name
+        end_function: End function name
+        project_name: Project name
+        strategy: Path finding strategy
+        max_paths: Maximum number of paths
+        max_depth: Maximum search depth
+        min_quality_threshold: Minimum quality threshold
+
+    Returns:
+        Validation result dictionary
+    """
+    if not start_function or not start_function.strip():
+        return {
+            "valid": False,
+            "error": "Start function is required and cannot be empty",
+            "suggestions": ["Provide a valid start function name or description"],
+        }
+
+    if not end_function or not end_function.strip():
+        return {
+            "valid": False,
+            "error": "End function is required and cannot be empty",
+            "suggestions": ["Provide a valid end function name or description"],
+        }
+
+    if not project_name or not project_name.strip():
+        return {"valid": False, "error": "Project name is required and cannot be empty", "suggestions": ["Provide a valid project name"]}
+
+    if strategy not in ["shortest", "optimal", "all"]:
+        return {"valid": False, "error": f"Invalid strategy: {strategy}", "suggestions": ["Valid strategies: shortest, optimal, all"]}
+
+    if not isinstance(max_paths, int) or max_paths < 1 or max_paths > 100:
+        return {
+            "valid": False,
+            "error": f"Invalid max_paths: {max_paths}. Must be between 1 and 100",
+            "suggestions": ["Use a reasonable max_paths value between 1 and 100"],
+        }
+
+    if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 100:
+        return {
+            "valid": False,
+            "error": f"Invalid max_depth: {max_depth}. Must be between 1 and 100",
+            "suggestions": ["Use a reasonable max_depth value between 1 and 100"],
+        }
+
+    if not isinstance(min_quality_threshold, (int, float)) or min_quality_threshold < 0.0 or min_quality_threshold > 1.0:
+        return {
+            "valid": False,
+            "error": f"Invalid min_quality_threshold: {min_quality_threshold}. Must be between 0.0 and 1.0",
+            "suggestions": ["Use a quality threshold value between 0.0 and 1.0"],
+        }
+
+    return {"valid": True}

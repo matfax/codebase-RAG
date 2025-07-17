@@ -1,13 +1,13 @@
 {
   "agent": "function-chain-mcp-tools-wave",
-  "current_wave": "3.0",
-  "wave_description": "實現 find_function_path_tool（次優先級）",
+  "current_wave": "4.0",
+  "wave_description": "實現 analyze_project_chains_tool（最低優先級）",
   "wave_status": "in-progress",
-  "current_subtask": "3.9",
-  "subtask_description": "添加路徑不存在時的錯誤處理和建議",
-  "completed_subtasks": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8"],
-  "wave_subtasks": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11"],
-  "overall_progress": "36%",
-  "wave_progress": "73%",
-  "last_updated": "2024-01-15T15:15:00Z"
+  "current_subtask": "4.3",
+  "subtask_description": "整合複雜度計算器，使用指定權重：分支(35%)、循環複雜度(30%)、調用深度(25%)、函數行數(10%)",
+  "completed_subtasks": ["4.1", "4.2"],
+  "wave_subtasks": ["4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9", "4.10", "4.11"],
+  "overall_progress": "75%",
+  "wave_progress": "18%",
+  "last_updated": "2025-01-17T13:00:00Z"
 }

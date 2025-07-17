@@ -123,11 +123,12 @@ async def trace_function_chain(
         if not breadcrumb_result.success:
             results["success"] = False
             results["error"] = f"Failed to resolve entry point: {breadcrumb_result.error_message}"
-            results["suggestions"] = [
-                "Try using a more specific function name or description",
-                "Use the search tool to find the exact function name first",
-                "Check if the project has been indexed properly",
-            ]
+
+            # Enhanced error handling with intelligent suggestions
+            enhanced_suggestions = await _generate_enhanced_suggestions(entry_point, project_name, breadcrumb_result, "entry_point")
+            results["suggestions"] = enhanced_suggestions["suggestions"]
+            results["error_details"] = enhanced_suggestions["error_details"]
+            results["alternatives"] = enhanced_suggestions["alternatives"]
             return results
 
         resolved_breadcrumb = breadcrumb_result.primary_candidate.breadcrumb
@@ -201,18 +202,18 @@ async def trace_function_chain(
         error_msg = f"Error tracing function chain for '{entry_point}': {str(e)}"
         logger.error(error_msg, exc_info=True)
 
+        # Generate enhanced suggestions for the error
+        enhanced_suggestions = await _generate_enhanced_suggestions(entry_point, project_name, None, "general_error", error_msg)
+
         results = {
             "success": False,
             "error": error_msg,
             "entry_point": entry_point,
             "project_name": project_name,
             "direction": direction,
-            "suggestions": [
-                "Check if the project has been indexed properly",
-                "Try using the search tool to find the exact function name",
-                "Verify the project name is correct",
-                "Consider using a simpler entry point description",
-            ],
+            "suggestions": enhanced_suggestions["suggestions"],
+            "error_details": enhanced_suggestions["error_details"],
+            "alternatives": enhanced_suggestions["alternatives"],
             "timestamp": time.time(),
         }
 
@@ -568,3 +569,226 @@ def _format_chain_links(implementation_chain) -> list[dict[str, Any]]:
         logger.error(f"Error formatting chain links: {e}")
 
     return formatted_links
+
+
+async def _generate_enhanced_suggestions(
+    entry_point: str, project_name: str, breadcrumb_result: Any | None = None, error_type: str = "general", error_message: str = ""
+) -> dict[str, Any]:
+    """
+    Generate enhanced error suggestions and alternatives when paths don't exist.
+
+    Args:
+        entry_point: The original entry point that failed
+        project_name: The project name being searched
+        breadcrumb_result: The breadcrumb resolution result (if available)
+        error_type: Type of error ("entry_point", "general_error", etc.)
+        error_message: The original error message
+
+    Returns:
+        Dictionary with enhanced suggestions, error details, and alternatives
+    """
+    suggestions = []
+    error_details = {}
+    alternatives = []
+
+    try:
+        # Import here to avoid circular imports
+        from src.services.project_analysis_service import ProjectAnalysisService
+        from src.tools.indexing.search_tools import search_async_cached
+
+        # Analyze the entry point to understand what went wrong
+        error_details["original_entry_point"] = entry_point
+        error_details["project_name"] = project_name
+        error_details["error_type"] = error_type
+        error_details["error_message"] = error_message
+
+        # Check if project exists and is indexed
+        try:
+            project_analysis_service = ProjectAnalysisService()
+            project_info = await project_analysis_service.get_project_info(project_name)
+
+            if not project_info:
+                suggestions.extend(
+                    [
+                        f"Project '{project_name}' not found. Check if it has been indexed.",
+                        "Use the list_indexed_projects tool to see available projects.",
+                        "Run index_directory to index the project first.",
+                    ]
+                )
+                error_details["project_status"] = "not_indexed"
+                return {"suggestions": suggestions, "error_details": error_details, "alternatives": alternatives}
+
+            error_details["project_status"] = "indexed"
+            error_details["project_file_count"] = project_info.get("file_count", 0)
+            error_details["project_functions_count"] = project_info.get("functions_count", 0)
+
+        except Exception as e:
+            logger.warning(f"Could not get project info: {e}")
+            error_details["project_status"] = "unknown"
+
+        # Try to find similar functions using fuzzy search
+        try:
+            # Search for partial matches
+            search_results = await search_async_cached(
+                query=entry_point, n_results=10, target_projects=[project_name], search_mode="hybrid", include_context=False
+            )
+
+            if search_results and search_results.get("results"):
+                # Extract function names from search results
+                found_functions = []
+                for result in search_results["results"][:5]:  # Top 5 results
+                    chunk = result.get("chunk", {})
+                    if chunk.get("name"):
+                        found_functions.append(
+                            {
+                                "name": chunk["name"],
+                                "breadcrumb": chunk.get("breadcrumb", ""),
+                                "chunk_type": chunk.get("chunk_type", ""),
+                                "file_path": chunk.get("file_path", ""),
+                                "confidence": result.get("score", 0.0),
+                            }
+                        )
+
+                if found_functions:
+                    alternatives = found_functions
+                    suggestions.extend(
+                        [
+                            f"Found {len(found_functions)} similar functions in the project:",
+                            "Consider using one of the alternatives provided.",
+                            "Use the search tool with more specific keywords.",
+                        ]
+                    )
+                    error_details["similar_functions_found"] = len(found_functions)
+                else:
+                    suggestions.extend(
+                        [
+                            "No similar functions found in the project.",
+                            "Try searching with different keywords or descriptions.",
+                            "Check if the function name is spelled correctly.",
+                        ]
+                    )
+                    error_details["similar_functions_found"] = 0
+            else:
+                suggestions.extend(
+                    [
+                        "No search results found for the entry point.",
+                        "Verify the function exists in the indexed project.",
+                        "Try using broader search terms.",
+                    ]
+                )
+                error_details["search_results_count"] = 0
+
+        except Exception as e:
+            logger.warning(f"Could not perform similarity search: {e}")
+            suggestions.append("Could not perform similarity search. Check system status.")
+            error_details["similarity_search_error"] = str(e)
+
+        # Add error-type specific suggestions
+        if error_type == "entry_point":
+            suggestions.extend(
+                [
+                    "Entry point resolution failed. Try these approaches:",
+                    "1. Use exact function names instead of descriptions",
+                    "2. Include class names for methods (e.g., 'ClassName.method_name')",
+                    "3. Check if the function is in a different module or namespace",
+                    "4. Use the search tool to explore the codebase first",
+                ]
+            )
+
+            # Add breadcrumb-specific suggestions if available
+            if breadcrumb_result and hasattr(breadcrumb_result, "alternative_candidates"):
+                if breadcrumb_result.alternative_candidates:
+                    suggestions.append("Alternative candidates were found but didn't meet confidence threshold.")
+                    for candidate in breadcrumb_result.alternative_candidates[:3]:  # Top 3
+                        alternatives.append(
+                            {
+                                "breadcrumb": candidate.breadcrumb,
+                                "confidence": candidate.confidence_score,
+                                "reasoning": candidate.reasoning,
+                                "match_type": candidate.match_type,
+                            }
+                        )
+
+        elif error_type == "start_function":
+            suggestions.extend(
+                [
+                    "Start function resolution failed. Try these approaches:",
+                    "1. Use exact function names instead of descriptions",
+                    "2. Include module/class paths for better specificity",
+                    "3. Check if the function is in a different file or package",
+                    "4. Search for similar function names in the project",
+                ]
+            )
+
+        elif error_type == "end_function":
+            suggestions.extend(
+                [
+                    "End function resolution failed. Try these approaches:",
+                    "1. Use exact function names instead of descriptions",
+                    "2. Include module/class paths for better specificity",
+                    "3. Check if the function is in a different file or package",
+                    "4. Search for similar function names in the project",
+                ]
+            )
+
+        elif error_type == "no_paths_found":
+            suggestions.extend(
+                [
+                    "No paths found between functions. This could mean:",
+                    "1. Functions are not connected in the codebase",
+                    "2. Connection requires deeper traversal than current depth",
+                    "3. Path quality is below the threshold",
+                    "4. Functions are in different modules/packages",
+                    "5. Consider checking for indirect connections",
+                ]
+            )
+
+        elif error_type == "general_error":
+            suggestions.extend(
+                [
+                    "General error occurred. Try these steps:",
+                    "1. Check if all required services are running",
+                    "2. Verify the project is properly indexed",
+                    "3. Try with a simpler entry point description",
+                    "4. Check system logs for more details",
+                ]
+            )
+
+            # Add specific suggestions based on error message
+            if "timeout" in error_message.lower():
+                suggestions.append("Request timed out. Try reducing search scope or depth.")
+            elif "permission" in error_message.lower():
+                suggestions.append("Permission error. Check file access permissions.")
+            elif "connection" in error_message.lower():
+                suggestions.append("Connection error. Check database connectivity.")
+
+        # Add common troubleshooting suggestions
+        suggestions.extend(
+            [
+                "Common troubleshooting steps:",
+                "• Use 'search' tool to explore available functions",
+                "• Check 'get_project_info' for project statistics",
+                "• Try 'analyze_repository' to understand codebase structure",
+                "• Use more specific or alternative keywords",
+            ]
+        )
+
+        # Add performance suggestions if applicable
+        if error_details.get("project_file_count", 0) > 10000:
+            suggestions.append("Large project detected. Consider using more specific search terms.")
+
+        return {"suggestions": suggestions, "error_details": error_details, "alternatives": alternatives}
+
+    except Exception as e:
+        logger.error(f"Error generating enhanced suggestions: {e}")
+        return {
+            "suggestions": [
+                "Could not generate enhanced suggestions due to system error.",
+                "Try basic troubleshooting steps:",
+                "• Check if the project is indexed",
+                "• Verify the function name is correct",
+                "• Use the search tool to explore the codebase",
+            ],
+            "error_details": {"suggestion_generation_error": str(e)},
+            "alternatives": [],
+        }
