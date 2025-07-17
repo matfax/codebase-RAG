@@ -35,11 +35,11 @@ async def graph_find_similar_implementations(
 ) -> dict[str, Any]:
     """
     Find similar implementations across projects using Graph RAG capabilities.
-    
+
     This tool leverages cross-project search and implementation chain analysis
     to find similar code implementations, patterns, and architectural solutions
     across multiple indexed projects.
-    
+
     Args:
         query: Natural language description of what to search for
         source_breadcrumb: Optional specific breadcrumb to find similar implementations for
@@ -53,30 +53,27 @@ async def graph_find_similar_implementations(
         max_results: Maximum number of similar implementations to return (1-50, default: 10)
         include_implementation_chains: Whether to include implementation chain analysis
         include_architectural_context: Whether to include architectural context analysis
-    
+
     Returns:
         Dictionary containing similar implementations with similarity scores,
         architectural context, and optional implementation chains
     """
     try:
         logger.info(f"Starting similar implementations search for query: '{query}'")
-        
+
         # Initialize core services
         qdrant_service = QdrantService()
         embedding_service = EmbeddingService()
         cross_project_service = CrossProjectSearchService(qdrant_service, embedding_service)
-        
+
         # Validate parameters
         if not query or not query.strip():
-            return {
-                "success": False,
-                "error": "Query is required and cannot be empty"
-            }
-        
+            return {"success": False, "error": "Query is required and cannot be empty"}
+
         max_results = max(1, min(max_results, 50))  # Clamp between 1 and 50
         similarity_threshold = max(0.0, min(similarity_threshold, 1.0))  # Clamp between 0 and 1
         structural_weight = max(0.0, min(structural_weight, 1.0))  # Clamp between 0 and 1
-        
+
         # Convert string chunk types to ChunkType enum if provided
         chunk_type_enums = []
         if chunk_types:
@@ -85,7 +82,7 @@ async def graph_find_similar_implementations(
                     chunk_type_enums.append(ChunkType(chunk_type_str.lower()))
                 except ValueError:
                     logger.warning(f"Invalid chunk type: {chunk_type_str}")
-        
+
         # Build search filters
         search_filters = CrossProjectSearchFilter(
             target_projects=target_projects or [],
@@ -95,7 +92,7 @@ async def graph_find_similar_implementations(
             structural_weight=structural_weight,
             languages=languages or [],
         )
-        
+
         # Initialize results structure
         results = {
             "success": True,
@@ -110,7 +107,7 @@ async def graph_find_similar_implementations(
             },
             "max_results": max_results,
         }
-        
+
         # Check for source-specific search
         if source_breadcrumb and source_project:
             # Find the source chunk first
@@ -118,25 +115,23 @@ async def graph_find_similar_implementations(
                 query_embedding=await embedding_service.generate_embeddings([source_breadcrumb]).__anext__(),
                 collection_name=f"project_{source_project}_code",
                 limit=5,
-                score_threshold=0.8
+                score_threshold=0.8,
             )
-            
+
             if not source_chunks:
                 return {
                     "success": False,
                     "error": f"Could not find source breadcrumb '{source_breadcrumb}' in project '{source_project}'",
                     "source_breadcrumb": source_breadcrumb,
-                    "source_project": source_project
+                    "source_project": source_project,
                 }
-            
+
             # Use the best matching source chunk
             source_chunk = source_chunks[0]
             search_result = await cross_project_service.find_similar_implementations(
-                source_chunk=source_chunk,
-                search_filters=search_filters,
-                max_results=max_results
+                source_chunk=source_chunk, search_filters=search_filters, max_results=max_results
             )
-            
+
             results["search_type"] = "source_based"
             results["source_breadcrumb"] = source_breadcrumb
             results["source_project"] = source_project
@@ -149,16 +144,14 @@ async def graph_find_similar_implementations(
         else:
             # Perform general cross-project search
             search_result = await cross_project_service.search_across_projects(
-                query=query,
-                search_filters=search_filters,
-                max_results=max_results
+                query=query, search_filters=search_filters, max_results=max_results
             )
-            
+
             results["search_type"] = "query_based"
-        
+
         # Process search results
         similar_implementations = []
-        
+
         for match in search_result.matches:
             implementation = {
                 "breadcrumb": match.chunk.breadcrumb,
@@ -172,16 +165,16 @@ async def graph_find_similar_implementations(
                 "start_line": match.chunk.start_line,
                 "end_line": match.chunk.end_line,
             }
-            
+
             # Add content excerpt if available
-            if hasattr(match.chunk, 'content') and match.chunk.content:
+            if hasattr(match.chunk, "content") and match.chunk.content:
                 # Include first few lines as preview
-                content_lines = match.chunk.content.strip().split('\n')
+                content_lines = match.chunk.content.strip().split("\n")
                 preview_lines = content_lines[:5]  # First 5 lines
                 if len(content_lines) > 5:
                     preview_lines.append("...")
-                implementation["content_preview"] = '\n'.join(preview_lines)
-            
+                implementation["content_preview"] = "\n".join(preview_lines)
+
             # Add architectural context if requested
             if include_architectural_context:
                 implementation["architectural_context"] = match.architectural_context
@@ -194,39 +187,38 @@ async def graph_find_similar_implementations(
                     for comp in match.related_components
                 ]
                 implementation["usage_patterns"] = match.usage_patterns
-            
+
             similar_implementations.append(implementation)
-        
+
         results["similar_implementations"] = similar_implementations
-        
+
         # Add implementation chain analysis if requested
         if include_implementation_chains and similar_implementations:
             try:
                 impl_chain_service = ImplementationChainService(qdrant_service, embedding_service)
-                
+
                 # Analyze implementation chains for top results
                 chain_analyses = []
                 for impl in similar_implementations[:3]:  # Top 3 results
                     chain_result = await impl_chain_service.find_similar_implementation_patterns(
-                        project_name=impl["project_name"],
-                        component_breadcrumb=impl["breadcrumb"],
-                        similarity_threshold=0.6,
-                        max_patterns=5
+                        project_name=impl["project_name"], component_breadcrumb=impl["breadcrumb"], similarity_threshold=0.6, max_patterns=5
                     )
-                    
+
                     if chain_result and chain_result.get("similar_patterns"):
-                        chain_analyses.append({
-                            "implementation": impl["breadcrumb"],
-                            "project": impl["project_name"],
-                            "similar_patterns": chain_result["similar_patterns"][:3]  # Top 3 patterns
-                        })
-                
+                        chain_analyses.append(
+                            {
+                                "implementation": impl["breadcrumb"],
+                                "project": impl["project_name"],
+                                "similar_patterns": chain_result["similar_patterns"][:3],  # Top 3 patterns
+                            }
+                        )
+
                 results["implementation_chains"] = chain_analyses
-                
+
             except Exception as e:
                 logger.warning(f"Could not analyze implementation chains: {e}")
                 results["implementation_chains"] = []
-        
+
         # Add search statistics
         results["search_statistics"] = {
             "projects_searched": search_result.projects_searched,
@@ -236,15 +228,11 @@ async def graph_find_similar_implementations(
             "structural_weight_used": search_result.structural_weight_used,
             "results_count": len(similar_implementations),
         }
-        
+
         logger.info(f"Found {len(similar_implementations)} similar implementations for query '{query}'")
         return results
-        
+
     except Exception as e:
         error_msg = f"Error finding similar implementations for query '{query}': {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return {
-            "success": False,
-            "error": error_msg,
-            "query": query
-        }
+        return {"success": False, "error": error_msg, "query": query}
