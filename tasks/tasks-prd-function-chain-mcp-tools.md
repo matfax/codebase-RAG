@@ -29,14 +29,14 @@
 
 ## Tasks
 
-- [ ] 1.0 實現共用 BreadcrumbResolver 服務
-  - [ ] 1.1 創建 BreadcrumbResolver 服務類，包含 resolve() 方法
-  - [ ] 1.2 實現 is_valid_breadcrumb() 檢查函數，驗證輸入是否為標準 breadcrumb 格式
-  - [ ] 1.3 實現 convert_natural_to_breadcrumb() 函數，使用現有搜尋服務進行語意轉換
-  - [ ] 1.4 添加錯誤處理和多候選結果支援，包含信心分數
-  - [ ] 1.5 實現快取機制，避免重複轉換相同的自然語言輸入
-  - [ ] 1.6 編寫 BreadcrumbResolver 的完整單元測試，覆蓋正常情況和邊界情況
-  - [ ] 1.7 添加日誌記錄，用於調試和監控轉換過程
+- [x] 1.0 實現共用 BreadcrumbResolver 服務
+  - [x] 1.1 創建 BreadcrumbResolver 服務類，包含 resolve() 方法
+  - [x] 1.2 實現 is_valid_breadcrumb() 檢查函數，驗證輸入是否為標準 breadcrumb 格式
+  - [x] 1.3 實現 convert_natural_to_breadcrumb() 函數，使用現有搜尋服務進行語意轉換
+  - [x] 1.4 添加錯誤處理和多候選結果支援，包含信心分數
+  - [x] 1.5 實現快取機制，避免重複轉換相同的自然語言輸入
+  - [x] 1.6 編寫 BreadcrumbResolver 的完整單元測試，覆蓋正常情況和邊界情況
+  - [x] 1.7 添加日誌記錄，用於調試和監控轉換過程
 
 - [ ] 2.0 實現 trace_function_chain_tool（最高優先級）
   - [ ] 2.1 創建 trace_function_chain() 函數，接受所有必要參數
