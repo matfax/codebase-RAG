@@ -38,18 +38,18 @@
   - [x] 1.6 編寫 BreadcrumbResolver 的完整單元測試，覆蓋正常情況和邊界情況
   - [x] 1.7 添加日誌記錄，用於調試和監控轉換過程
 
-- [ ] 2.0 實現 trace_function_chain_tool（最高優先級）
-  - [ ] 2.1 創建 trace_function_chain() 函數，接受所有必要參數
-  - [ ] 2.2 整合 BreadcrumbResolver 進行自然語言輸入處理
-  - [ ] 2.3 實現與 ImplementationChainService 的整合，支援 forward/backward/bidirectional 追蹤
-  - [ ] 2.4 實現預設箭頭格式輸出 (A => B => C)
-  - [ ] 2.5 添加可選的 Mermaid 圖表輸出格式
-  - [ ] 2.6 實現深度控制邏輯，預設最大深度為 10
-  - [ ] 2.7 添加分支點和終端點識別功能
-  - [ ] 2.8 實現錯誤處理，包含建議使用搜尋工具的提示
-  - [ ] 2.9 添加執行時間追蹤和效能監控
-  - [ ] 2.10 編寫完整的單元測試，包含各種追蹤方向和邊界情況
-  - [ ] 2.11 實現整合測試，驗證與現有 Graph RAG 基礎設施的相容性
+- [x] 2.0 實現 trace_function_chain_tool（最高優先級）
+  - [x] 2.1 創建 trace_function_chain() 函數，接受所有必要參數
+  - [x] 2.2 整合 BreadcrumbResolver 進行自然語言輸入處理
+  - [x] 2.3 實現與 ImplementationChainService 的整合，支援 forward/backward/bidirectional 追蹤
+  - [x] 2.4 實現預設箭頭格式輸出 (A => B => C)
+  - [x] 2.5 添加可選的 Mermaid 圖表輸出格式
+  - [x] 2.6 實現深度控制邏輯，預設最大深度為 10
+  - [x] 2.7 添加分支點和終端點識別功能
+  - [x] 2.8 實現錯誤處理，包含建議使用搜尋工具的提示
+  - [x] 2.9 添加執行時間追蹤和效能監控
+  - [x] 2.10 編寫完整的單元測試，包含各種追蹤方向和邊界情況
+  - [x] 2.11 實現整合測試，驗證與現有 Graph RAG 基礎設施的相容性
 
 - [ ] 3.0 實現 find_function_path_tool（次優先級）
   - [ ] 3.1 創建 find_function_path() 函數，支援起點和終點參數

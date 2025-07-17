@@ -856,6 +856,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         register_cascade_invalidation_tools(mcp_app)
 
     # Register Graph RAG tools (production mode)
+    from .graph_rag.function_chain_analysis import trace_function_chain
     from .graph_rag.pattern_identification import graph_identify_patterns
     from .graph_rag.similar_implementations import graph_find_similar_implementations
     from .graph_rag.structure_analysis import graph_analyze_structure
@@ -988,6 +989,56 @@ def register_tools(mcp_app: FastMCP) -> None:
             include_improvements,
             max_patterns,
             analysis_depth,
+        )
+
+    @mcp_app.tool()
+    async def trace_function_chain_tool(
+        entry_point: str,
+        project_name: str,
+        direction: str = "forward",
+        max_depth: int = 10,
+        output_format: str = "arrow",
+        include_mermaid: bool = False,
+        chain_type: str = "execution_flow",
+        min_link_strength: float = 0.3,
+        identify_branch_points: bool = True,
+        identify_terminal_points: bool = True,
+        performance_monitoring: bool = True,
+    ):
+        """Trace a complete function chain from an entry point with various analysis options.
+
+        This tool provides comprehensive function chain tracing capabilities, supporting
+        multiple directions (forward/backward/bidirectional), output formats, and
+        detailed analysis of execution flows, data flows, and dependencies.
+
+        Args:
+            entry_point: Function/class identifier (breadcrumb or natural language)
+            project_name: Name of the project to analyze
+            direction: Tracing direction ("forward", "backward", "bidirectional")
+            max_depth: Maximum depth for chain traversal (default: 10)
+            output_format: Output format ("arrow", "mermaid", "both")
+            include_mermaid: Whether to include Mermaid diagram output
+            chain_type: Type of chain to trace ("execution_flow", "data_flow", "dependency_chain")
+            min_link_strength: Minimum link strength threshold (0.0-1.0)
+            identify_branch_points: Whether to identify branch points in the chain
+            identify_terminal_points: Whether to identify terminal points in the chain
+            performance_monitoring: Whether to include performance monitoring
+
+        Returns:
+            Dictionary containing chain analysis results with formatted output
+        """
+        return await trace_function_chain(
+            entry_point,
+            project_name,
+            direction,
+            max_depth,
+            output_format,
+            include_mermaid,
+            chain_type,
+            min_link_strength,
+            identify_branch_points,
+            identify_terminal_points,
+            performance_monitoring,
         )
 
     logger.info("All MCP Tools registered successfully")
