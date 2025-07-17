@@ -3,11 +3,11 @@
   "current_wave": "3.0",
   "wave_description": "實現 find_function_path_tool（次優先級）",
   "wave_status": "in-progress",
-  "current_subtask": "3.3",
-  "subtask_description": "實現多路徑查找邏輯，支援 shortest/optimal/all 策略",
-  "completed_subtasks": ["3.1", "3.2"],
+  "current_subtask": "3.4",
+  "subtask_description": "實現路徑品質評估，包含可靠性和複雜度評分",
+  "completed_subtasks": ["3.1", "3.2", "3.3"],
   "wave_subtasks": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11"],
-  "overall_progress": "29%",
-  "wave_progress": "18%",
+  "overall_progress": "31%",
+  "wave_progress": "27%",
   "last_updated": "2024-01-15T14:30:00Z"
 }
