@@ -52,7 +52,7 @@
   - [x] 2.11 實現整合測試，驗證與現有 Graph RAG 基礎設施的相容性
 
 - [ ] 3.0 實現 find_function_path_tool（次優先級）
-  - [ ] 3.1 創建 find_function_path() 函數，支援起點和終點參數
+  - [x] 3.1 創建 find_function_path() 函數，支援起點和終點參數
   - [ ] 3.2 整合 BreadcrumbResolver 處理兩個函數的自然語言輸入
   - [ ] 3.3 實現多路徑查找邏輯，支援 shortest/optimal/all 策略
   - [ ] 3.4 實現路徑品質評估，包含可靠性和複雜度評分

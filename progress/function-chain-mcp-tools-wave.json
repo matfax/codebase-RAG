@@ -1,13 +1,13 @@
 {
   "agent": "function-chain-mcp-tools-wave",
-  "current_wave": "2.0",
-  "wave_description": "實現 trace_function_chain_tool（最高優先級）",
-  "wave_status": "completed",
-  "current_subtask": "completed",
-  "subtask_description": "All subtasks completed successfully",
-  "completed_subtasks": ["2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11"],
-  "wave_subtasks": ["2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11"],
-  "overall_progress": "25%",
-  "wave_progress": "100%",
-  "last_updated": "2025-07-17T14:00:00Z"
+  "current_wave": "3.0",
+  "wave_description": "實現 find_function_path_tool（次優先級）",
+  "wave_status": "in-progress",
+  "current_subtask": "3.2",
+  "subtask_description": "整合 BreadcrumbResolver 處理兩個函數的自然語言輸入",
+  "completed_subtasks": ["3.1"],
+  "wave_subtasks": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11"],
+  "overall_progress": "27%",
+  "wave_progress": "9%",
+  "last_updated": "2024-01-15T14:30:00Z"
 }
