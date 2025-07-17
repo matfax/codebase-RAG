@@ -855,4 +855,125 @@ def register_tools(mcp_app: FastMCP) -> None:
 
         register_cascade_invalidation_tools(mcp_app)
 
+    # Register Graph RAG tools (production mode)
+    from .graph_rag.structure_analysis import graph_analyze_structure
+    from .graph_rag.similar_implementations import graph_find_similar_implementations
+    from .graph_rag.pattern_identification import graph_identify_patterns
+
+    @mcp_app.tool()
+    async def graph_analyze_structure_tool(
+        breadcrumb: str,
+        project_name: str,
+        analysis_type: str = "comprehensive",
+        max_depth: int = 3,
+        include_siblings: bool = False,
+        include_connectivity: bool = True,
+        force_rebuild_graph: bool = False,
+    ):
+        """Analyze the structural relationships of a specific breadcrumb in the codebase.
+        
+        This tool leverages Graph RAG capabilities to provide deep structural analysis
+        of code components, including hierarchical relationships, connectivity patterns,
+        and related components within the codebase structure.
+        
+        Args:
+            breadcrumb: The breadcrumb path to analyze (e.g., "MyClass.method_name")
+            project_name: Name of the project to analyze within
+            analysis_type: Type of analysis ("comprehensive", "hierarchy", "connectivity", "overview")
+            max_depth: Maximum depth for relationship traversal (1-10, default: 3)  
+            include_siblings: Whether to include sibling components in the analysis
+            include_connectivity: Whether to analyze component connectivity patterns
+            force_rebuild_graph: Whether to force rebuild the structure graph
+        
+        Returns:
+            Dictionary containing structural analysis results with hierarchical relationships,
+            connectivity patterns, and related components
+        """
+        return await graph_analyze_structure(
+            breadcrumb, project_name, analysis_type, max_depth, 
+            include_siblings, include_connectivity, force_rebuild_graph
+        )
+
+    @mcp_app.tool()
+    async def graph_find_similar_implementations_tool(
+        query: str,
+        source_breadcrumb: str = None,
+        source_project: str = None,
+        target_projects: list[str] = None,
+        exclude_projects: list[str] = None,
+        chunk_types: list[str] = None,
+        languages: list[str] = None,
+        similarity_threshold: float = 0.7,
+        structural_weight: float = 0.5,
+        max_results: int = 10,
+        include_implementation_chains: bool = False,
+        include_architectural_context: bool = True,
+    ):
+        """Find similar implementations across projects using Graph RAG capabilities.
+        
+        This tool leverages cross-project search and implementation chain analysis
+        to find similar code implementations, patterns, and architectural solutions
+        across multiple indexed projects.
+        
+        Args:
+            query: Natural language description of what to search for
+            source_breadcrumb: Optional specific breadcrumb to find similar implementations for
+            source_project: Optional source project name (used with source_breadcrumb)
+            target_projects: List of specific projects to search in (default: all projects)
+            exclude_projects: List of projects to exclude from search
+            chunk_types: List of chunk types to include ("function", "class", "method", etc.)
+            languages: List of programming languages to include
+            similarity_threshold: Minimum semantic similarity score (0.0-1.0, default: 0.7)
+            structural_weight: Weight for structural vs semantic similarity (0.0-1.0, default: 0.5)
+            max_results: Maximum number of similar implementations to return (1-50, default: 10)
+            include_implementation_chains: Whether to include implementation chain analysis
+            include_architectural_context: Whether to include architectural context analysis
+        
+        Returns:
+            Dictionary containing similar implementations with similarity scores,
+            architectural context, and optional implementation chains
+        """
+        return await graph_find_similar_implementations(
+            query, source_breadcrumb, source_project, target_projects, exclude_projects,
+            chunk_types, languages, similarity_threshold, structural_weight, max_results,
+            include_implementation_chains, include_architectural_context
+        )
+
+    @mcp_app.tool()
+    async def graph_identify_patterns_tool(
+        project_name: str,
+        pattern_types: list[str] = None,
+        scope_breadcrumb: str = None,
+        min_confidence: float = 0.6,
+        include_comparisons: bool = True,
+        include_improvements: bool = False,
+        max_patterns: int = 20,
+        analysis_depth: str = "comprehensive",
+    ):
+        """Identify architectural patterns in a codebase using Graph RAG capabilities.
+        
+        This tool leverages pattern recognition algorithms to detect common
+        architectural patterns, design patterns, and code organization structures
+        within the analyzed codebase.
+        
+        Args:
+            project_name: Name of the project to analyze
+            pattern_types: List of specific pattern types to look for
+                          ("structural", "behavioral", "creational", "naming", "architectural")
+            scope_breadcrumb: Optional breadcrumb to limit analysis scope (e.g., "MyClass")
+            min_confidence: Minimum confidence threshold for pattern detection (0.0-1.0, default: 0.6)
+            include_comparisons: Whether to include pattern comparison analysis
+            include_improvements: Whether to suggest pattern improvements
+            max_patterns: Maximum number of patterns to return (1-50, default: 20)
+            analysis_depth: Depth of analysis ("basic", "comprehensive", "detailed")
+        
+        Returns:
+            Dictionary containing identified patterns with confidence scores,
+            pattern types, architectural context, and optional improvement suggestions
+        """
+        return await graph_identify_patterns(
+            project_name, pattern_types, scope_breadcrumb, min_confidence,
+            include_comparisons, include_improvements, max_patterns, analysis_depth
+        )
+
     logger.info("All MCP Tools registered successfully")
