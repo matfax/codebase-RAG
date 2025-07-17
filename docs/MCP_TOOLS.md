@@ -198,6 +198,100 @@ Reindex a specific file by clearing existing chunks and reprocessing.
 - Monitor memory usage during large indexing operations
 - Configure batch sizes based on system resources
 
+## Graph RAG Tools
+
+The Graph RAG tools provide advanced code relationship analysis by building and analyzing code dependency graphs. These tools work on-demand and require the project to be indexed first.
+
+### `graph_analyze_structure_tool` - Code Structure Analysis
+
+Analyze the hierarchical structure and relationships of code components using graph traversal algorithms.
+
+**Parameters:**
+- `breadcrumb` (required): The code component to analyze (e.g., "cache.service.RedisCacheService")
+- `project_name` (required): Name of the project to analyze
+- `analysis_type` (optional, default: "comprehensive"): Type of analysis ("comprehensive", "hierarchy", "connectivity", "overview")
+- `max_depth` (optional, default: 3): Maximum depth for relationship traversal (1-10)
+- `include_siblings` (optional, default: false): Whether to include sibling components
+- `include_connectivity` (optional, default: true): Whether to analyze connectivity patterns
+- `force_rebuild_graph` (optional, default: false): Force rebuild the structure graph
+
+**Example Usage:**
+```python
+result = await graph_analyze_structure_tool(
+    breadcrumb="cache.service.RedisCacheService",
+    project_name="my-project",
+    analysis_type="comprehensive"
+)
+```
+
+### `graph_find_similar_implementations_tool` - Cross-Project Similarity Search
+
+Find similar code implementations across projects using semantic and structural analysis.
+
+**Parameters:**
+- `query` (required): Natural language description of what to search for
+- `source_breadcrumb` (optional): Specific breadcrumb to find similar implementations for
+- `source_project` (optional): Source project name (used with source_breadcrumb)
+- `target_projects` (optional): List of specific projects to search in
+- `exclude_projects` (optional): List of projects to exclude from search
+- `chunk_types` (optional): List of chunk types to include ("function", "class", "method", etc.)
+- `languages` (optional): List of programming languages to include
+- `similarity_threshold` (optional, default: 0.7): Minimum similarity score (0.0-1.0)
+- `structural_weight` (optional, default: 0.5): Weight for structural vs semantic similarity
+- `max_results` (optional, default: 10): Maximum number of results (1-50)
+- `include_implementation_chains` (optional, default: false): Include implementation chain analysis
+- `include_architectural_context` (optional, default: true): Include architectural context
+
+**Example Usage:**
+```python
+result = await graph_find_similar_implementations_tool(
+    query="cache service implementation patterns",
+    target_projects=["project1", "project2"],
+    similarity_threshold=0.7
+)
+```
+
+### `graph_identify_patterns_tool` - Architectural Pattern Recognition
+
+Identify architectural patterns and design patterns in codebases using pattern recognition algorithms.
+
+**Parameters:**
+- `project_name` (required): Name of the project to analyze
+- `pattern_types` (optional): List of pattern types to look for ("structural", "behavioral", "creational", "naming", "architectural")
+- `scope_breadcrumb` (optional): Limit analysis to specific breadcrumb scope
+- `min_confidence` (optional, default: 0.6): Minimum confidence threshold (0.0-1.0)
+- `include_comparisons` (optional, default: true): Include pattern comparison analysis
+- `include_improvements` (optional, default: false): Suggest pattern improvements
+- `max_patterns` (optional, default: 20): Maximum number of patterns to return (1-50)
+- `analysis_depth` (optional, default: "comprehensive"): Depth of analysis ("basic", "comprehensive", "detailed")
+
+**Example Usage:**
+```python
+result = await graph_identify_patterns_tool(
+    project_name="my-project",
+    pattern_types=["architectural", "behavioral"],
+    min_confidence=0.6
+)
+```
+
+### Graph RAG Best Practices
+
+**Prerequisites:**
+1. **Index First**: Always index your project before using Graph RAG tools
+2. **Verify Data**: Use `check_index_status` to ensure adequate indexed data
+
+**Performance Tips:**
+- Graph building is done on-demand and cached for performance
+- Use `force_rebuild_graph=false` (default) to leverage caching
+- Monitor memory usage during graph analysis of large projects
+
+**Analysis Strategy:**
+1. Start with `graph_analyze_structure_tool` for component overview
+2. Use `graph_find_similar_implementations_tool` for cross-project insights
+3. Apply `graph_identify_patterns_tool` for architectural analysis
+
+For detailed information about Graph RAG architecture, see [Graph RAG Architecture Guide](GRAPH_RAG_ARCHITECTURE.md).
+
 ## Error Handling
 
 All tools include comprehensive error handling with:

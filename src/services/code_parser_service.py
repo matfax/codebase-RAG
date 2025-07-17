@@ -32,6 +32,7 @@ from .file_cache_service import get_file_cache_service
 
 # Import the new refactored services
 from .language_support_service import LanguageSupportService
+from .structure_analyzer_service import FileStructureContext, StructureAnalyzerService
 
 
 class CodeParserService:
@@ -49,6 +50,7 @@ class CodeParserService:
         # Initialize specialized services
         self.language_support = LanguageSupportService()
         self.ast_extractor = AstExtractionService()
+        self.structure_analyzer = StructureAnalyzerService()
 
         # Initialize file cache service (will be lazy-loaded)
         self.file_cache_service = None
@@ -188,10 +190,13 @@ class CodeParserService:
                 if error_recovery_used:
                     self._parse_stats["error_recovery_count"] += 1
 
-            # Step 5: Post-process and validate chunks
-            validated_chunks = self._validate_and_enhance_chunks(chunks, language, strategy)
+            # Step 5: Analyze structure and extract breadcrumbs for Graph RAG
+            file_structure_context = self.structure_analyzer.analyze_file_structure(file_path, language, content)
 
-            # Step 6: Calculate metrics and create result
+            # Step 6: Post-process and validate chunks with structure analysis
+            validated_chunks = self._validate_and_enhance_chunks(chunks, language, strategy, file_structure_context)
+
+            # Step 7: Calculate metrics and create result
             processing_time = (time.time() - start_time) * 1000
 
             parse_result = ParseResult(
@@ -207,7 +212,7 @@ class CodeParserService:
                 valid_sections_count=len(validated_chunks),
             )
 
-            # Step 7: Cache the parsing results
+            # Step 8: Cache the parsing results
             try:
                 # Create file metadata for caching
                 file_metadata = FileMetadata.from_file_path(file_path)
@@ -229,10 +234,10 @@ class CodeParserService:
                 # Don't fail parsing if caching fails
                 self.logger.warning(f"Failed to cache parsing results for {file_path}: {cache_error}")
 
-            # Step 8: Update statistics and metrics
+            # Step 9: Update statistics and metrics
             self._update_parsing_statistics(parse_result, language, strategy)
 
-            # Step 9: Log results
+            # Step 10: Log results
             self._log_parsing_results(parse_result, file_path)
 
             return parse_result
@@ -270,8 +275,10 @@ class CodeParserService:
         else:
             return FallbackChunkingStrategy(language)
 
-    def _validate_and_enhance_chunks(self, chunks: list[CodeChunk], language: str, strategy) -> list[CodeChunk]:
-        """Validate and enhance chunks with additional metadata."""
+    def _validate_and_enhance_chunks(
+        self, chunks: list[CodeChunk], language: str, strategy, file_structure_context: FileStructureContext = None
+    ) -> list[CodeChunk]:
+        """Validate and enhance chunks with additional metadata and structure analysis."""
         validated_chunks = []
 
         for chunk in chunks:
@@ -279,7 +286,17 @@ class CodeParserService:
             if strategy.validate_chunk(chunk):
                 # Add coordinator-level metadata
                 self._enhance_chunk_metadata(chunk, language)
-                validated_chunks.append(chunk)
+
+                # Enhance chunk with structure analysis for Graph RAG
+                if file_structure_context and self.structure_analyzer.is_language_supported(language):
+                    try:
+                        enhanced_chunk = self.structure_analyzer.enhance_chunk_with_structure(chunk, None, file_structure_context)
+                        validated_chunks.append(enhanced_chunk)
+                    except Exception as e:
+                        self.logger.warning(f"Structure analysis failed for chunk {chunk.name}: {e}")
+                        validated_chunks.append(chunk)  # Use original chunk if structure analysis fails
+                else:
+                    validated_chunks.append(chunk)
             else:
                 self.logger.debug(f"Chunk validation failed for {chunk.name} in {chunk.file_path}")
 
@@ -489,6 +506,8 @@ class CodeParserService:
             "cache_hits": 0,
             "cache_misses": 0,
         }
+        # Also reset structure analyzer statistics
+        self.structure_analyzer.reset_statistics()
 
     def reset_session_metrics(self):
         """
@@ -538,6 +557,9 @@ class CodeParserService:
             else 0.0
         )
 
+        # Get structure analysis statistics
+        structure_stats = self.structure_analyzer.get_analysis_statistics()
+
         return {
             "total_files_processed": self._parse_stats["total_files_processed"],
             "total_chunks_extracted": self._parse_stats["total_chunks_extracted"],
@@ -550,6 +572,16 @@ class CodeParserService:
             "cache_misses": self._parse_stats["cache_misses"],
             "strategy_usage": self._parse_stats["strategy_usage"].copy(),
             "supported_languages": len(self.get_supported_languages()),
+            # Graph RAG structure analysis metrics
+            "structure_analysis": {
+                "chunks_analyzed": structure_stats.get("chunks_analyzed", 0),
+                "breadcrumbs_extracted": structure_stats.get("breadcrumbs_extracted", 0),
+                "parent_names_identified": structure_stats.get("parent_names_identified", 0),
+                "breadcrumb_success_rate": structure_stats.get("breadcrumb_success_rate", 0.0),
+                "parent_name_success_rate": structure_stats.get("parent_name_success_rate", 0.0),
+                "validation_errors": structure_stats.get("validation_errors", 0),
+                "supported_languages": len(self.structure_analyzer.get_supported_languages()),
+            },
         }
 
     def _create_fallback_result(
