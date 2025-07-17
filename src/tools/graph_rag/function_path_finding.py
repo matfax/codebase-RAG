@@ -7,6 +7,7 @@ connected and identify the most efficient ways to navigate between them.
 
 import asyncio
 import logging
+import math
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -18,6 +19,13 @@ from src.services.implementation_chain_service import (
     ChainType,
     ImplementationChainService,
     get_implementation_chain_service,
+)
+from src.utils.output_formatters import (
+    MermaidStyle,
+    OutputFormat,
+    format_arrow_path,
+    format_comprehensive_output,
+    format_mermaid_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -260,31 +268,65 @@ async def find_function_path(
         if performance_monitoring:
             results["performance"]["quality_analysis_time"] = (time.time() - quality_start_time) * 1000
 
-        # Step 4: Format output
+        # Step 4: Format output using comprehensive formatting
         format_start_time = time.time()
 
-        # Format all paths
-        formatted_paths = []
+        # Convert FunctionPath objects to dictionaries for comprehensive formatting
+        path_dicts = []
         for path in final_paths:
-            formatted_path = _format_path_output(path, output_format, include_mermaid)
-            formatted_paths.append(formatted_path)
+            path_dict = {
+                "path_id": path.path_id,
+                "start_breadcrumb": path.start_breadcrumb,
+                "end_breadcrumb": path.end_breadcrumb,
+                "path_steps": path.path_steps,
+                "quality": {
+                    "reliability_score": path.quality.reliability_score,
+                    "complexity_score": path.quality.complexity_score,
+                    "directness_score": path.quality.directness_score,
+                    "overall_score": path.quality.overall_score,
+                    "path_length": path.quality.path_length,
+                    "confidence": path.quality.confidence,
+                    "relationship_diversity": path.quality.relationship_diversity,
+                },
+                "path_type": path.path_type,
+                "relationships": path.relationships,
+                "evidence": path.evidence,
+            }
+            path_dicts.append(path_dict)
 
-        results["paths"] = formatted_paths
+        # Determine output format enum
+        output_format_enum = OutputFormat.BOTH
+        if output_format == "arrow":
+            output_format_enum = OutputFormat.ARROW
+        elif output_format == "mermaid":
+            output_format_enum = OutputFormat.MERMAID
+
+        # Use comprehensive formatting with enhanced features
+        comprehensive_output = format_comprehensive_output(
+            path_dicts,
+            output_format=output_format_enum,
+            include_comparison=True,
+            include_recommendations=True,
+            mermaid_style=MermaidStyle.FLOWCHART,
+            custom_styling=None,
+        )
+
+        # Extract formatted results
+        results["paths"] = comprehensive_output["paths"]
         results["total_paths_found"] = len(paths)
         results["paths_meeting_threshold"] = len(quality_paths)
         results["paths_returned"] = len(final_paths)
+        results["summary"] = comprehensive_output["summary"]
 
         # Add path diversity analysis if requested
         if include_path_diversity and final_paths:
             results["path_diversity"] = _analyze_path_diversity(final_paths)
 
-        # Add path recommendation
-        recommendation = _generate_path_recommendation(final_paths)
-        results["recommendation"] = recommendation
-
-        # Add path comparison
-        if len(final_paths) > 1:
-            results["path_comparison"] = _compare_paths(final_paths)
+        # Add comprehensive recommendations and comparison
+        if "recommendations" in comprehensive_output:
+            results["recommendation"] = comprehensive_output["recommendations"]
+        if "comparison" in comprehensive_output:
+            results["path_comparison"] = comprehensive_output["comparison"]
 
         if performance_monitoring:
             results["performance"]["formatting_time"] = (time.time() - format_start_time) * 1000
@@ -1055,7 +1097,7 @@ def _apply_strategy_filtering(paths: list[FunctionPath], strategy: PathStrategy,
 
 def _format_path_output(path: FunctionPath, output_format: str, include_mermaid: bool) -> dict[str, Any]:
     """
-    Format path output for display.
+    Format path output for display using comprehensive formatting utilities.
 
     Args:
         path: The path to format
@@ -1065,7 +1107,7 @@ def _format_path_output(path: FunctionPath, output_format: str, include_mermaid:
     Returns:
         Formatted path information
     """
-    # This will be implemented in subtask 3.8
+    # Base path information
     formatted = {
         "path_id": path.path_id,
         "start_breadcrumb": path.start_breadcrumb,
@@ -1085,135 +1127,1144 @@ def _format_path_output(path: FunctionPath, output_format: str, include_mermaid:
         "evidence": path.evidence,
     }
 
+    # Add comprehensive arrow formatting
     if output_format in ["arrow", "both"]:
-        formatted["arrow_format"] = " => ".join(path.path_steps)
+        formatted["arrow_format"] = format_arrow_path(
+            path.path_steps, path.relationships, include_relationships=True, custom_separator=" => ", max_line_length=80
+        )
 
+    # Add comprehensive Mermaid formatting
     if output_format in ["mermaid", "both"] or include_mermaid:
-        formatted["mermaid_format"] = _generate_mermaid_format(path)
+        formatted["mermaid_format"] = format_mermaid_path(
+            path.path_steps,
+            path.relationships,
+            path.path_id,
+            MermaidStyle.FLOWCHART,
+            include_quality_info=True,
+            quality_scores=formatted["quality"],
+            custom_styling=None,
+        )
 
     return formatted
 
 
-def _generate_mermaid_format(path: FunctionPath) -> str:
-    """
-    Generate Mermaid diagram format for a path.
-
-    Args:
-        path: The path to format
-
-    Returns:
-        Mermaid diagram string
-    """
-    # This will be enhanced in subtask 3.8
-    lines = ["graph TD"]
-
-    for i, step in enumerate(path.path_steps):
-        node_id = f"N{i}"
-        lines.append(f"    {node_id}[{step}]")
-
-        if i < len(path.path_steps) - 1:
-            next_node_id = f"N{i + 1}"
-            lines.append(f"    {node_id} --> {next_node_id}")
-
-    return "\n".join(lines)
-
-
 def _analyze_path_diversity(paths: list[FunctionPath]) -> dict[str, Any]:
     """
-    Analyze diversity of paths.
+    Analyze diversity of paths including relationship types and structural variety.
+
+    This function calculates multiple diversity metrics to help users understand
+    the variety of paths available between two functions.
 
     Args:
         paths: List of paths to analyze
 
     Returns:
-        Diversity analysis results
+        Diversity analysis results with comprehensive metrics
     """
-    # This will be implemented in subtask 3.5
+    if not paths:
+        return {
+            "total_paths": 0,
+            "diversity_score": 0.0,
+            "relationship_diversity": 0.0,
+            "length_diversity": 0.0,
+            "type_diversity": 0.0,
+            "analysis": "No paths available for diversity analysis",
+        }
+
+    # Basic path statistics
+    total_paths = len(paths)
+    path_lengths = [path.quality.path_length for path in paths]
+    average_path_length = sum(path_lengths) / total_paths
+
+    # 1. Relationship Type Diversity
+    all_relationships = set()
+    relationship_frequency = {}
+
+    for path in paths:
+        for rel in path.relationships:
+            all_relationships.add(rel)
+            relationship_frequency[rel] = relationship_frequency.get(rel, 0) + 1
+
+    unique_relationship_types = len(all_relationships)
+
+    # Calculate relationship diversity using Shannon entropy
+    relationship_diversity = _calculate_shannon_entropy(relationship_frequency)
+
+    # 2. Path Length Diversity
+    length_variance = _calculate_variance(path_lengths)
+    length_diversity = min(1.0, length_variance / 10.0)  # Normalize to 0-1
+
+    # 3. Path Type Diversity
+    path_types = [path.path_type for path in paths]
+    path_type_frequency = {}
+    for path_type in path_types:
+        path_type_frequency[path_type] = path_type_frequency.get(path_type, 0) + 1
+
+    unique_path_types = len(set(path_types))
+    type_diversity = _calculate_shannon_entropy(path_type_frequency)
+
+    # 4. Quality Score Diversity
+    quality_scores = [path.quality.overall_score for path in paths]
+    quality_variance = _calculate_variance(quality_scores)
+    quality_diversity = min(1.0, quality_variance * 4.0)  # Normalize to 0-1
+
+    # 5. Structural Complexity Diversity
+    complexity_scores = [path.quality.complexity_score for path in paths]
+    complexity_variance = _calculate_variance(complexity_scores)
+    complexity_diversity = min(1.0, complexity_variance * 4.0)  # Normalize to 0-1
+
+    # 6. Overall Diversity Score
+    # Weighted combination of different diversity metrics
+    diversity_score = (
+        relationship_diversity * 0.3
+        + length_diversity * 0.2
+        + type_diversity * 0.2
+        + quality_diversity * 0.15
+        + complexity_diversity * 0.15
+    )
+
+    # 7. Path Uniqueness Analysis
+    unique_path_signatures = set()
+    for path in paths:
+        # Create a signature based on key characteristics
+        signature = (
+            tuple(path.path_steps),
+            path.path_type,
+            len(path.relationships),
+        )
+        unique_path_signatures.add(signature)
+
+    uniqueness_ratio = len(unique_path_signatures) / total_paths
+
+    # 8. Relationship Pattern Analysis
+    relationship_patterns = _analyze_relationship_patterns(paths)
+
+    # 9. Coverage Analysis
+    coverage_analysis = _analyze_path_coverage(paths)
+
     return {
-        "total_paths": len(paths),
-        "unique_relationship_types": len({rel for path in paths for rel in path.relationships}),
-        "average_path_length": sum(path.quality.path_length for path in paths) / len(paths),
-        "diversity_score": 0.7,  # Placeholder
+        "total_paths": total_paths,
+        "diversity_score": diversity_score,
+        # Core diversity metrics
+        "relationship_diversity": relationship_diversity,
+        "length_diversity": length_diversity,
+        "type_diversity": type_diversity,
+        "quality_diversity": quality_diversity,
+        "complexity_diversity": complexity_diversity,
+        # Basic statistics
+        "unique_relationship_types": unique_relationship_types,
+        "unique_path_types": unique_path_types,
+        "average_path_length": average_path_length,
+        "path_length_range": {
+            "min": min(path_lengths),
+            "max": max(path_lengths),
+            "variance": length_variance,
+        },
+        # Advanced analysis
+        "uniqueness_ratio": uniqueness_ratio,
+        "relationship_frequency": relationship_frequency,
+        "path_type_distribution": path_type_frequency,
+        "relationship_patterns": relationship_patterns,
+        "coverage_analysis": coverage_analysis,
+        # Quality analysis
+        "quality_score_range": {
+            "min": min(quality_scores),
+            "max": max(quality_scores),
+            "average": sum(quality_scores) / len(quality_scores),
+            "variance": quality_variance,
+        },
+        # Recommendations
+        "diversity_recommendations": _generate_diversity_recommendations(
+            diversity_score, relationship_diversity, length_diversity, type_diversity
+        ),
     }
+
+
+def _calculate_shannon_entropy(frequency_dict: dict[str, int]) -> float:
+    """
+    Calculate Shannon entropy for diversity measurement.
+
+    Args:
+        frequency_dict: Dictionary of item frequencies
+
+    Returns:
+        Shannon entropy value (0.0-1.0, normalized)
+    """
+    if not frequency_dict:
+        return 0.0
+
+    total = sum(frequency_dict.values())
+    if total == 0:
+        return 0.0
+
+    entropy = 0.0
+    for count in frequency_dict.values():
+        if count > 0:
+            probability = count / total
+            entropy -= probability * math.log2(probability)
+
+    # Normalize to 0-1 range (max entropy is log2(n) where n is number of unique items)
+    max_entropy = math.log2(len(frequency_dict)) if len(frequency_dict) > 1 else 1.0
+    return entropy / max_entropy if max_entropy > 0 else 0.0
+
+
+def _calculate_variance(values: list[float]) -> float:
+    """
+    Calculate variance of a list of values.
+
+    Args:
+        values: List of numeric values
+
+    Returns:
+        Variance value
+    """
+    if len(values) < 2:
+        return 0.0
+
+    mean = sum(values) / len(values)
+    variance = sum((x - mean) ** 2 for x in values) / len(values)
+    return variance
+
+
+def _analyze_relationship_patterns(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Analyze patterns in relationship types across paths.
+
+    Args:
+        paths: List of paths to analyze
+
+    Returns:
+        Relationship pattern analysis
+    """
+
+    # Pattern 1: Common relationship sequences
+    relationship_sequences = []
+    for path in paths:
+        if len(path.relationships) > 1:
+            for i in range(len(path.relationships) - 1):
+                sequence = (path.relationships[i], path.relationships[i + 1])
+                relationship_sequences.append(sequence)
+
+    sequence_frequency = {}
+    for seq in relationship_sequences:
+        sequence_frequency[seq] = sequence_frequency.get(seq, 0) + 1
+
+    # Pattern 2: Relationship dominance
+    all_relationships = []
+    for path in paths:
+        all_relationships.extend(path.relationships)
+
+    relationship_counts = {}
+    for rel in all_relationships:
+        relationship_counts[rel] = relationship_counts.get(rel, 0) + 1
+
+    # Find dominant relationship type
+    dominant_relationship = max(relationship_counts.items(), key=lambda x: x[1]) if relationship_counts else None
+
+    # Pattern 3: Path relationship consistency
+    path_consistency = []
+    for path in paths:
+        unique_rels = set(path.relationships)
+        consistency = len(unique_rels) / len(path.relationships) if path.relationships else 0.0
+        path_consistency.append(consistency)
+
+    avg_consistency = sum(path_consistency) / len(path_consistency) if path_consistency else 0.0
+
+    return {
+        "common_sequences": dict(sorted(sequence_frequency.items(), key=lambda x: x[1], reverse=True)[:5]),
+        "dominant_relationship": dominant_relationship,
+        "relationship_distribution": relationship_counts,
+        "average_path_consistency": avg_consistency,
+        "total_relationship_instances": len(all_relationships),
+    }
+
+
+def _analyze_path_coverage(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Analyze coverage provided by the set of paths.
+
+    Args:
+        paths: List of paths to analyze
+
+    Returns:
+        Coverage analysis results
+    """
+    if not paths:
+        return {"coverage_score": 0.0, "analysis": "No paths for coverage analysis"}
+
+    # 1. Node coverage - how many unique nodes are covered
+    all_nodes = set()
+    for path in paths:
+        all_nodes.update(path.path_steps)
+
+    unique_nodes_covered = len(all_nodes)
+
+    # 2. Relationship coverage - how many unique relationships are covered
+    all_relationships = set()
+    for path in paths:
+        all_relationships.update(path.relationships)
+
+    unique_relationships_covered = len(all_relationships)
+
+    # 3. Path type coverage - how many different path types are covered
+    path_types = {path.path_type for path in paths}
+    unique_path_types_covered = len(path_types)
+
+    # 4. Quality spectrum coverage - how well different quality levels are covered
+    quality_scores = [path.quality.overall_score for path in paths]
+    quality_range = max(quality_scores) - min(quality_scores) if quality_scores else 0.0
+
+    # 5. Length spectrum coverage - how well different path lengths are covered
+    path_lengths = [path.quality.path_length for path in paths]
+    length_range = max(path_lengths) - min(path_lengths) if path_lengths else 0.0
+
+    # Overall coverage score
+    coverage_score = min(
+        1.0,
+        (
+            unique_nodes_covered * 0.3
+            + unique_relationships_covered * 0.3
+            + unique_path_types_covered * 0.2
+            + quality_range * 0.1
+            + length_range * 0.1
+        )
+        / 10.0,
+    )  # Normalize
+
+    return {
+        "coverage_score": coverage_score,
+        "unique_nodes_covered": unique_nodes_covered,
+        "unique_relationships_covered": unique_relationships_covered,
+        "unique_path_types_covered": unique_path_types_covered,
+        "quality_range": quality_range,
+        "length_range": length_range,
+        "coverage_breakdown": {
+            "node_coverage": unique_nodes_covered,
+            "relationship_coverage": unique_relationships_covered,
+            "type_coverage": unique_path_types_covered,
+            "quality_spectrum": quality_range,
+            "length_spectrum": length_range,
+        },
+    }
+
+
+def _generate_diversity_recommendations(
+    diversity_score: float,
+    relationship_diversity: float,
+    length_diversity: float,
+    type_diversity: float,
+) -> list[str]:
+    """
+    Generate recommendations based on diversity analysis.
+
+    Args:
+        diversity_score: Overall diversity score
+        relationship_diversity: Relationship type diversity
+        length_diversity: Path length diversity
+        type_diversity: Path type diversity
+
+    Returns:
+        List of recommendations
+    """
+    recommendations = []
+
+    if diversity_score < 0.3:
+        recommendations.append("Low overall diversity - consider expanding search parameters")
+    elif diversity_score > 0.8:
+        recommendations.append("High path diversity - good coverage of different approaches")
+
+    if relationship_diversity < 0.3:
+        recommendations.append("Limited relationship type diversity - paths use similar connection types")
+
+    if length_diversity < 0.2:
+        recommendations.append("Similar path lengths - consider different search strategies for varied complexity")
+
+    if type_diversity < 0.3:
+        recommendations.append("Limited path type diversity - try different chain types for more variety")
+
+    # Positive recommendations
+    if diversity_score > 0.6:
+        recommendations.append("Good diversity provides multiple viable approaches")
+
+    if relationship_diversity > 0.7:
+        recommendations.append("Rich relationship diversity shows various connection patterns")
+
+    if not recommendations:
+        recommendations.append("Balanced diversity across all metrics")
+
+    return recommendations
 
 
 def _generate_path_recommendation(paths: list[FunctionPath]) -> dict[str, Any]:
     """
-    Generate recommendation for the best path.
+    Generate intelligent recommendations for the best paths based on multiple criteria.
+
+    This function analyzes all paths to identify the most direct, most reliable,
+    and most balanced options, providing detailed reasoning for each recommendation.
 
     Args:
         paths: List of paths to analyze
 
     Returns:
-        Path recommendation
+        Comprehensive path recommendation with alternatives and reasoning
     """
-    # This will be implemented in subtask 3.7
     if not paths:
         return {
             "recommended_path": None,
             "reason": "No paths available",
             "alternatives": [],
-            "suggestions": ["Try using different search parameters"],
+            "suggestions": ["Try using different search parameters", "Increase max_depth parameter", "Lower quality threshold"],
         }
 
-    # For now, recommend the first path (highest quality score)
-    recommended = paths[0]
-    alternatives = paths[1:3]  # Up to 2 alternatives
+    # Sort paths by overall quality score (descending)
+    sorted_paths = sorted(paths, key=lambda p: p.quality.overall_score, reverse=True)
+
+    # Find specialized paths
+    most_direct = min(paths, key=lambda p: p.quality.path_length)
+    most_reliable = max(paths, key=lambda p: p.quality.reliability_score)
+    most_balanced = max(paths, key=lambda p: p.quality.overall_score)
+    least_complex = min(paths, key=lambda p: p.quality.complexity_score)
+
+    # Primary recommendation (highest overall score)
+    primary_recommendation = sorted_paths[0]
+
+    # Generate detailed reasoning for the primary recommendation
+    primary_reasoning = _generate_recommendation_reasoning(primary_recommendation, paths)
+
+    # Generate alternative recommendations
+    alternatives = []
+
+    # Add most direct path if different from primary
+    if most_direct.path_id != primary_recommendation.path_id:
+        alternatives.append(
+            {
+                "path_id": most_direct.path_id,
+                "type": "most_direct",
+                "overall_score": most_direct.quality.overall_score,
+                "path_length": most_direct.quality.path_length,
+                "reason": f"Shortest path with only {most_direct.quality.path_length} steps",
+                "trade_offs": "May sacrifice some reliability for directness",
+            }
+        )
+
+    # Add most reliable path if different from primary
+    if most_reliable.path_id != primary_recommendation.path_id:
+        alternatives.append(
+            {
+                "path_id": most_reliable.path_id,
+                "type": "most_reliable",
+                "overall_score": most_reliable.quality.overall_score,
+                "reliability_score": most_reliable.quality.reliability_score,
+                "reason": f"Highest reliability score ({most_reliable.quality.reliability_score:.2f})",
+                "trade_offs": "May be longer but more dependable",
+            }
+        )
+
+    # Add least complex path if different from primary
+    if least_complex.path_id != primary_recommendation.path_id:
+        alternatives.append(
+            {
+                "path_id": least_complex.path_id,
+                "type": "least_complex",
+                "overall_score": least_complex.quality.overall_score,
+                "complexity_score": least_complex.quality.complexity_score,
+                "reason": f"Lowest complexity score ({least_complex.quality.complexity_score:.2f})",
+                "trade_offs": "Simplest path, easier to understand and maintain",
+            }
+        )
+
+    # Add up to 2 more high-quality alternatives
+    remaining_paths = [p for p in sorted_paths[1:] if p.path_id not in [alt.get("path_id") for alt in alternatives]]
+    for i, path in enumerate(remaining_paths[:2]):
+        alternatives.append(
+            {
+                "path_id": path.path_id,
+                "type": "high_quality_alternative",
+                "overall_score": path.quality.overall_score,
+                "reason": f"Alternative #{i+1} with good overall quality ({path.quality.overall_score:.2f})",
+                "trade_offs": "Balanced approach with good all-around performance",
+            }
+        )
+
+    # Generate usage suggestions
+    suggestions = _generate_usage_suggestions(primary_recommendation, paths, alternatives)
+
+    # Calculate recommendation confidence
+    confidence = _calculate_recommendation_confidence(primary_recommendation, paths)
 
     return {
         "recommended_path": {
-            "path_id": recommended.path_id,
-            "start_breadcrumb": recommended.start_breadcrumb,
-            "end_breadcrumb": recommended.end_breadcrumb,
-            "overall_score": recommended.quality.overall_score,
-            "reason": "Highest overall quality score",
+            "path_id": primary_recommendation.path_id,
+            "start_breadcrumb": primary_recommendation.start_breadcrumb,
+            "end_breadcrumb": primary_recommendation.end_breadcrumb,
+            "overall_score": primary_recommendation.quality.overall_score,
+            "path_length": primary_recommendation.quality.path_length,
+            "reliability_score": primary_recommendation.quality.reliability_score,
+            "complexity_score": primary_recommendation.quality.complexity_score,
+            "path_type": primary_recommendation.path_type,
+            "confidence": confidence,
         },
-        "reason": f"This path has the highest overall quality score ({recommended.quality.overall_score:.2f})",
-        "alternatives": [
-            {
-                "path_id": alt.path_id,
-                "overall_score": alt.quality.overall_score,
-                "reason": "Alternative with good quality",
-            }
-            for alt in alternatives
-        ],
-        "suggestions": [
-            "Consider the recommended path for most reliable results",
-            "Check alternatives if you need different characteristics",
-        ],
+        "reason": primary_reasoning,
+        "alternatives": alternatives[:5],  # Limit to 5 alternatives
+        "suggestions": suggestions,
+        "analysis": {
+            "total_paths_analyzed": len(paths),
+            "recommendation_confidence": confidence,
+            "quality_spread": {
+                "highest": max(p.quality.overall_score for p in paths),
+                "lowest": min(p.quality.overall_score for p in paths),
+                "average": sum(p.quality.overall_score for p in paths) / len(paths),
+            },
+            "specialized_paths": {
+                "most_direct_id": most_direct.path_id,
+                "most_reliable_id": most_reliable.path_id,
+                "most_balanced_id": most_balanced.path_id,
+                "least_complex_id": least_complex.path_id,
+            },
+        },
     }
+
+
+def _generate_recommendation_reasoning(path: FunctionPath, all_paths: list[FunctionPath]) -> str:
+    """
+    Generate detailed reasoning for why a path is recommended.
+
+    Args:
+        path: The recommended path
+        all_paths: All available paths for comparison
+
+    Returns:
+        Detailed reasoning string
+    """
+    reasons = []
+
+    # Overall quality reasoning
+    if path.quality.overall_score >= 0.8:
+        reasons.append(f"exceptional overall quality score ({path.quality.overall_score:.2f})")
+    elif path.quality.overall_score >= 0.6:
+        reasons.append(f"good overall quality score ({path.quality.overall_score:.2f})")
+    else:
+        reasons.append(f"acceptable quality score ({path.quality.overall_score:.2f})")
+
+    # Reliability reasoning
+    if path.quality.reliability_score >= 0.8:
+        reasons.append("high reliability")
+    elif path.quality.reliability_score >= 0.6:
+        reasons.append("good reliability")
+
+    # Directness reasoning
+    if path.quality.path_length <= 3:
+        reasons.append("very direct connection")
+    elif path.quality.path_length <= 5:
+        reasons.append("reasonably direct path")
+
+    # Complexity reasoning
+    if path.quality.complexity_score <= 0.3:
+        reasons.append("low complexity")
+    elif path.quality.complexity_score <= 0.5:
+        reasons.append("moderate complexity")
+
+    # Comparison with alternatives
+    if len(all_paths) > 1:
+        better_quality_count = sum(1 for p in all_paths if p.quality.overall_score > path.quality.overall_score)
+        if better_quality_count == 0:
+            reasons.append("highest quality among all options")
+        elif better_quality_count <= len(all_paths) * 0.2:
+            reasons.append("among the top-quality options")
+
+    # Path type reasoning
+    if path.path_type == "execution_flow":
+        reasons.append("follows execution flow patterns")
+    elif path.path_type == "dependency_chain":
+        reasons.append("based on dependency relationships")
+
+    return f"Recommended because it has {', '.join(reasons)}."
+
+
+def _generate_usage_suggestions(primary_path: FunctionPath, all_paths: list[FunctionPath], alternatives: list[dict]) -> list[str]:
+    """
+    Generate usage suggestions based on path analysis.
+
+    Args:
+        primary_path: The primary recommended path
+        all_paths: All available paths
+        alternatives: Alternative path recommendations
+
+    Returns:
+        List of usage suggestions
+    """
+    suggestions = []
+
+    # Primary path suggestions
+    if primary_path.quality.overall_score >= 0.8:
+        suggestions.append("The recommended path is high-quality and suitable for most use cases")
+    elif primary_path.quality.overall_score >= 0.6:
+        suggestions.append("The recommended path provides good balance of quality factors")
+    else:
+        suggestions.append("Consider alternatives if higher quality is needed")
+
+    # Alternative suggestions
+    if alternatives:
+        if any(alt.get("type") == "most_direct" for alt in alternatives):
+            suggestions.append("Choose the most direct alternative for simple, quick connections")
+
+        if any(alt.get("type") == "most_reliable" for alt in alternatives):
+            suggestions.append("Choose the most reliable alternative for production-critical paths")
+
+        if any(alt.get("type") == "least_complex" for alt in alternatives):
+            suggestions.append("Choose the least complex alternative for easier maintenance")
+
+    # Path length suggestions
+    if primary_path.quality.path_length > 5:
+        suggestions.append("Consider if a shorter path might be more maintainable")
+
+    # Reliability suggestions
+    if primary_path.quality.reliability_score < 0.6:
+        suggestions.append("Verify the path reliability before using in production")
+
+    # Complexity suggestions
+    if primary_path.quality.complexity_score > 0.7:
+        suggestions.append("This path is complex - consider documentation or simplification")
+
+    # General suggestions
+    if len(all_paths) > 3:
+        suggestions.append("Multiple paths available - choose based on your specific requirements")
+
+    if not suggestions:
+        suggestions.append("The recommended path is well-suited for typical use cases")
+
+    return suggestions
+
+
+def _calculate_recommendation_confidence(path: FunctionPath, all_paths: list[FunctionPath]) -> float:
+    """
+    Calculate confidence in the recommendation.
+
+    Args:
+        path: The recommended path
+        all_paths: All available paths
+
+    Returns:
+        Confidence score (0.0-1.0)
+    """
+    if len(all_paths) == 1:
+        return path.quality.overall_score
+
+    # Base confidence from path quality
+    base_confidence = path.quality.overall_score
+
+    # Confidence boost from being significantly better than alternatives
+    other_scores = [p.quality.overall_score for p in all_paths if p.path_id != path.path_id]
+    if other_scores:
+        score_advantage = path.quality.overall_score - max(other_scores)
+        advantage_bonus = min(0.2, score_advantage * 0.5)  # Up to 0.2 bonus
+        base_confidence += advantage_bonus
+
+    # Confidence adjustment based on path characteristics
+    if path.quality.reliability_score >= 0.8:
+        base_confidence *= 1.1
+    elif path.quality.reliability_score < 0.5:
+        base_confidence *= 0.9
+
+    # Confidence adjustment based on path length
+    if path.quality.path_length <= 3:
+        base_confidence *= 1.05
+    elif path.quality.path_length > 7:
+        base_confidence *= 0.95
+
+    return min(1.0, base_confidence)
 
 
 def _compare_paths(paths: list[FunctionPath]) -> dict[str, Any]:
     """
-    Compare multiple paths.
+    Perform comprehensive comparison of multiple paths across various dimensions.
+
+    This function analyzes paths to identify trade-offs, strengths, and weaknesses,
+    providing detailed comparative analysis to help users make informed decisions.
 
     Args:
         paths: List of paths to compare
 
     Returns:
-        Path comparison results
+        Comprehensive path comparison results
     """
-    # This will be implemented in subtask 3.7
     if len(paths) < 2:
-        return {"comparison": "Need at least 2 paths for comparison"}
+        return {
+            "comparison": "Need at least 2 paths for comparison",
+            "total_paths": len(paths),
+            "analysis": "Cannot perform comparative analysis with fewer than 2 paths",
+        }
 
-    # Calculate statistics
+    # Basic statistics
     quality_scores = [path.quality.overall_score for path in paths]
     path_lengths = [path.quality.path_length for path in paths]
+    reliability_scores = [path.quality.reliability_score for path in paths]
+
+    # Find specialized paths
+    most_direct = min(paths, key=lambda p: p.quality.path_length)
+    most_reliable = max(paths, key=lambda p: p.quality.reliability_score)
+    highest_quality = max(paths, key=lambda p: p.quality.overall_score)
+    least_complex = min(paths, key=lambda p: p.quality.complexity_score)
+    most_confident = max(paths, key=lambda p: p.quality.confidence)
+
+    # Calculate comparison metrics
+    quality_variance = _calculate_variance(quality_scores)
+    length_variance = _calculate_variance(path_lengths)
+    reliability_variance = _calculate_variance(reliability_scores)
+
+    # Path type analysis
+    path_types = [path.path_type for path in paths]
+    path_type_distribution = {}
+    for path_type in path_types:
+        path_type_distribution[path_type] = path_type_distribution.get(path_type, 0) + 1
+
+    # Relationship analysis
+    all_relationships = set()
+    for path in paths:
+        all_relationships.update(path.relationships)
+
+    # Trade-off analysis
+    trade_offs = _analyze_path_trade_offs(paths)
+
+    # Clustering analysis
+    path_clusters = _cluster_similar_paths(paths)
+
+    # Ranking analysis
+    rankings = _generate_path_rankings(paths)
+
+    # Comparative advantages
+    comparative_advantages = _identify_comparative_advantages(paths)
 
     return {
         "total_paths": len(paths),
-        "quality_range": {
+        "comparison_summary": {
+            "quality_spread": max(quality_scores) - min(quality_scores),
+            "length_spread": max(path_lengths) - min(path_lengths),
+            "reliability_spread": max(reliability_scores) - min(reliability_scores),
+            "avg_quality": sum(quality_scores) / len(quality_scores),
+            "avg_length": sum(path_lengths) / len(path_lengths),
+            "avg_reliability": sum(reliability_scores) / len(reliability_scores),
+        },
+        # Detailed statistics
+        "quality_statistics": {
             "min": min(quality_scores),
             "max": max(quality_scores),
             "avg": sum(quality_scores) / len(quality_scores),
+            "variance": quality_variance,
+            "distribution": _create_score_distribution(quality_scores),
         },
-        "length_range": {
+        "length_statistics": {
             "min": min(path_lengths),
             "max": max(path_lengths),
             "avg": sum(path_lengths) / len(path_lengths),
+            "variance": length_variance,
+            "distribution": _create_length_distribution(path_lengths),
         },
-        "most_direct": min(paths, key=lambda p: p.quality.path_length).path_id,
-        "most_reliable": max(paths, key=lambda p: p.quality.reliability_score).path_id,
+        "reliability_statistics": {
+            "min": min(reliability_scores),
+            "max": max(reliability_scores),
+            "avg": sum(reliability_scores) / len(reliability_scores),
+            "variance": reliability_variance,
+            "distribution": _create_score_distribution(reliability_scores),
+        },
+        # Specialized paths
+        "specialized_paths": {
+            "most_direct": {
+                "path_id": most_direct.path_id,
+                "length": most_direct.quality.path_length,
+                "quality": most_direct.quality.overall_score,
+                "advantage": "Shortest connection",
+            },
+            "most_reliable": {
+                "path_id": most_reliable.path_id,
+                "reliability": most_reliable.quality.reliability_score,
+                "quality": most_reliable.quality.overall_score,
+                "advantage": "Highest reliability",
+            },
+            "highest_quality": {
+                "path_id": highest_quality.path_id,
+                "quality": highest_quality.quality.overall_score,
+                "advantage": "Best overall quality",
+            },
+            "least_complex": {
+                "path_id": least_complex.path_id,
+                "complexity": least_complex.quality.complexity_score,
+                "quality": least_complex.quality.overall_score,
+                "advantage": "Simplest implementation",
+            },
+            "most_confident": {
+                "path_id": most_confident.path_id,
+                "confidence": most_confident.quality.confidence,
+                "quality": most_confident.quality.overall_score,
+                "advantage": "Highest confidence",
+            },
+        },
+        # Path type analysis
+        "path_type_analysis": {
+            "distribution": path_type_distribution,
+            "unique_types": len(set(path_types)),
+            "dominant_type": max(path_type_distribution.items(), key=lambda x: x[1])[0],
+        },
+        # Relationship analysis
+        "relationship_analysis": {
+            "total_unique_relationships": len(all_relationships),
+            "relationship_types": list(all_relationships),
+            "paths_with_most_relationships": max(paths, key=lambda p: len(p.relationships)).path_id,
+        },
+        # Advanced analysis
+        "trade_off_analysis": trade_offs,
+        "path_clusters": path_clusters,
+        "rankings": rankings,
+        "comparative_advantages": comparative_advantages,
+        # Recommendations
+        "comparison_insights": _generate_comparison_insights(paths, trade_offs),
+        "selection_guidance": _generate_selection_guidance(paths, rankings),
     }
+
+
+def _analyze_path_trade_offs(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Analyze trade-offs between different paths.
+
+    Args:
+        paths: List of paths to analyze
+
+    Returns:
+        Trade-off analysis results
+    """
+    trade_offs = {}
+
+    # Quality vs Length trade-off
+    quality_length_correlation = _calculate_correlation([p.quality.overall_score for p in paths], [p.quality.path_length for p in paths])
+
+    # Reliability vs Complexity trade-off
+    reliability_complexity_correlation = _calculate_correlation(
+        [p.quality.reliability_score for p in paths], [p.quality.complexity_score for p in paths]
+    )
+
+    # Directness vs Reliability trade-off
+    directness_reliability_correlation = _calculate_correlation(
+        [1.0 / p.quality.path_length for p in paths],
+        [p.quality.reliability_score for p in paths],  # Inverse length as directness
+    )
+
+    trade_offs["quality_vs_length"] = {
+        "correlation": quality_length_correlation,
+        "interpretation": _interpret_correlation(quality_length_correlation, "quality", "length"),
+    }
+
+    trade_offs["reliability_vs_complexity"] = {
+        "correlation": reliability_complexity_correlation,
+        "interpretation": _interpret_correlation(reliability_complexity_correlation, "reliability", "complexity"),
+    }
+
+    trade_offs["directness_vs_reliability"] = {
+        "correlation": directness_reliability_correlation,
+        "interpretation": _interpret_correlation(directness_reliability_correlation, "directness", "reliability"),
+    }
+
+    return trade_offs
+
+
+def _calculate_correlation(x_values: list[float], y_values: list[float]) -> float:
+    """
+    Calculate Pearson correlation coefficient.
+
+    Args:
+        x_values: First set of values
+        y_values: Second set of values
+
+    Returns:
+        Correlation coefficient (-1.0 to 1.0)
+    """
+    if len(x_values) != len(y_values) or len(x_values) < 2:
+        return 0.0
+
+    n = len(x_values)
+    x_mean = sum(x_values) / n
+    y_mean = sum(y_values) / n
+
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_values, y_values, strict=False))
+
+    x_variance = sum((x - x_mean) ** 2 for x in x_values)
+    y_variance = sum((y - y_mean) ** 2 for y in y_values)
+
+    if x_variance == 0 or y_variance == 0:
+        return 0.0
+
+    denominator = math.sqrt(x_variance * y_variance)
+    return numerator / denominator
+
+
+def _interpret_correlation(correlation: float, factor1: str, factor2: str) -> str:
+    """
+    Interpret correlation coefficient.
+
+    Args:
+        correlation: Correlation coefficient
+        factor1: Name of first factor
+        factor2: Name of second factor
+
+    Returns:
+        Human-readable interpretation
+    """
+    abs_corr = abs(correlation)
+
+    if abs_corr < 0.1:
+        strength = "no"
+    elif abs_corr < 0.3:
+        strength = "weak"
+    elif abs_corr < 0.7:
+        strength = "moderate"
+    else:
+        strength = "strong"
+
+    direction = "positive" if correlation > 0 else "negative"
+
+    return f"{strength} {direction} correlation between {factor1} and {factor2}"
+
+
+def _cluster_similar_paths(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Cluster paths based on similarity.
+
+    Args:
+        paths: List of paths to cluster
+
+    Returns:
+        Clustering results
+    """
+    if len(paths) < 2:
+        return {"clusters": [], "analysis": "Not enough paths for clustering"}
+
+    # Simple clustering based on path length and quality
+    clusters = {}
+
+    for path in paths:
+        # Create cluster key based on path characteristics
+        length_bucket = "short" if path.quality.path_length <= 3 else "medium" if path.quality.path_length <= 6 else "long"
+        quality_bucket = "high" if path.quality.overall_score >= 0.7 else "medium" if path.quality.overall_score >= 0.4 else "low"
+
+        cluster_key = f"{length_bucket}_{quality_bucket}"
+
+        if cluster_key not in clusters:
+            clusters[cluster_key] = []
+        clusters[cluster_key].append(
+            {
+                "path_id": path.path_id,
+                "quality": path.quality.overall_score,
+                "length": path.quality.path_length,
+                "reliability": path.quality.reliability_score,
+            }
+        )
+
+    return {
+        "clusters": clusters,
+        "cluster_count": len(clusters),
+        "largest_cluster": max(clusters.keys(), key=lambda k: len(clusters[k])) if clusters else None,
+    }
+
+
+def _generate_path_rankings(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Generate various rankings of paths.
+
+    Args:
+        paths: List of paths to rank
+
+    Returns:
+        Various path rankings
+    """
+    return {
+        "by_overall_quality": [
+            {"path_id": p.path_id, "score": p.quality.overall_score}
+            for p in sorted(paths, key=lambda p: p.quality.overall_score, reverse=True)
+        ],
+        "by_directness": [
+            {"path_id": p.path_id, "length": p.quality.path_length} for p in sorted(paths, key=lambda p: p.quality.path_length)
+        ],
+        "by_reliability": [
+            {"path_id": p.path_id, "reliability": p.quality.reliability_score}
+            for p in sorted(paths, key=lambda p: p.quality.reliability_score, reverse=True)
+        ],
+        "by_simplicity": [
+            {"path_id": p.path_id, "complexity": p.quality.complexity_score}
+            for p in sorted(paths, key=lambda p: p.quality.complexity_score)
+        ],
+    }
+
+
+def _identify_comparative_advantages(paths: list[FunctionPath]) -> dict[str, Any]:
+    """
+    Identify comparative advantages of each path.
+
+    Args:
+        paths: List of paths to analyze
+
+    Returns:
+        Comparative advantages analysis
+    """
+    advantages = {}
+
+    for path in paths:
+        path_advantages = []
+
+        # Compare against all other paths
+        others = [p for p in paths if p.path_id != path.path_id]
+
+        if not others:
+            advantages[path.path_id] = ["Only available path"]
+            continue
+
+        # Check if this path is best in any category
+        if path.quality.overall_score == max(p.quality.overall_score for p in paths):
+            path_advantages.append("Highest overall quality")
+
+        if path.quality.path_length == min(p.quality.path_length for p in paths):
+            path_advantages.append("Shortest path")
+
+        if path.quality.reliability_score == max(p.quality.reliability_score for p in paths):
+            path_advantages.append("Most reliable")
+
+        if path.quality.complexity_score == min(p.quality.complexity_score for p in paths):
+            path_advantages.append("Least complex")
+
+        if path.quality.confidence == max(p.quality.confidence for p in paths):
+            path_advantages.append("Highest confidence")
+
+        # Check for above-average performance
+        avg_quality = sum(p.quality.overall_score for p in paths) / len(paths)
+        if path.quality.overall_score > avg_quality:
+            path_advantages.append("Above average quality")
+
+        if not path_advantages:
+            path_advantages.append("Balanced performance")
+
+        advantages[path.path_id] = path_advantages
+
+    return advantages
+
+
+def _create_score_distribution(scores: list[float]) -> dict[str, int]:
+    """
+    Create distribution of scores.
+
+    Args:
+        scores: List of scores
+
+    Returns:
+        Score distribution
+    """
+    distribution = {"high": 0, "medium": 0, "low": 0}
+
+    for score in scores:
+        if score >= 0.7:
+            distribution["high"] += 1
+        elif score >= 0.4:
+            distribution["medium"] += 1
+        else:
+            distribution["low"] += 1
+
+    return distribution
+
+
+def _create_length_distribution(lengths: list[int]) -> dict[str, int]:
+    """
+    Create distribution of path lengths.
+
+    Args:
+        lengths: List of path lengths
+
+    Returns:
+        Length distribution
+    """
+    distribution = {"short": 0, "medium": 0, "long": 0}
+
+    for length in lengths:
+        if length <= 3:
+            distribution["short"] += 1
+        elif length <= 6:
+            distribution["medium"] += 1
+        else:
+            distribution["long"] += 1
+
+    return distribution
+
+
+def _generate_comparison_insights(paths: list[FunctionPath], trade_offs: dict[str, Any]) -> list[str]:
+    """
+    Generate insights from path comparison.
+
+    Args:
+        paths: List of paths
+        trade_offs: Trade-off analysis results
+
+    Returns:
+        List of insights
+    """
+    insights = []
+
+    # Quality insights
+    quality_scores = [p.quality.overall_score for p in paths]
+    quality_range = max(quality_scores) - min(quality_scores)
+
+    if quality_range > 0.5:
+        insights.append("Significant quality differences between paths - choose carefully based on requirements")
+    elif quality_range < 0.2:
+        insights.append("Similar quality across paths - other factors may be more important for selection")
+
+    # Length insights
+    path_lengths = [p.quality.path_length for p in paths]
+    length_range = max(path_lengths) - min(path_lengths)
+
+    if length_range > 3:
+        insights.append("Wide range of path lengths - consider complexity vs directness trade-offs")
+
+    # Trade-off insights
+    quality_length_corr = trade_offs.get("quality_vs_length", {}).get("correlation", 0)
+    if quality_length_corr < -0.5:
+        insights.append("Longer paths tend to have higher quality - consider if extra steps are worth it")
+    elif quality_length_corr > 0.5:
+        insights.append("Shorter paths also have higher quality - directness is beneficial")
+
+    if not insights:
+        insights.append("Paths show balanced characteristics across different metrics")
+
+    return insights
+
+
+def _generate_selection_guidance(paths: list[FunctionPath], rankings: dict[str, Any]) -> list[str]:
+    """
+    Generate guidance for path selection.
+
+    Args:
+        paths: List of paths
+        rankings: Path rankings
+
+    Returns:
+        List of selection guidance
+    """
+    guidance = []
+
+    # Check if same path dominates multiple categories
+    top_quality = rankings["by_overall_quality"][0]["path_id"]
+    top_direct = rankings["by_directness"][0]["path_id"]
+    top_reliable = rankings["by_reliability"][0]["path_id"]
+
+    if top_quality == top_direct == top_reliable:
+        guidance.append(f"Path {top_quality} is optimal across all key metrics")
+    elif top_quality == top_direct:
+        guidance.append(f"Path {top_quality} offers best combination of quality and directness")
+    elif top_quality == top_reliable:
+        guidance.append(f"Path {top_quality} provides best quality and reliability")
+    else:
+        guidance.append("No single path dominates - consider your priorities")
+
+    # General guidance
+    guidance.append("Choose based on your specific requirements:")
+    guidance.append("- For speed: prioritize directness")
+    guidance.append("- For production: prioritize reliability")
+    guidance.append("- For maintenance: prioritize simplicity")
+    guidance.append("- For overall use: prioritize quality")
+
+    return guidance
