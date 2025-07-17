@@ -47,12 +47,12 @@ Based on the PRD: `prd-graph-rag-enhancement.md`
   - [x] 2.4 實作結構關係的快取機制，提升查詢效能
   - [x] 2.5 建立與現有 Qdrant 服務的深度整合介面
 
-- [ ] 3.0 開發跨專案搜尋和架構模式識別
-  - [ ] 3.1 實作 cross_project_search_service.py，支援基於結構關係的跨專案搜尋
-  - [ ] 3.2 開發混合搜尋算法，結合語義相似性和結構關係過濾
-  - [ ] 3.3 建立 pattern_recognition_service.py，識別常見架構模式
-  - [ ] 3.4 實作完整實作鏈追蹤功能，從入口點到實作細節
-  - [ ] 3.5 開發架構模式比較和分析功能
+- [x] 3.0 開發跨專案搜尋和架構模式識別
+  - [x] 3.1 實作 cross_project_search_service.py，支援基於結構關係的跨專案搜尋
+  - [x] 3.2 開發混合搜尋算法，結合語義相似性和結構關係過濾
+  - [x] 3.3 建立 pattern_recognition_service.py，識別常見架構模式
+  - [x] 3.4 實作完整實作鏈追蹤功能，從入口點到實作細節
+  - [x] 3.5 開發架構模式比較和分析功能
 
 - [ ] 4.0 創建新的 MCP 工具介面
   - [ ] 4.1 建立 src/tools/graph_rag/ 目錄結構
