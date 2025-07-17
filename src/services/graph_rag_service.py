@@ -16,8 +16,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ..models.code_chunk import ChunkType, CodeChunk
-from ..models.file_metadata import FileMetadata
+from src.models.code_chunk import ChunkType, CodeChunk
+from src.models.file_metadata import FileMetadata
+
 from .embedding_service import EmbeddingService
 from .graph_rag_cache_service import get_graph_rag_cache_service
 from .graph_traversal_algorithms import (

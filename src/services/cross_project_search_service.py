@@ -15,7 +15,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ..models.code_chunk import ChunkType, CodeChunk
+from src.models.code_chunk import ChunkType, CodeChunk
+
 from .embedding_service import EmbeddingService
 from .graph_rag_service import GraphRAGService, GraphTraversalResult
 from .qdrant_service import QdrantService

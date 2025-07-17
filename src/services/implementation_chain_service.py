@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ..models.code_chunk import ChunkType, CodeChunk
+from src.models.code_chunk import ChunkType, CodeChunk
+
 from .graph_rag_service import GraphRAGService
 from .hybrid_search_service import HybridSearchParameters, HybridSearchService, HybridSearchStrategy
 from .structure_relationship_builder import GraphNode, StructureGraph

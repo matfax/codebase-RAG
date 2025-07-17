@@ -27,7 +27,7 @@ result = await graph_analyze_structure_tool(
 
 **Returns:**
 - Hierarchical relationships
-- Connectivity patterns  
+- Connectivity patterns
 - Related components
 - Navigation paths
 - Graph statistics
@@ -176,7 +176,7 @@ auth_implementations = await graph_find_similar_implementations_tool(
 ### Analyzing Service Architecture Patterns
 ```python
 patterns = await graph_identify_patterns_tool(
-    project_name="microservices_app", 
+    project_name="microservices_app",
     pattern_types=["architectural", "structural"],
     min_confidence=0.7,
     include_comparisons=True,

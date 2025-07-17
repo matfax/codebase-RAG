@@ -7,9 +7,9 @@ of specific breadcrumbs in the codebase using Graph RAG capabilities.
 import logging
 from typing import Any, Optional
 
-from services.embedding_service import EmbeddingService
-from services.graph_rag_service import GraphRAGService
-from services.qdrant_service import QdrantService
+from src.services.embedding_service import EmbeddingService
+from src.services.graph_rag_service import GraphRAGService
+from src.services.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,10 @@ async def graph_analyze_structure(
 
         # Find related components
         if analysis_type in ["comprehensive", "overview"]:
-            related_components = await graph_rag_service.find_related_components(
-                breadcrumb=breadcrumb, project_name=project_name, max_results=20, similarity_threshold=0.7
+            related_components_result = await graph_rag_service.find_related_components(
+                breadcrumb=breadcrumb, project_name=project_name, max_depth=max_depth
             )
+            related_components = related_components_result.related_components if related_components_result else []
             results["related_components"] = [
                 {
                     "breadcrumb": comp.breadcrumb,

@@ -7,10 +7,11 @@ in codebases using Graph RAG pattern recognition capabilities.
 import logging
 from typing import Any, Optional
 
-from services.embedding_service import EmbeddingService
-from services.pattern_comparison_service import PatternComparisonService
-from services.pattern_recognition_service import PatternRecognitionService
-from services.qdrant_service import QdrantService
+from src.services.embedding_service import EmbeddingService
+from src.services.graph_rag_service import GraphRAGService
+from src.services.pattern_comparison_service import PatternComparisonService
+from src.services.pattern_recognition_service import PatternRecognitionService
+from src.services.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,8 @@ async def graph_identify_patterns(
         # Initialize core services
         qdrant_service = QdrantService()
         embedding_service = EmbeddingService()
-        pattern_service = PatternRecognitionService(qdrant_service, embedding_service)
+        graph_rag_service = GraphRAGService(qdrant_service, embedding_service)
+        pattern_service = PatternRecognitionService(graph_rag_service)
 
         # Validate parameters
         if not project_name or not project_name.strip():
@@ -225,7 +227,7 @@ async def graph_identify_patterns(
             results["quality_insights"] = {
                 "average_pattern_confidence": avg_confidence,
                 "highest_confidence_pattern": highest_confidence,
-                "pattern_diversity": len(set(p["pattern_type"] for p in identified_patterns)),
+                "pattern_diversity": len({p["pattern_type"] for p in identified_patterns}),
                 "code_organization_quality": "high" if avg_confidence >= 0.8 else "medium" if avg_confidence >= 0.6 else "low",
             }
 

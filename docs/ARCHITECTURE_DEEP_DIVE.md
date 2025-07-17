@@ -34,6 +34,8 @@ Unlike traditional RAG systems that process entire files, this system uses **Tre
 🚀 Multi-Layer Cache (Redis + TTL optimization)
     ↓
 🔎 Natural Language Search → Function-level Results
+    ↓
+🔗 Graph RAG Analysis (On-Demand) → Code Relationship Insights
 ```
 
 ## Key Architectural Components
@@ -113,6 +115,30 @@ Embedding Service → Cache Store → Qdrant Storage → Cache Results → Searc
 3. **Cache Miss Handling**: Generate embeddings and perform vector search if not cached
 4. **Result Caching**: Store results with appropriate TTL for future queries
 5. **Response Delivery**: Return function-level results with context
+
+### 🔗 Graph RAG Extension (Wave 4)
+
+The Graph RAG enhancement adds advanced code relationship analysis through on-demand graph building:
+
+**Graph RAG Flow:**
+```
+Graph RAG Tool Request → build_structure_graph() → Retrieve Chunks from Qdrant →
+Structure Relationship Builder → Dependency Graph → Cache Results → Analysis Response
+```
+
+**Key Features:**
+- **On-Demand Building**: Graphs are built only when Graph RAG tools are used
+- **Breadcrumb System**: Unique identifiers for code components (e.g., "cache.service.RedisCacheService")
+- **Dependency Tracking**: Uses `imports_used` metadata to build relationships
+- **Caching Layer**: Built graphs are cached for performance
+- **Multi-Analysis**: Structure analysis, similarity search, pattern recognition
+
+**Graph RAG Tools:**
+- `graph_analyze_structure_tool`: Hierarchical code structure analysis
+- `graph_find_similar_implementations_tool`: Cross-project similarity search
+- `graph_identify_patterns_tool`: Architectural pattern recognition
+
+For detailed Graph RAG documentation, see [Graph RAG Architecture Guide](GRAPH_RAG_ARCHITECTURE.md).
 
 ### Development Commands Quick Reference
 

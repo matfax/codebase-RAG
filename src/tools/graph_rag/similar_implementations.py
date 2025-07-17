@@ -7,14 +7,15 @@ across projects using Graph RAG capabilities and cross-project search.
 import logging
 from typing import Any, Optional
 
-from models.code_chunk import ChunkType, CodeChunk
-from services.cross_project_search_service import (
+from src.models.code_chunk import ChunkType, CodeChunk
+from src.services.cross_project_search_service import (
     CrossProjectSearchFilter,
     CrossProjectSearchService,
 )
-from services.embedding_service import EmbeddingService
-from services.implementation_chain_service import ImplementationChainService
-from services.qdrant_service import QdrantService
+from src.services.embedding_service import EmbeddingService
+from src.services.graph_rag_service import GraphRAGService
+from src.services.implementation_chain_service import ImplementationChainService
+from src.services.qdrant_service import QdrantService
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,8 @@ async def graph_find_similar_implementations(
         # Initialize core services
         qdrant_service = QdrantService()
         embedding_service = EmbeddingService()
-        cross_project_service = CrossProjectSearchService(qdrant_service, embedding_service)
+        graph_rag_service = GraphRAGService(qdrant_service, embedding_service)
+        cross_project_service = CrossProjectSearchService(qdrant_service, embedding_service, graph_rag_service)
 
         # Validate parameters
         if not query or not query.strip():
@@ -111,9 +113,10 @@ async def graph_find_similar_implementations(
         # Check for source-specific search
         if source_breadcrumb and source_project:
             # Find the source chunk first
-            source_chunks = await qdrant_service.search_chunks(
-                query_embedding=await embedding_service.generate_embeddings([source_breadcrumb]).__anext__(),
+            query_embedding = await embedding_service.generate_embeddings([source_breadcrumb]).__anext__()
+            source_chunks = await qdrant_service.search_vectors(
                 collection_name=f"project_{source_project}_code",
+                query_vector=query_embedding,
                 limit=5,
                 score_threshold=0.8,
             )
