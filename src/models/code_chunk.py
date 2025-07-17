@@ -100,12 +100,20 @@ class CodeChunk:
     complexity_score: float | None = None  # Estimated complexity (0.0-1.0)
     dependencies: list[str] = None  # Referenced functions, classes, modules
 
+    # PRD-defined metadata fields (FR-5.1)
+    access_modifier: str | None = None  # public/private/protected visibility
+    imports_used: list[str] = None  # Dependencies from static analysis
+    has_syntax_errors: bool = False  # Whether chunk contains syntax errors
+    error_details: str | None = None  # Syntax error descriptions if any
+
     def __post_init__(self):
         """Initialize default values for mutable fields."""
         if self.tags is None:
             self.tags = []
         if self.dependencies is None:
             self.dependencies = []
+        if self.imports_used is None:
+            self.imports_used = []
 
     @property
     def line_count(self) -> int:
@@ -146,6 +154,10 @@ class CodeChunk:
             "tags": self.tags,
             "complexity_score": self.complexity_score,
             "dependencies": self.dependencies,
+            "access_modifier": self.access_modifier,
+            "imports_used": self.imports_used,
+            "has_syntax_errors": self.has_syntax_errors,
+            "error_details": self.error_details,
             "line_count": self.line_count,
             "char_count": self.char_count,
         }
@@ -188,6 +200,10 @@ class CodeChunk:
             tags=data.get("tags", []),
             complexity_score=data.get("complexity_score"),
             dependencies=data.get("dependencies", []),
+            access_modifier=data.get("access_modifier"),
+            imports_used=data.get("imports_used", []),
+            has_syntax_errors=data.get("has_syntax_errors", False),
+            error_details=data.get("error_details"),
         )
 
 

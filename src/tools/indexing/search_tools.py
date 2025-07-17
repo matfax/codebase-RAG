@@ -651,6 +651,11 @@ def _create_general_metadata_extractor() -> Callable[[dict[str, Any]], dict[str,
             "tags": payload.get("tags", []),
             "context_before": payload.get("context_before", ""),
             "context_after": payload.get("context_after", ""),
+            # PRD-defined metadata fields
+            "access_modifier": payload.get("access_modifier", ""),
+            "imports_used": payload.get("imports_used", []),
+            "has_syntax_errors": payload.get("has_syntax_errors", False),
+            "error_details": payload.get("error_details", ""),
         }
 
     return extractor
