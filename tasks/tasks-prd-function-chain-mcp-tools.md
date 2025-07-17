@@ -53,7 +53,7 @@
 
 - [ ] 3.0 實現 find_function_path_tool（次優先級）
   - [x] 3.1 創建 find_function_path() 函數，支援起點和終點參數
-  - [ ] 3.2 整合 BreadcrumbResolver 處理兩個函數的自然語言輸入
+  - [x] 3.2 整合 BreadcrumbResolver 處理兩個函數的自然語言輸入
   - [ ] 3.3 實現多路徑查找邏輯，支援 shortest/optimal/all 策略
   - [ ] 3.4 實現路徑品質評估，包含可靠性和複雜度評分
   - [ ] 3.5 添加路徑多樣性分析，計算關係類型的多樣性
