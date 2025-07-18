@@ -28,19 +28,19 @@ Based on PRD: `prd-enhanced-function-call-detection.md`
 
 ## Tasks
 
-- [ ] 1.0 Enhance Tree-sitter AST Queries for Function Call Detection
-  - [ ] 1.1 Research Tree-sitter query syntax for Python function calls (direct calls, method calls, attribute calls)
-  - [ ] 1.2 Create new Tree-sitter query patterns for detecting `function_name()`, `object.method()`, `self.method()`
-  - [ ] 1.3 Add async call detection patterns for `await function()`, `asyncio.gather()`, `asyncio.create_task()`
-  - [ ] 1.4 Extend `PythonChunkingStrategy.get_node_mappings()` to include call detection node types
-  - [ ] 1.5 Test query patterns against real Python codebases to verify detection accuracy
+- [x] 1.0 Enhance Tree-sitter AST Queries for Function Call Detection
+  - [x] 1.1 Research Tree-sitter query syntax for Python function calls (direct calls, method calls, attribute calls)
+  - [x] 1.2 Create new Tree-sitter query patterns for detecting `function_name()`, `object.method()`, `self.method()`
+  - [x] 1.3 Add async call detection patterns for `await function()`, `asyncio.gather()`, `asyncio.create_task()`
+  - [x] 1.4 Extend `PythonChunkingStrategy.get_node_mappings()` to include call detection node types
+  - [x] 1.5 Test query patterns against real Python codebases to verify detection accuracy
 
-- [ ] 2.0 Implement Function Call Weight and Confidence System
-  - [ ] 2.1 Create `FunctionCall` data model with source/target breadcrumbs, call type, confidence, weight
-  - [ ] 2.2 Implement `CallWeightCalculator` service with configurable weights (direct: 1.0, method: 0.9, attribute: 0.7)
-  - [ ] 2.3 Add frequency factor calculation for repeated calls in same file
-  - [ ] 2.4 Implement confidence scoring based on call context and AST node completeness
-  - [ ] 2.5 Create configurable weight thresholds and filtering system
+- [x] 2.0 Implement Function Call Weight and Confidence System
+  - [x] 2.1 Create `FunctionCall` data model with source/target breadcrumbs, call type, confidence, weight
+  - [x] 2.2 Implement `CallWeightCalculator` service with configurable weights (direct: 1.0, method: 0.9, attribute: 0.7)
+  - [x] 2.3 Add frequency factor calculation for repeated calls in same file
+  - [x] 2.4 Implement confidence scoring based on call context and AST node completeness
+  - [x] 2.5 Create configurable weight thresholds and filtering system
 
 - [ ] 3.0 Build Function Call Resolver and Breadcrumb Integration
   - [ ] 3.1 Create `FunctionCallExtractor` service to extract calls from AST nodes
