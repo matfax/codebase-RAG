@@ -857,7 +857,9 @@ def register_tools(mcp_app: FastMCP) -> None:
 
     # Register Graph RAG tools (production mode)
     from .graph_rag.function_chain_analysis import trace_function_chain
+    from .graph_rag.function_path_finding import find_function_path
     from .graph_rag.pattern_identification import graph_identify_patterns
+    from .graph_rag.project_chain_analysis import analyze_project_chains
     from .graph_rag.similar_implementations import graph_find_similar_implementations
     from .graph_rag.structure_analysis import graph_analyze_structure
 
@@ -870,6 +872,9 @@ def register_tools(mcp_app: FastMCP) -> None:
         include_siblings: bool = False,
         include_connectivity: bool = True,
         force_rebuild_graph: bool = False,
+        generate_report: bool = False,
+        include_recommendations: bool = True,
+        enable_performance_optimization: bool = True,
     ):
         """Analyze the structural relationships of a specific breadcrumb in the codebase.
 
@@ -885,13 +890,26 @@ def register_tools(mcp_app: FastMCP) -> None:
             include_siblings: Whether to include sibling components in the analysis
             include_connectivity: Whether to analyze component connectivity patterns
             force_rebuild_graph: Whether to force rebuild the structure graph
+            generate_report: Whether to generate a comprehensive analysis report with recommendations
+            include_recommendations: Whether to include optimization recommendations in the report
+            enable_performance_optimization: Whether to enable performance optimizations for large projects
 
         Returns:
             Dictionary containing structural analysis results with hierarchical relationships,
-            connectivity patterns, and related components
+            connectivity patterns, and related components. If generate_report=True, includes
+            a comprehensive report with statistics and recommendations.
         """
         return await graph_analyze_structure(
-            breadcrumb, project_name, analysis_type, max_depth, include_siblings, include_connectivity, force_rebuild_graph
+            breadcrumb,
+            project_name,
+            analysis_type,
+            max_depth,
+            include_siblings,
+            include_connectivity,
+            force_rebuild_graph,
+            generate_report,
+            include_recommendations,
+            enable_performance_optimization,
         )
 
     @mcp_app.tool()
@@ -1039,6 +1057,111 @@ def register_tools(mcp_app: FastMCP) -> None:
             identify_branch_points,
             identify_terminal_points,
             performance_monitoring,
+        )
+
+    @mcp_app.tool()
+    async def find_function_path_tool(
+        start_function: str,
+        end_function: str,
+        project_name: str,
+        strategy: str = "optimal",
+        max_paths: int = 3,
+        max_depth: int = 15,
+        include_quality_metrics: bool = True,
+        output_format: str = "arrow",
+        include_mermaid: bool = False,
+        min_link_strength: float = 0.3,
+        optimize_for: str = "reliability",
+    ):
+        """Find the most efficient path between two functions in a codebase.
+
+        This tool discovers how functions are connected and identifies the optimal
+        navigation paths between them, supporting various path-finding strategies
+        and quality metrics.
+
+        Args:
+            start_function: Starting function identifier (breadcrumb or natural language)
+            end_function: Target function identifier (breadcrumb or natural language)
+            project_name: Name of the project to search within
+            strategy: Path finding strategy ("shortest", "optimal", "all")
+            max_paths: Maximum number of paths to return (1-10, default: 3)
+            max_depth: Maximum search depth for path finding (default: 15)
+            include_quality_metrics: Whether to calculate path quality metrics
+            output_format: Output format ("arrow", "mermaid", "both")
+            include_mermaid: Whether to include Mermaid diagram output
+            min_link_strength: Minimum link strength for path inclusion (0.0-1.0)
+            optimize_for: Optimization criteria ("reliability", "directness", "simplicity")
+
+        Returns:
+            Dictionary containing found paths with quality metrics and formatted output
+        """
+        return await find_function_path(
+            start_function,
+            end_function,
+            project_name,
+            strategy,
+            max_paths,
+            max_depth,
+            include_quality_metrics,
+            output_format,
+            include_mermaid,
+            min_link_strength,
+            optimize_for,
+        )
+
+    @mcp_app.tool()
+    async def analyze_project_chains_tool(
+        project_name: str,
+        analysis_scope: str = "full_project",
+        breadcrumb_patterns: list[str] = None,
+        analysis_types: list[str] = None,
+        max_functions_per_chain: int = 50,
+        complexity_threshold: float = 0.7,
+        output_format: str = "comprehensive",
+        include_mermaid: bool = True,
+        include_hotspot_analysis: bool = True,
+        include_refactoring_suggestions: bool = False,
+        enable_complexity_weighting: bool = True,
+        complexity_weights: dict[str, float] = None,
+    ):
+        """Analyze function chains across an entire project with comprehensive insights.
+
+        This tool provides project-wide analysis of function chains, patterns, complexity,
+        and architecture, supporting pattern matching, hotspot identification, and
+        refactoring recommendations.
+
+        Args:
+            project_name: Name of the project to analyze
+            analysis_scope: Scope of analysis ("full_project", "scoped_breadcrumbs",
+                          "specific_modules", "function_patterns")
+            breadcrumb_patterns: List of breadcrumb patterns to focus analysis on
+            analysis_types: Types of analysis to perform ("complexity_analysis",
+                          "hotspot_identification", "pattern_detection", "architectural_analysis")
+            max_functions_per_chain: Maximum functions to include per chain (default: 50)
+            complexity_threshold: Complexity threshold for highlighting (0.0-1.0, default: 0.7)
+            output_format: Output format ("comprehensive", "summary", "detailed")
+            include_mermaid: Whether to include Mermaid diagram outputs
+            include_hotspot_analysis: Whether to identify complexity hotspots
+            include_refactoring_suggestions: Whether to provide refactoring recommendations
+            enable_complexity_weighting: Whether to use weighted complexity calculations
+            complexity_weights: Custom complexity weights (branching_factor, cyclomatic_complexity, etc.)
+
+        Returns:
+            Dictionary containing comprehensive project chain analysis with patterns,
+            complexity metrics, hotspots, and optional refactoring suggestions
+        """
+        return await analyze_project_chains(
+            project_name,
+            analysis_types,
+            "*",  # scope_pattern
+            complexity_weights,
+            None,  # chain_types
+            complexity_threshold,
+            max_functions_per_chain,
+            include_refactoring_suggestions,
+            output_format,
+            True,  # performance_monitoring
+            50,  # batch_size
         )
 
     logger.info("All MCP Tools registered successfully")

@@ -169,8 +169,23 @@ async def find_function_path(
             return results
 
         # Initialize services
+        from src.services.embedding_service import EmbeddingService
+        from src.services.graph_rag_service import get_graph_rag_service
+        from src.services.hybrid_search_service import get_hybrid_search_service
+        from src.services.implementation_chain_service import get_implementation_chain_service
+        from src.services.qdrant_service import QdrantService
+
         breadcrumb_resolver = BreadcrumbResolver()
-        implementation_chain_service = get_implementation_chain_service()
+        qdrant_service = QdrantService()
+        embedding_service = EmbeddingService()
+
+        # Initialize Graph RAG and Hybrid Search services with required dependencies
+        graph_rag_service = get_graph_rag_service(qdrant_service, embedding_service)
+        hybrid_search_service = get_hybrid_search_service()
+
+        implementation_chain_service = get_implementation_chain_service(
+            graph_rag_service=graph_rag_service, hybrid_search_service=hybrid_search_service
+        )
 
         # Step 1: Resolve breadcrumbs for both functions
         breadcrumb_start_time = time.time()
@@ -207,13 +222,32 @@ async def find_function_path(
             results["alternatives"] = enhanced_suggestions["alternatives"]
             return results
 
-        start_breadcrumb = start_result.primary_candidate.breadcrumb
-        end_breadcrumb = end_result.primary_candidate.breadcrumb
+        # Check if primary_candidate exists and has breadcrumb attribute
+        if not start_result.primary_candidate:
+            results["success"] = False
+            results["error"] = f"No valid breadcrumb found for start function: {start_function}"
+            return results
+
+        if not end_result.primary_candidate:
+            results["success"] = False
+            results["error"] = f"No valid breadcrumb found for end function: {end_function}"
+            return results
+
+        # Additional safety checks for breadcrumb access
+        if hasattr(start_result.primary_candidate, "breadcrumb"):
+            start_breadcrumb = start_result.primary_candidate.breadcrumb
+        else:
+            start_breadcrumb = str(start_result.primary_candidate)
+
+        if hasattr(end_result.primary_candidate, "breadcrumb"):
+            end_breadcrumb = end_result.primary_candidate.breadcrumb
+        else:
+            end_breadcrumb = str(end_result.primary_candidate)
 
         results["resolved_start_breadcrumb"] = start_breadcrumb
         results["resolved_end_breadcrumb"] = end_breadcrumb
-        results["start_breadcrumb_confidence"] = start_result.primary_candidate.confidence_score
-        results["end_breadcrumb_confidence"] = end_result.primary_candidate.confidence_score
+        results["start_breadcrumb_confidence"] = getattr(start_result.primary_candidate, "confidence_score", 0.0)
+        results["end_breadcrumb_confidence"] = getattr(end_result.primary_candidate, "confidence_score", 0.0)
 
         if performance_monitoring:
             results["performance"]["breadcrumb_resolution_time"] = (time.time() - breadcrumb_start_time) * 1000
@@ -232,15 +266,25 @@ async def find_function_path(
             return results
 
         # Find multiple paths using bidirectional search
-        paths = await _find_multiple_paths(
-            start_breadcrumb=start_breadcrumb,
-            end_breadcrumb=end_breadcrumb,
-            project_name=project_name,
-            strategy=path_strategy,
-            max_paths=max_paths,
-            max_depth=max_depth,
-            implementation_chain_service=implementation_chain_service,
-        )
+        try:
+            paths = await _find_multiple_paths(
+                start_breadcrumb=start_breadcrumb,
+                end_breadcrumb=end_breadcrumb,
+                project_name=project_name,
+                strategy=path_strategy,
+                max_paths=max_paths,
+                max_depth=max_depth,
+                implementation_chain_service=implementation_chain_service,
+            )
+        except Exception as e:
+            import traceback
+
+            logger.error(f"Detailed error in _find_multiple_paths: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            results["success"] = False
+            results["error"] = f"Error finding paths from '{start_function}' to '{end_function}': {str(e)}"
+            results["detailed_error"] = traceback.format_exc()
+            return results
 
         if performance_monitoring:
             results["performance"]["path_finding_time"] = (time.time() - path_finding_start_time) * 1000
@@ -278,7 +322,7 @@ async def find_function_path(
             results["suggestions"] = specific_suggestions + enhanced_suggestions["suggestions"]
             results["error_details"] = enhanced_suggestions["error_details"]
             results["alternatives"] = enhanced_suggestions["alternatives"]
-            results["error_details"]["paths_analyzed"] = len(all_paths)
+            results["error_details"]["paths_analyzed"] = len(paths)
             results["error_details"]["quality_threshold"] = min_quality_threshold
             results["error_details"]["max_depth"] = max_depth
             return results
@@ -491,7 +535,7 @@ async def _find_multiple_paths(
     paths = []
 
     # Get the project structure graph
-    project_graph = await implementation_chain_service.graph_rag_service.get_project_structure_graph(project_name)
+    project_graph = await implementation_chain_service.graph_rag_service.build_structure_graph(project_name, force_rebuild=True)
 
     if not project_graph:
         logger.warning(f"No structure graph found for project: {project_name}")
@@ -606,8 +650,9 @@ async def _find_bidirectional_paths(start_node, end_node, project_graph, chain_t
 
     try:
         # Trace forward from start
+        start_breadcrumb = getattr(start_node, "breadcrumb", str(start_node))
         forward_chain = await implementation_chain_service.trace_implementation_chain(
-            start_node.breadcrumb,
+            start_breadcrumb,
             project_graph.project_name,
             chain_type,
             ChainDirection.FORWARD,
@@ -616,8 +661,9 @@ async def _find_bidirectional_paths(start_node, end_node, project_graph, chain_t
         )
 
         # Trace backward from end
+        end_breadcrumb = getattr(end_node, "breadcrumb", str(end_node))
         backward_chain = await implementation_chain_service.trace_implementation_chain(
-            end_node.breadcrumb,
+            end_breadcrumb,
             project_graph.project_name,
             chain_type,
             ChainDirection.BACKWARD,
@@ -659,8 +705,9 @@ async def _find_forward_paths(start_node, end_node, project_graph, chain_type, m
 
     try:
         # Trace forward from start
+        start_breadcrumb = getattr(start_node, "breadcrumb", str(start_node))
         forward_chain = await implementation_chain_service.trace_implementation_chain(
-            start_node.breadcrumb,
+            start_breadcrumb,
             project_graph.project_name,
             chain_type,
             ChainDirection.FORWARD,
@@ -699,8 +746,9 @@ async def _find_backward_paths(start_node, end_node, project_graph, chain_type, 
 
     try:
         # Trace backward from end
+        end_breadcrumb = getattr(end_node, "breadcrumb", str(end_node))
         backward_chain = await implementation_chain_service.trace_implementation_chain(
-            end_node.breadcrumb,
+            end_breadcrumb,
             project_graph.project_name,
             chain_type,
             ChainDirection.BACKWARD,
@@ -822,8 +870,11 @@ def _is_node_in_chain(node, chain) -> bool:
     Returns:
         True if node is in chain, False otherwise
     """
+    node_id = getattr(node, "chunk_id", str(node))
     for link in chain.links:
-        if link.source_component.chunk_id == node.chunk_id or link.target_component.chunk_id == node.chunk_id:
+        source_id = getattr(link.source_component, "chunk_id", str(link.source_component))
+        target_id = getattr(link.target_component, "chunk_id", str(link.target_component))
+        if source_id == node_id or target_id == node_id:
             return True
     return False
 
@@ -844,7 +895,7 @@ def _extract_path_from_chain(start_node, end_node, chain) -> dict:
         # Build a graph from the chain links
         graph = {}
         for link in chain.links:
-            source_id = link.source_component.chunk_id
+            source_id = getattr(link.source_component, "chunk_id", str(link.source_component))
 
             if source_id not in graph:
                 graph[source_id] = []
@@ -853,23 +904,28 @@ def _extract_path_from_chain(start_node, end_node, chain) -> dict:
         # Find path using BFS
         from collections import deque
 
+        start_node_id = getattr(start_node, "chunk_id", str(start_node))
+        end_node_id = getattr(end_node, "chunk_id", str(end_node))
+
         queue = deque([(start_node, [start_node])])
-        visited = {start_node.chunk_id}
+        visited = {start_node_id}
 
         while queue:
             current_node, path = queue.popleft()
+            current_node_id = getattr(current_node, "chunk_id", str(current_node))
 
-            if current_node.chunk_id == end_node.chunk_id:
+            if current_node_id == end_node_id:
                 return {
                     "path_nodes": path,
                     "path_length": len(path),
                     "chain_type": "direct",
                 }
 
-            if current_node.chunk_id in graph:
-                for neighbor in graph[current_node.chunk_id]:
-                    if neighbor.chunk_id not in visited:
-                        visited.add(neighbor.chunk_id)
+            if current_node_id in graph:
+                for neighbor in graph[current_node_id]:
+                    neighbor_id = getattr(neighbor, "chunk_id", str(neighbor))
+                    if neighbor_id not in visited:
+                        visited.add(neighbor_id)
                         queue.append((neighbor, path + [neighbor]))
 
         return None
@@ -913,12 +969,18 @@ def _get_path_to_node(chain, start_node, target_node) -> list:
     path = [start_node]
     current_node = start_node
 
+    # Get node IDs with safety checks
+    current_node_id = getattr(current_node, "chunk_id", str(current_node))
+    target_node_id = getattr(target_node, "chunk_id", str(target_node))
+
     for link in chain.links:
-        if link.source_component.chunk_id == current_node.chunk_id:
+        source_id = getattr(link.source_component, "chunk_id", str(link.source_component))
+        if source_id == current_node_id:
             path.append(link.target_component)
             current_node = link.target_component
+            current_node_id = getattr(current_node, "chunk_id", str(current_node))
 
-            if current_node.chunk_id == target_node.chunk_id:
+            if current_node_id == target_node_id:
                 break
 
     return path
@@ -942,7 +1004,14 @@ def _create_function_path(path_info, start_breadcrumb, end_breadcrumb, chain_typ
         return None
 
     path_nodes = path_info["path_nodes"]
-    path_steps = [node.breadcrumb for node in path_nodes]
+    # Add safety check for node types
+    path_steps = []
+    for node in path_nodes:
+        if hasattr(node, "breadcrumb"):
+            path_steps.append(node.breadcrumb)
+        else:
+            # Fallback for string nodes
+            path_steps.append(str(node))
 
     # Calculate quality metrics
     quality = _calculate_path_quality(path_info, path_nodes, strategy)
@@ -1053,7 +1122,10 @@ def _generate_path_evidence(path_info, path_nodes) -> list[str]:
     evidence = []
 
     for i, node in enumerate(path_nodes):
-        evidence.append(f"Step {i + 1}: {node.breadcrumb} ({node.chunk_type})")
+        if hasattr(node, "breadcrumb"):
+            evidence.append(f"Step {i + 1}: {node.breadcrumb} ({getattr(node, 'chunk_type', 'unknown')})")
+        else:
+            evidence.append(f"Step {i + 1}: {str(node)} (unknown type)")
 
     return evidence
 

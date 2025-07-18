@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from src.models.code_chunk import ChunkType
 from src.services.breadcrumb_resolver_service import BreadcrumbResolver
 from src.services.implementation_chain_service import (
     ChainType,
@@ -216,8 +217,23 @@ async def analyze_project_chains(
             return results
 
         # Initialize services
+        from src.services.embedding_service import EmbeddingService
+        from src.services.graph_rag_service import get_graph_rag_service
+        from src.services.hybrid_search_service import get_hybrid_search_service
+        from src.services.implementation_chain_service import get_implementation_chain_service
+        from src.services.qdrant_service import QdrantService
+
         breadcrumb_resolver = BreadcrumbResolver()
-        implementation_chain_service = get_implementation_chain_service()
+        qdrant_service = QdrantService()
+        embedding_service = EmbeddingService()
+
+        # Initialize Graph RAG and Hybrid Search services with required dependencies
+        graph_rag_service = get_graph_rag_service(qdrant_service, embedding_service)
+        hybrid_search_service = get_hybrid_search_service()
+
+        implementation_chain_service = get_implementation_chain_service(
+            graph_rag_service=graph_rag_service, hybrid_search_service=hybrid_search_service
+        )
 
         # Step 1: Discover functions matching the scope pattern
         discovery_start_time = time.time()
@@ -304,7 +320,7 @@ async def analyze_project_chains(
         if ChainAnalysisType.HOTSPOT_IDENTIFICATION in parsed_analysis_types:
             hotspot_start_time = time.time()
 
-            hotspot_results = await _perform_hotspot_analysis(discovered_functions, implementation_chain_service, batch_size)
+            hotspot_results = await _perform_hotspot_analysis(discovered_functions, implementation_chain_service, batch_size, chain_types)
 
             analysis_results["hotspot_analysis"] = hotspot_results
 
@@ -315,7 +331,7 @@ async def analyze_project_chains(
         if ChainAnalysisType.COVERAGE_ANALYSIS in parsed_analysis_types:
             coverage_start_time = time.time()
 
-            coverage_results = await _perform_coverage_analysis(discovered_functions, implementation_chain_service, batch_size)
+            coverage_results = await _perform_coverage_analysis(discovered_functions, implementation_chain_service, batch_size, chain_types)
 
             analysis_results["coverage_analysis"] = coverage_results
 
@@ -332,7 +348,9 @@ async def analyze_project_chains(
 
         # Calculate project-level metrics
         if ChainAnalysisType.PROJECT_METRICS in parsed_analysis_types:
-            project_metrics = await _calculate_project_metrics(discovered_functions, analysis_results, implementation_chain_service)
+            project_metrics = await _calculate_project_metrics(
+                discovered_functions, analysis_results, implementation_chain_service, chain_types
+            )
 
             analysis_results["project_metrics"] = project_metrics
 
@@ -342,6 +360,20 @@ async def analyze_project_chains(
         report = await _generate_analysis_report(analysis_results, discovered_functions, weights, output_format)
 
         results.update(report)
+
+        # Add chain type filtering information to the results
+        if chain_types:
+            results["chain_type_filtering"] = {
+                "enabled": True,
+                "requested_chain_types": chain_types,
+                "supported_chain_types": [t.value for t in ChainType],
+                "filtering_impact": {
+                    "description": f"Analysis filtered to focus on {', '.join(chain_types)} chain types",
+                    "coverage_note": "Results represent only the specified chain types",
+                },
+            }
+        else:
+            results["chain_type_filtering"] = {"enabled": False, "description": "Analysis includes all available chain types"}
 
         if performance_monitoring:
             results["performance"]["report_generation_time"] = (time.time() - report_start_time) * 1000
@@ -497,28 +529,42 @@ async def _discover_project_functions(
 
     try:
         # Get the project structure graph
-        project_graph = await implementation_chain_service.graph_rag_service.get_project_structure_graph(project_name)
+        project_graph = await implementation_chain_service.graph_rag_service.build_structure_graph(project_name, force_rebuild=True)
 
         if not project_graph:
             logger.warning(f"No structure graph found for project: {project_name}")
             return []
 
+        logger.info(f"Project graph has {len(project_graph.nodes)} total nodes")
+
         # Extract all functions from the graph
         all_functions = []
+        chunk_type_counts = {}
         for node in project_graph.nodes:
-            if node.chunk_type in ["function", "method"]:
+            # Safety check for node attributes
+            if not hasattr(node, "chunk_type"):
+                continue
+
+            chunk_type = getattr(node, "chunk_type", "unknown")
+            chunk_type_counts[chunk_type] = chunk_type_counts.get(chunk_type, 0) + 1
+
+            # Convert to string values for comparison
+            if chunk_type in [ChunkType.FUNCTION.value, ChunkType.METHOD.value] or chunk_type in ["function", "method"]:
                 function_info = {
-                    "breadcrumb": node.breadcrumb,
-                    "name": node.name,
-                    "file_path": node.file_path,
-                    "chunk_type": node.chunk_type,
-                    "chunk_id": node.chunk_id,
+                    "breadcrumb": getattr(node, "breadcrumb", ""),
+                    "name": getattr(node, "name", ""),
+                    "file_path": getattr(node, "file_path", ""),
+                    "chunk_type": chunk_type,
+                    "chunk_id": getattr(node, "chunk_id", ""),
                     "line_start": getattr(node, "line_start", 0),
                     "line_end": getattr(node, "line_end", 0),
                     "language": getattr(node, "language", ""),
                     "content": getattr(node, "content", ""),
                 }
                 all_functions.append(function_info)
+
+        logger.info(f"Found chunk types: {chunk_type_counts}")
+        logger.info(f"Found {len(all_functions)} functions/methods in graph")
 
         # Filter functions based on scope pattern
         filtered_functions = []
@@ -879,6 +925,7 @@ async def _perform_hotspot_analysis(
     functions: list[dict[str, Any]],
     implementation_chain_service: ImplementationChainService,
     batch_size: int,
+    chain_types: list[str] = None,
 ) -> dict[str, Any]:
     """
     Perform hotspot analysis to identify frequently used and critical functions.
@@ -893,6 +940,7 @@ async def _perform_hotspot_analysis(
         functions: List of functions to analyze
         implementation_chain_service: Service for chain analysis
         batch_size: Batch size for processing
+        chain_types: List of chain types to filter analysis (default: all types)
 
     Returns:
         Dictionary with comprehensive hotspot analysis results
@@ -908,12 +956,12 @@ async def _perform_hotspot_analysis(
     try:
         # Get project structure graph to analyze connections
         project_name = implementation_chain_service.project_name if hasattr(implementation_chain_service, "project_name") else "unknown"
-        project_graph = await implementation_chain_service.graph_rag_service.get_project_structure_graph(project_name)
+        project_graph = await implementation_chain_service.graph_rag_service.build_structure_graph(project_name, force_rebuild=True)
 
         if project_graph:
             # Build connectivity map from graph relationships
             for node in project_graph.nodes:
-                if node.chunk_type in ["function", "method"]:
+                if node.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD]:
                     function_connectivity_map[node.breadcrumb] = {
                         "incoming_connections": [],
                         "outgoing_connections": [],
@@ -985,7 +1033,7 @@ async def _perform_hotspot_analysis(
                 hotspot_functions.append(hotspot_data)
 
     # Step 3: Identify critical paths
-    critical_paths = await _identify_critical_paths(functions, function_connectivity_map, implementation_chain_service)
+    critical_paths = await _identify_critical_paths(functions, function_connectivity_map, implementation_chain_service, chain_types)
 
     # Step 4: Generate hotspot statistics and insights
     hotspot_statistics = _generate_hotspot_statistics(all_hotspot_data, function_connectivity_map)
@@ -1240,46 +1288,63 @@ async def _identify_critical_paths(
     functions: list[dict[str, Any]],
     connectivity_map: dict[str, Any],
     implementation_chain_service: ImplementationChainService,
+    chain_types: list[str] = None,
 ) -> list[dict[str, Any]]:
-    """Identify critical execution paths in the project."""
+    """
+    Identify critical execution paths in the project.
+
+    Args:
+        functions: List of functions to analyze
+        connectivity_map: Function connectivity mapping
+        implementation_chain_service: Service for chain analysis
+        chain_types: List of chain types to analyze (default: ["execution_flow"])
+
+    Returns:
+        List of critical paths with their metrics
+    """
     critical_paths = []
+
+    # Determine which chain types to analyze
+    target_chain_types = chain_types if chain_types else ["execution_flow"]
 
     # Find entry points (functions with no incoming connections)
     entry_points = [func for func in functions if connectivity_map.get(func["breadcrumb"], {}).get("is_entry_point", False)]
 
-    # For each entry point, trace critical paths
+    # For each entry point and chain type, trace critical paths
     for entry_point in entry_points[:5]:  # Limit to top 5 entry points
-        try:
-            # Use implementation chain service to trace from entry point
-            chain_result = await implementation_chain_service.trace_function_chain(
-                entry_point["breadcrumb"],
-                max_depth=8,
-                chain_type="execution_flow",
-                include_cycles=False,
-            )
-
-            if chain_result and "chain_links" in chain_result:
-                # Calculate path criticality
-                path_length = len(chain_result["chain_links"])
-                path_complexity = sum(
-                    connectivity_map.get(link.get("target_breadcrumb", ""), {}).get("connection_count", 0)
-                    for link in chain_result["chain_links"]
+        for chain_type in target_chain_types:
+            try:
+                # Use implementation chain service to trace from entry point
+                chain_result = await implementation_chain_service.trace_function_chain(
+                    entry_point["breadcrumb"],
+                    max_depth=8,
+                    chain_type=chain_type,
+                    include_cycles=False,
                 )
 
-                if path_length >= 3 and path_complexity >= 10:  # Significant paths only
-                    critical_paths.append(
-                        {
-                            "entry_point": entry_point["breadcrumb"],
-                            "path_length": path_length,
-                            "path_complexity": path_complexity,
-                            "chain_links": chain_result["chain_links"][:10],  # Limit to first 10 links
-                            "criticality_score": min(1.0, (path_length * 0.1) + (path_complexity * 0.02)),
-                        }
+                if chain_result and "chain_links" in chain_result:
+                    # Calculate path criticality
+                    path_length = len(chain_result["chain_links"])
+                    path_complexity = sum(
+                        connectivity_map.get(link.get("target_breadcrumb", ""), {}).get("connection_count", 0)
+                        for link in chain_result["chain_links"]
                     )
 
-        except Exception as e:
-            logger.debug(f"Could not trace critical path from {entry_point['breadcrumb']}: {e}")
-            continue
+                    if path_length >= 3 and path_complexity >= 10:  # Significant paths only
+                        critical_paths.append(
+                            {
+                                "entry_point": entry_point["breadcrumb"],
+                                "chain_type": chain_type,
+                                "path_length": path_length,
+                                "path_complexity": path_complexity,
+                                "chain_links": chain_result["chain_links"][:10],  # Limit to first 10 links
+                                "criticality_score": min(1.0, (path_length * 0.1) + (path_complexity * 0.02)),
+                            }
+                        )
+
+            except Exception as e:
+                logger.debug(f"Could not trace critical path from {entry_point['breadcrumb']} for chain type {chain_type}: {e}")
+                continue
 
     # Sort by criticality score
     critical_paths.sort(key=lambda x: x["criticality_score"], reverse=True)
@@ -1380,6 +1445,7 @@ async def _perform_coverage_analysis(
     functions: list[dict[str, Any]],
     implementation_chain_service: ImplementationChainService,
     batch_size: int,
+    chain_types: list[str] = None,
 ) -> dict[str, Any]:
     """
     Perform comprehensive coverage analysis to identify function connectivity patterns.
@@ -1396,6 +1462,7 @@ async def _perform_coverage_analysis(
         functions: List of functions to analyze
         implementation_chain_service: Service for chain analysis
         batch_size: Batch size for processing
+        chain_types: List of chain types to filter analysis (default: all types)
 
     Returns:
         Dictionary with comprehensive coverage analysis results
@@ -1403,7 +1470,7 @@ async def _perform_coverage_analysis(
     logger.info(f"Performing coverage analysis on {len(functions)} functions")
 
     # Step 1: Build comprehensive connectivity map
-    connectivity_map = await _build_comprehensive_connectivity_map(functions, implementation_chain_service)
+    connectivity_map = await _build_comprehensive_connectivity_map(functions, implementation_chain_service, chain_types)
 
     # Step 2: Analyze function coverage in batches
     covered_functions = []
@@ -1478,19 +1545,46 @@ async def _perform_coverage_analysis(
 async def _build_comprehensive_connectivity_map(
     functions: list[dict[str, Any]],
     implementation_chain_service: ImplementationChainService,
+    chain_types: list[str] = None,
 ) -> dict[str, Any]:
-    """Build a comprehensive connectivity map for all functions."""
+    """
+    Build a comprehensive connectivity map for all functions.
+
+    Args:
+        functions: List of functions to analyze
+        implementation_chain_service: Service for chain analysis
+        chain_types: List of chain types to filter relationships (default: all types)
+
+    Returns:
+        Dictionary mapping breadcrumbs to connectivity information
+    """
     connectivity_map = {}
+
+    # Determine which chain types to analyze
+    target_chain_types = chain_types if chain_types else ["execution_flow", "data_flow", "dependency_chain"]
+
+    # Map relationship types to chain types
+    relationship_to_chain_map = {
+        "call": "execution_flow",
+        "import": "dependency_chain",
+        "inherit": "execution_flow",
+        "implement": "execution_flow",
+        "reference": "data_flow",
+        "dependency": "dependency_chain",
+        "data_transform": "data_flow",
+        "invoke": "execution_flow",
+        "access": "data_flow",
+    }
 
     try:
         # Get project structure graph for detailed connectivity analysis
         project_name = implementation_chain_service.project_name if hasattr(implementation_chain_service, "project_name") else "unknown"
-        project_graph = await implementation_chain_service.graph_rag_service.get_project_structure_graph(project_name)
+        project_graph = await implementation_chain_service.graph_rag_service.build_structure_graph(project_name, force_rebuild=True)
 
         if project_graph:
             # Initialize connectivity map from graph nodes
             for node in project_graph.nodes:
-                if node.chunk_type in ["function", "method"]:
+                if node.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD]:
                     connectivity_map[node.breadcrumb] = {
                         "incoming_connections": [],
                         "outgoing_connections": [],
@@ -1502,21 +1596,26 @@ async def _build_comprehensive_connectivity_map(
                         "cluster_id": None,  # For network clustering analysis
                     }
 
-            # Build connections from relationships
+            # Build connections from relationships, filtered by chain types
             for relationship in getattr(project_graph, "relationships", []):
                 source_breadcrumb = getattr(relationship, "source_breadcrumb", "")
                 target_breadcrumb = getattr(relationship, "target_breadcrumb", "")
                 relationship_type = getattr(relationship, "relationship_type", "call")
 
-                if source_breadcrumb in connectivity_map:
-                    connectivity_map[source_breadcrumb]["outgoing_connections"].append(target_breadcrumb)
-                    connectivity_map[source_breadcrumb]["connection_strength"][target_breadcrumb] = _calculate_connection_strength(
-                        relationship_type
-                    )
-                    connectivity_map[source_breadcrumb]["is_entry_point"] = False
+                # Map relationship type to chain type
+                mapped_chain_type = relationship_to_chain_map.get(relationship_type, "execution_flow")
 
-                if target_breadcrumb in connectivity_map:
-                    connectivity_map[target_breadcrumb]["incoming_connections"].append(source_breadcrumb)
+                # Only include relationships that match target chain types
+                if mapped_chain_type in target_chain_types:
+                    if source_breadcrumb in connectivity_map:
+                        connectivity_map[source_breadcrumb]["outgoing_connections"].append(target_breadcrumb)
+                        connectivity_map[source_breadcrumb]["connection_strength"][target_breadcrumb] = _calculate_connection_strength(
+                            relationship_type
+                        )
+                        connectivity_map[source_breadcrumb]["is_entry_point"] = False
+
+                    if target_breadcrumb in connectivity_map:
+                        connectivity_map[target_breadcrumb]["incoming_connections"].append(source_breadcrumb)
 
     except Exception as e:
         logger.warning(f"Could not build comprehensive connectivity map: {e}. Using fallback analysis.")
@@ -2794,79 +2893,898 @@ async def _calculate_project_metrics(
     functions: list[dict[str, Any]],
     analysis_results: dict[str, Any],
     implementation_chain_service: ImplementationChainService,
+    chain_types: list[str] = None,
 ) -> dict[str, Any]:
     """
-    Calculate project-level metrics.
+    Calculate comprehensive project-level metrics including average chain depth,
+    total entry points, connectivity scores, and architectural quality indicators.
+
+    This function provides project-wide insights by aggregating individual function
+    analysis results into meaningful project-level statistics and quality indicators.
 
     Args:
-        functions: List of functions
-        analysis_results: Results from various analyses
+        functions: List of functions to analyze
+        analysis_results: Results from various analyses (complexity, hotspot, coverage)
         implementation_chain_service: Service for chain analysis
 
     Returns:
-        Dictionary with project metrics
+        Dictionary with comprehensive project metrics and quality indicators
     """
-    logger.info("Calculating project-level metrics")
+    logger.info("Calculating comprehensive project-level metrics")
 
-    # Basic metrics
-    total_functions = len(functions)
-    total_chains = 0  # Placeholder
+    # Step 1: Calculate basic structural metrics
+    basic_metrics = await _calculate_basic_project_metrics(functions, analysis_results, implementation_chain_service)
 
-    # Calculate average chain depth
-    average_chain_depth = 3.5  # Placeholder
+    # Step 2: Calculate average chain depth using real chain analysis
+    chain_depth_metrics = await _calculate_real_average_chain_depth(functions, implementation_chain_service, chain_types)
 
-    # Count entry points (functions with no incoming connections)
-    total_entry_points = 0
-    for func in functions:
-        if _is_placeholder_entry_point(func):
-            total_entry_points += 1
+    # Step 3: Calculate connectivity metrics and scores
+    connectivity_metrics = _calculate_comprehensive_connectivity_metrics_for_project(analysis_results)
 
-    # Calculate overall complexity score
-    overall_complexity = 0.0
-    if "complexity_analysis" in analysis_results:
-        complexity_data = analysis_results["complexity_analysis"]
-        overall_complexity = complexity_data.get("average_complexity", 0.0)
+    # Step 4: Calculate complexity distribution and quality metrics
+    complexity_metrics = _calculate_project_complexity_metrics(analysis_results)
 
-    # Calculate connectivity score
-    connectivity_score = 0.0
-    if "coverage_analysis" in analysis_results:
-        coverage_data = analysis_results["coverage_analysis"]
-        connectivity_score = coverage_data.get("coverage_percentage", 0.0) / 100.0
+    # Step 5: Calculate architectural quality indicators
+    architectural_metrics = _calculate_architectural_quality_metrics(analysis_results, functions)
+
+    # Step 6: Calculate performance and hotspot metrics
+    performance_metrics = _calculate_project_performance_metrics(analysis_results)
+
+    # Step 7: Calculate technical debt and maintainability metrics
+    maintainability_metrics = _calculate_project_maintainability_metrics(analysis_results)
+
+    # Step 8: Calculate project health score
+    health_score = _calculate_project_health_score(basic_metrics, connectivity_metrics, complexity_metrics, architectural_metrics)
 
     return {
-        "basic_metrics": {
-            "total_functions": total_functions,
-            "total_chains": total_chains,
-            "average_chain_depth": average_chain_depth,
-            "total_entry_points": total_entry_points,
-        },
-        "complexity_metrics": {
-            "overall_complexity_score": overall_complexity,
-            "complexity_distribution": analysis_results.get("complexity_analysis", {}).get("complexity_distribution", {}),
-        },
-        "connectivity_metrics": {
-            "connectivity_score": connectivity_score,
-            "isolated_functions": analysis_results.get("coverage_analysis", {}).get("uncovered_functions_count", 0),
-            "highly_connected_functions": analysis_results.get("coverage_analysis", {})
-            .get("connectivity_statistics", {})
-            .get("highly_connected_functions", 0),
-        },
-        "hotspot_metrics": {
-            "hotspot_functions_count": analysis_results.get("hotspot_analysis", {}).get("hotspot_functions_count", 0),
-            "critical_paths_count": len(analysis_results.get("hotspot_analysis", {}).get("critical_paths", [])),
-        },
-        "coverage_metrics": {
-            "coverage_percentage": analysis_results.get("coverage_analysis", {}).get("coverage_percentage", 0.0),
-            "uncovered_functions_count": analysis_results.get("coverage_analysis", {}).get("uncovered_functions_count", 0),
-        },
+        "basic_metrics": basic_metrics,
+        "chain_depth_metrics": chain_depth_metrics,
+        "connectivity_metrics": connectivity_metrics,
+        "complexity_metrics": complexity_metrics,
+        "architectural_metrics": architectural_metrics,
+        "performance_metrics": performance_metrics,
+        "maintainability_metrics": maintainability_metrics,
+        "project_health": health_score,
+        "quality_indicators": _generate_quality_indicators(basic_metrics, connectivity_metrics, complexity_metrics, architectural_metrics),
+        "recommendations": _generate_project_level_recommendations(
+            basic_metrics, connectivity_metrics, complexity_metrics, architectural_metrics
+        ),
     }
 
 
-def _is_placeholder_entry_point(func: dict[str, Any]) -> bool:
-    """Check if a function is a placeholder entry point."""
-    # Placeholder implementation
-    # In reality, this would analyze actual function connections
-    return func["name"].startswith("main") or func["name"].startswith("init")
+async def _calculate_basic_project_metrics(
+    functions: list[dict[str, Any]],
+    analysis_results: dict[str, Any],
+    implementation_chain_service: ImplementationChainService,
+) -> dict[str, Any]:
+    """Calculate basic project structural metrics."""
+    total_functions = len(functions)
+
+    # Count entry points from coverage analysis
+    total_entry_points = 0
+    if "coverage_analysis" in analysis_results:
+        connectivity_stats = analysis_results["coverage_analysis"].get("connectivity_statistics", {})
+        total_entry_points = connectivity_stats.get("advanced_metrics", {}).get("entry_point_functions", 0)
+
+    # If no coverage analysis, use heuristic detection
+    if total_entry_points == 0:
+        for func in functions:
+            if _is_likely_entry_point_heuristic(func):
+                total_entry_points += 1
+
+    # Calculate total chain connections
+    total_chain_connections = 0
+    if "coverage_analysis" in analysis_results:
+        network_analysis = analysis_results["coverage_analysis"].get("network_analysis", {})
+        total_chain_connections = network_analysis.get("total_connections", 0)
+
+    # Calculate function distribution by type
+    function_distribution = _calculate_function_type_distribution(functions, analysis_results)
+
+    # Calculate file distribution metrics
+    file_distribution = _calculate_file_distribution_metrics(functions)
+
+    return {
+        "total_functions": total_functions,
+        "total_entry_points": total_entry_points,
+        "total_chain_connections": total_chain_connections,
+        "function_distribution": function_distribution,
+        "file_distribution": file_distribution,
+        "files_analyzed": len(set(func.get("file_path", "") for func in functions)),
+        "average_functions_per_file": total_functions / max(1, len(set(func.get("file_path", "") for func in functions))),
+    }
+
+
+async def _calculate_real_average_chain_depth(
+    functions: list[dict[str, Any]],
+    implementation_chain_service: ImplementationChainService,
+    chain_types: list[str] = None,
+) -> dict[str, Any]:
+    """
+    Calculate real average chain depth by analyzing actual function chains.
+
+    Args:
+        functions: List of functions to analyze
+        implementation_chain_service: Service for chain analysis
+        chain_types: List of chain types to analyze (default: ["execution_flow"])
+
+    Returns:
+        Dictionary with chain depth metrics and analysis coverage
+    """
+    chain_depths = []
+    total_chains_analyzed = 0
+    successful_traces = 0
+    chain_depths_by_type = {}
+
+    # Determine which chain types to analyze
+    target_chain_types = chain_types if chain_types else ["execution_flow"]
+
+    # Initialize chain depths tracking by type
+    for chain_type in target_chain_types:
+        chain_depths_by_type[chain_type] = []
+
+    # Sample entry points for chain analysis (limit for performance)
+    entry_point_functions = [func for func in functions if _is_likely_entry_point_heuristic(func)]
+    sample_entry_points = entry_point_functions[: min(10, len(entry_point_functions))]
+
+    logger.debug(f"Analyzing chain depth for {len(sample_entry_points)} entry points across {len(target_chain_types)} chain types")
+
+    for entry_point in sample_entry_points:
+        for chain_type in target_chain_types:
+            try:
+                # Trace chain from entry point for specific chain type
+                chain_result = await implementation_chain_service.trace_function_chain(
+                    entry_point["breadcrumb"], max_depth=15, chain_type=chain_type, include_cycles=False
+                )
+
+                if chain_result and "chain_links" in chain_result:
+                    chain_depth = len(chain_result["chain_links"])
+                    chain_depths.append(chain_depth)
+                    chain_depths_by_type[chain_type].append(chain_depth)
+                    successful_traces += 1
+
+                total_chains_analyzed += 1
+
+            except Exception as e:
+                logger.debug(f"Could not trace {chain_type} chain for {entry_point['breadcrumb']}: {e}")
+                continue
+
+    # Calculate statistics
+    if chain_depths:
+        average_chain_depth = sum(chain_depths) / len(chain_depths)
+        max_chain_depth = max(chain_depths)
+        min_chain_depth = min(chain_depths)
+        median_chain_depth = sorted(chain_depths)[len(chain_depths) // 2] if chain_depths else 0
+    else:
+        # Fallback to heuristic calculation
+        average_chain_depth = _estimate_average_chain_depth_heuristic(functions)
+        max_chain_depth = int(average_chain_depth * 2)
+        min_chain_depth = max(1, int(average_chain_depth * 0.5))
+        median_chain_depth = average_chain_depth
+
+    # Calculate chain type specific metrics
+    chain_type_metrics = {}
+    for chain_type, depths in chain_depths_by_type.items():
+        if depths:
+            chain_type_metrics[chain_type] = {
+                "average_depth": round(sum(depths) / len(depths), 2),
+                "max_depth": max(depths),
+                "min_depth": min(depths),
+                "count": len(depths),
+                "distribution": _calculate_chain_depth_distribution(depths),
+            }
+        else:
+            chain_type_metrics[chain_type] = {
+                "average_depth": 0.0,
+                "max_depth": 0,
+                "min_depth": 0,
+                "count": 0,
+                "distribution": {"shallow": 0, "medium": 0, "deep": 0, "very_deep": 0},
+            }
+
+    return {
+        "average_chain_depth": round(average_chain_depth, 2),
+        "max_chain_depth": max_chain_depth,
+        "min_chain_depth": min_chain_depth,
+        "median_chain_depth": median_chain_depth,
+        "total_chains_analyzed": total_chains_analyzed,
+        "successful_traces": successful_traces,
+        "chain_depth_distribution": _calculate_chain_depth_distribution(chain_depths),
+        "analysis_coverage": (successful_traces / max(1, total_chains_analyzed)) * 100,
+        "chain_types_analyzed": target_chain_types,
+        "chain_type_metrics": chain_type_metrics,
+    }
+
+
+def _calculate_comprehensive_connectivity_metrics_for_project(analysis_results: dict[str, Any]) -> dict[str, Any]:
+    """Calculate comprehensive connectivity metrics for the entire project."""
+    if "coverage_analysis" not in analysis_results:
+        return _default_connectivity_metrics()
+
+    coverage_data = analysis_results["coverage_analysis"]
+    connectivity_stats = coverage_data.get("connectivity_statistics", {})
+    network_analysis = coverage_data.get("network_analysis", {})
+
+    # Basic connectivity metrics
+    coverage_percentage = coverage_data.get("coverage_percentage", 0.0)
+    connectivity_score = coverage_percentage / 100.0
+
+    # Advanced connectivity metrics
+    connection_stats = connectivity_stats.get("connection_statistics", {})
+    total_connections = connection_stats.get("total_connections", {})
+
+    avg_incoming = total_connections.get("avg", 0.0)
+    avg_outgoing = total_connections.get("avg", 0.0)
+
+    # Network quality metrics
+    network_density = network_analysis.get("network_density", 0.0)
+    cluster_analysis = network_analysis.get("cluster_analysis", {})
+    modularity_score = cluster_analysis.get("modularity_score", 0.0)
+
+    # Hub and isolation metrics
+    advanced_metrics = connectivity_stats.get("advanced_metrics", {})
+    highly_connected_functions = advanced_metrics.get("highly_connected_functions", 0)
+    isolated_functions = advanced_metrics.get("isolated_functions", 0)
+    hub_functions = advanced_metrics.get("hub_functions", 0)
+    bridge_functions = advanced_metrics.get("bridge_functions", 0)
+
+    return {
+        "connectivity_score": connectivity_score,
+        "coverage_percentage": coverage_percentage,
+        "network_density": network_density,
+        "modularity_score": modularity_score,
+        "average_incoming_connections": avg_incoming,
+        "average_outgoing_connections": avg_outgoing,
+        "highly_connected_functions": highly_connected_functions,
+        "isolated_functions": isolated_functions,
+        "hub_functions": hub_functions,
+        "bridge_functions": bridge_functions,
+        "connectivity_quality": _calculate_connectivity_quality_score(
+            connectivity_score, network_density, modularity_score, isolated_functions
+        ),
+    }
+
+
+def _calculate_project_complexity_metrics(analysis_results: dict[str, Any]) -> dict[str, Any]:
+    """Calculate project-wide complexity metrics and distribution."""
+    if "complexity_analysis" not in analysis_results:
+        return _default_complexity_metrics()
+
+    complexity_data = analysis_results["complexity_analysis"]
+
+    # Basic complexity metrics
+    average_complexity = complexity_data.get("average_complexity", 0.0)
+    complexity_distribution = complexity_data.get("complexity_distribution", {})
+    total_complex_functions = complexity_data.get("complex_functions_count", 0)
+    total_functions = complexity_data.get("total_functions_analyzed", 1)
+
+    # Calculate complexity quality indicators
+    complexity_ratio = total_complex_functions / max(1, total_functions)
+    complexity_quality = _calculate_complexity_quality_score(average_complexity, complexity_ratio, complexity_distribution)
+
+    # Get complexity statistics
+    complexity_stats = complexity_data.get("complexity_statistics", {})
+
+    return {
+        "overall_complexity_score": average_complexity,
+        "complexity_distribution": complexity_distribution,
+        "complex_functions_count": total_complex_functions,
+        "complexity_ratio": complexity_ratio,
+        "complexity_quality": complexity_quality,
+        "complexity_statistics": complexity_stats,
+        "complexity_trends": _analyze_complexity_trends(complexity_data),
+    }
+
+
+def _calculate_architectural_quality_metrics(analysis_results: dict[str, Any], functions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calculate architectural quality metrics."""
+    # Analyze layer distribution
+    layer_distribution = _analyze_architectural_layers(functions)
+
+    # Analyze hotspot patterns
+    hotspot_metrics = {}
+    if "hotspot_analysis" in analysis_results:
+        hotspot_data = analysis_results["hotspot_analysis"]
+        hotspot_categories = hotspot_data.get("hotspot_categories", {})
+        hotspot_metrics = {
+            "performance_bottlenecks": hotspot_categories.get("performance_bottleneck", 0),
+            "architectural_hubs": hotspot_categories.get("architectural_hub", 0),
+            "entry_points": hotspot_categories.get("entry_point", 0),
+            "critical_utilities": hotspot_categories.get("critical_utility", 0),
+        }
+
+    # Calculate architectural health score
+    architectural_health = _calculate_architectural_health_score(layer_distribution, hotspot_metrics, analysis_results)
+
+    return {
+        "layer_distribution": layer_distribution,
+        "hotspot_metrics": hotspot_metrics,
+        "architectural_health": architectural_health,
+        "design_pattern_indicators": _identify_design_pattern_indicators(analysis_results, functions),
+        "coupling_indicators": _calculate_coupling_indicators(analysis_results),
+        "cohesion_indicators": _calculate_cohesion_indicators(analysis_results),
+    }
+
+
+def _calculate_project_performance_metrics(analysis_results: dict[str, Any]) -> dict[str, Any]:
+    """Calculate project performance and hotspot metrics."""
+    if "hotspot_analysis" not in analysis_results:
+        return _default_performance_metrics()
+
+    hotspot_data = analysis_results["hotspot_analysis"]
+
+    # Performance hotspot metrics
+    hotspot_functions_count = hotspot_data.get("hotspot_functions_count", 0)
+    critical_paths_count = len(hotspot_data.get("critical_paths", []))
+
+    # Get hotspot statistics
+    hotspot_stats = hotspot_data.get("hotspot_statistics", {})
+    performance_impact_stats = hotspot_stats.get("performance_impact_stats", {})
+
+    # Calculate performance risk score
+    performance_risk = _calculate_performance_risk_score(hotspot_functions_count, critical_paths_count, performance_impact_stats)
+
+    return {
+        "hotspot_functions_count": hotspot_functions_count,
+        "critical_paths_count": critical_paths_count,
+        "performance_impact_statistics": performance_impact_stats,
+        "performance_risk_score": performance_risk,
+        "hotspot_distribution": hotspot_data.get("hotspot_categories", {}),
+        "performance_recommendations": _generate_performance_recommendations(hotspot_data),
+    }
+
+
+def _calculate_project_maintainability_metrics(analysis_results: dict[str, Any]) -> dict[str, Any]:
+    """Calculate project maintainability and technical debt metrics."""
+    maintainability_score = 0.0
+    technical_debt_indicators = {}
+
+    # Factor in complexity metrics
+    if "complexity_analysis" in analysis_results:
+        complexity_data = analysis_results["complexity_analysis"]
+        avg_complexity = complexity_data.get("average_complexity", 0.0)
+        maintainability_score += (1.0 - min(1.0, avg_complexity)) * 0.4  # 40% weight
+
+    # Factor in connectivity metrics
+    if "coverage_analysis" in analysis_results:
+        coverage_data = analysis_results["coverage_analysis"]
+        coverage_percentage = coverage_data.get("coverage_percentage", 0.0)
+        maintainability_score += (coverage_percentage / 100.0) * 0.3  # 30% weight
+
+    # Factor in hotspot metrics
+    if "hotspot_analysis" in analysis_results:
+        hotspot_data = analysis_results["hotspot_analysis"]
+        hotspot_count = hotspot_data.get("hotspot_functions_count", 0)
+        total_functions = analysis_results.get("complexity_analysis", {}).get("total_functions_analyzed", 1)
+        hotspot_ratio = 1.0 - min(1.0, hotspot_count / max(1, total_functions))
+        maintainability_score += hotspot_ratio * 0.2  # 20% weight
+
+    # Factor in refactoring recommendations
+    if "refactoring_recommendations" in analysis_results:
+        refactoring_data = analysis_results["refactoring_recommendations"]
+        technical_debt_metrics = refactoring_data.get("technical_debt_metrics", {})
+        debt_level = technical_debt_metrics.get("debt_level", "low")
+        debt_impact = {"low": 0.1, "medium": 0.05, "high": 0.0}.get(debt_level, 0.1)
+        maintainability_score += debt_impact * 0.1  # 10% weight
+
+    return {
+        "maintainability_score": round(maintainability_score, 3),
+        "technical_debt_indicators": technical_debt_indicators,
+        "refactoring_urgency": _determine_refactoring_urgency(analysis_results),
+        "code_quality_trends": _analyze_code_quality_trends(analysis_results),
+    }
+
+
+def _calculate_project_health_score(
+    basic_metrics: dict[str, Any],
+    connectivity_metrics: dict[str, Any],
+    complexity_metrics: dict[str, Any],
+    architectural_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    """Calculate overall project health score."""
+    # Calculate component scores (0.0 to 1.0)
+    connectivity_score = connectivity_metrics.get("connectivity_quality", 0.0)
+    complexity_score = complexity_metrics.get("complexity_quality", 0.0)
+    architectural_score = architectural_metrics.get("architectural_health", 0.0)
+
+    # Calculate weighted overall health score
+    health_weights = {"connectivity": 0.35, "complexity": 0.35, "architecture": 0.30}
+
+    overall_health = (
+        connectivity_score * health_weights["connectivity"]
+        + complexity_score * health_weights["complexity"]
+        + architectural_score * health_weights["architecture"]
+    )
+
+    # Determine health category
+    if overall_health >= 0.8:
+        health_category = "excellent"
+    elif overall_health >= 0.6:
+        health_category = "good"
+    elif overall_health >= 0.4:
+        health_category = "fair"
+    else:
+        health_category = "poor"
+
+    return {
+        "overall_health_score": round(overall_health, 3),
+        "health_category": health_category,
+        "component_scores": {
+            "connectivity": round(connectivity_score, 3),
+            "complexity": round(complexity_score, 3),
+            "architecture": round(architectural_score, 3),
+        },
+        "health_trends": _analyze_health_trends(overall_health, connectivity_score, complexity_score, architectural_score),
+    }
+
+
+# Helper functions for project metrics calculations
+
+
+def _is_likely_entry_point_heuristic(func: dict[str, Any]) -> bool:
+    """Heuristic to determine if a function is likely an entry point."""
+    name = func.get("name", "").lower()
+    breadcrumb = func.get("breadcrumb", "").lower()
+
+    # Check for common entry point patterns
+    entry_patterns = ["main", "init", "start", "run", "execute", "handler", "endpoint", "app", "server"]
+    return any(pattern in name or pattern in breadcrumb for pattern in entry_patterns)
+
+
+def _calculate_function_type_distribution(functions: list[dict[str, Any]], analysis_results: dict[str, Any]) -> dict[str, int]:
+    """Calculate distribution of function types."""
+    distribution = {"entry_point": 0, "getter": 0, "setter": 0, "processor": 0, "utility": 0, "test": 0, "standard": 0}
+
+    # Use coverage analysis function types if available
+    if "coverage_analysis" in analysis_results:
+        coverage_stats = analysis_results["coverage_analysis"].get("connectivity_statistics", {})
+        function_type_dist = coverage_stats.get("function_type_distribution", {})
+        distribution.update(function_type_dist)
+    else:
+        # Fallback to heuristic classification
+        for func in functions:
+            func_type = _classify_function_type(func["name"])
+            distribution[func_type] = distribution.get(func_type, 0) + 1
+
+    return distribution
+
+
+def _calculate_file_distribution_metrics(functions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calculate file distribution metrics."""
+    file_function_counts = {}
+    for func in functions:
+        file_path = func.get("file_path", "unknown")
+        file_function_counts[file_path] = file_function_counts.get(file_path, 0) + 1
+
+    counts = list(file_function_counts.values())
+    if counts:
+        return {
+            "total_files": len(file_function_counts),
+            "avg_functions_per_file": sum(counts) / len(counts),
+            "max_functions_per_file": max(counts),
+            "min_functions_per_file": min(counts),
+            "files_with_many_functions": len([c for c in counts if c > 10]),  # Potential refactoring candidates
+        }
+    else:
+        return {"total_files": 0, "avg_functions_per_file": 0, "max_functions_per_file": 0, "min_functions_per_file": 0}
+
+
+def _estimate_average_chain_depth_heuristic(functions: list[dict[str, Any]]) -> float:
+    """Estimate average chain depth using heuristics."""
+    # Simple heuristic based on function content and naming patterns
+    total_estimated_depth = 0.0
+    processed_functions = 0
+
+    for func in functions:
+        content = func.get("content", "")
+        name = func.get("name", "")
+
+        # Estimate depth based on function characteristics
+        estimated_depth = 1.0  # Base depth
+
+        # Functions with many lines tend to have deeper call chains
+        if len(content) > 100:
+            estimated_depth += 1.0
+        if len(content) > 500:
+            estimated_depth += 1.0
+
+        # Processor functions tend to have deeper chains
+        if any(pattern in name.lower() for pattern in ["process", "calculate", "analyze", "transform"]):
+            estimated_depth += 1.5
+
+        # Entry points tend to have deeper chains
+        if _is_likely_entry_point_heuristic(func):
+            estimated_depth += 2.0
+
+        total_estimated_depth += estimated_depth
+        processed_functions += 1
+
+    return total_estimated_depth / max(1, processed_functions)
+
+
+def _calculate_chain_depth_distribution(chain_depths: list[int]) -> dict[str, int]:
+    """Calculate distribution of chain depths."""
+    if not chain_depths:
+        return {"shallow": 0, "medium": 0, "deep": 0, "very_deep": 0}
+
+    distribution = {"shallow": 0, "medium": 0, "deep": 0, "very_deep": 0}
+
+    for depth in chain_depths:
+        if depth <= 3:
+            distribution["shallow"] += 1
+        elif depth <= 6:
+            distribution["medium"] += 1
+        elif depth <= 10:
+            distribution["deep"] += 1
+        else:
+            distribution["very_deep"] += 1
+
+    return distribution
+
+
+def _calculate_connectivity_quality_score(
+    connectivity_score: float, network_density: float, modularity_score: float, isolated_functions: int
+) -> float:
+    """Calculate overall connectivity quality score."""
+    # Base score from connectivity percentage (0.0 to 0.5)
+    base_score = min(0.5, connectivity_score * 0.5)
+
+    # Network density bonus (0.0 to 0.2)
+    density_bonus = min(0.2, network_density * 0.2)
+
+    # Modularity bonus (0.0 to 0.2)
+    modularity_bonus = min(0.2, max(0, modularity_score) * 0.2)
+
+    # Isolation penalty (0.0 to -0.1)
+    isolation_penalty = min(0.1, isolated_functions * 0.01)
+
+    total_score = base_score + density_bonus + modularity_bonus - isolation_penalty
+    return max(0.0, min(1.0, total_score))
+
+
+def _calculate_complexity_quality_score(average_complexity: float, complexity_ratio: float, distribution: dict) -> float:
+    """Calculate complexity quality score."""
+    # Lower complexity is better
+    complexity_score = max(0.0, 1.0 - average_complexity)
+
+    # Lower ratio of complex functions is better
+    ratio_score = max(0.0, 1.0 - complexity_ratio)
+
+    # Distribution balance (prefer more low/medium complexity functions)
+    low_count = distribution.get("low", 0)
+    medium_count = distribution.get("medium", 0)
+    high_count = distribution.get("high", 0)
+    total = max(1, low_count + medium_count + high_count)
+
+    distribution_score = (low_count * 1.0 + medium_count * 0.5 + high_count * 0.1) / total
+
+    # Weighted combination
+    return (complexity_score * 0.4) + (ratio_score * 0.4) + (distribution_score * 0.2)
+
+
+def _analyze_architectural_layers(functions: list[dict[str, Any]]) -> dict[str, int]:
+    """Analyze distribution across architectural layers."""
+    layer_counts = {"api": 0, "service": 0, "core": 0, "utils": 0, "unknown": 0}
+
+    for func in functions:
+        breadcrumb = func.get("breadcrumb", "")
+        layer = _determine_architectural_layer(breadcrumb)
+        layer_counts[layer] = layer_counts.get(layer, 0) + 1
+
+    return layer_counts
+
+
+def _calculate_architectural_health_score(
+    layer_distribution: dict[str, int], hotspot_metrics: dict[str, int], analysis_results: dict[str, Any]
+) -> float:
+    """Calculate architectural health score."""
+    total_functions = sum(layer_distribution.values())
+    if total_functions == 0:
+        return 0.0
+
+    # Layer balance score (better when functions are distributed across layers)
+    unknown_ratio = layer_distribution.get("unknown", 0) / total_functions
+    layer_balance = 1.0 - unknown_ratio
+
+    # Hotspot distribution score (better when hotspots are manageable)
+    total_hotspots = sum(hotspot_metrics.values())
+    hotspot_ratio = total_hotspots / max(1, total_functions)
+    hotspot_score = max(0.0, 1.0 - hotspot_ratio * 2)  # Penalty for high hotspot ratio
+
+    # Entry point management (better when entry points are reasonable)
+    entry_points = hotspot_metrics.get("entry_points", 0)
+    entry_point_score = 1.0 if entry_points <= 5 else max(0.0, 1.0 - (entry_points - 5) * 0.1)
+
+    # Weighted combination
+    return (layer_balance * 0.4) + (hotspot_score * 0.4) + (entry_point_score * 0.2)
+
+
+# Default metrics for when analysis data is not available
+
+
+def _default_connectivity_metrics() -> dict[str, Any]:
+    """Return default connectivity metrics when analysis is not available."""
+    return {
+        "connectivity_score": 0.0,
+        "coverage_percentage": 0.0,
+        "network_density": 0.0,
+        "modularity_score": 0.0,
+        "average_incoming_connections": 0.0,
+        "average_outgoing_connections": 0.0,
+        "highly_connected_functions": 0,
+        "isolated_functions": 0,
+        "hub_functions": 0,
+        "bridge_functions": 0,
+        "connectivity_quality": 0.0,
+    }
+
+
+def _default_complexity_metrics() -> dict[str, Any]:
+    """Return default complexity metrics when analysis is not available."""
+    return {
+        "overall_complexity_score": 0.0,
+        "complexity_distribution": {"low": 0, "medium": 0, "high": 0},
+        "complex_functions_count": 0,
+        "complexity_ratio": 0.0,
+        "complexity_quality": 0.0,
+        "complexity_statistics": {},
+        "complexity_trends": {"status": "unknown"},
+    }
+
+
+def _default_performance_metrics() -> dict[str, Any]:
+    """Return default performance metrics when analysis is not available."""
+    return {
+        "hotspot_functions_count": 0,
+        "critical_paths_count": 0,
+        "performance_impact_statistics": {},
+        "performance_risk_score": 0.0,
+        "hotspot_distribution": {},
+        "performance_recommendations": [],
+    }
+
+
+# Additional analysis functions
+
+
+def _analyze_complexity_trends(complexity_data: dict[str, Any]) -> dict[str, str]:
+    """Analyze complexity trends from complexity data."""
+    avg_complexity = complexity_data.get("average_complexity", 0.0)
+
+    if avg_complexity < 0.3:
+        return {"status": "excellent", "description": "Low complexity across the project"}
+    elif avg_complexity < 0.5:
+        return {"status": "good", "description": "Moderate complexity levels"}
+    elif avg_complexity < 0.7:
+        return {"status": "concerning", "description": "High complexity requiring attention"}
+    else:
+        return {"status": "critical", "description": "Very high complexity requiring immediate action"}
+
+
+def _identify_design_pattern_indicators(analysis_results: dict[str, Any], functions: list[dict[str, Any]]) -> dict[str, int]:
+    """Identify potential design pattern usage indicators."""
+    patterns = {"factory": 0, "singleton": 0, "observer": 0, "strategy": 0, "adapter": 0, "facade": 0}
+
+    for func in functions:
+        name = func.get("name", "").lower()
+        content = func.get("content", "").lower()
+
+        # Simple pattern detection based on naming and content
+        if "factory" in name or "create" in name:
+            patterns["factory"] += 1
+        if "singleton" in name or "instance" in name:
+            patterns["singleton"] += 1
+        if "observer" in name or "notify" in name or "update" in name:
+            patterns["observer"] += 1
+        if "strategy" in name or "algorithm" in name:
+            patterns["strategy"] += 1
+        if "adapter" in name or "wrapper" in name:
+            patterns["adapter"] += 1
+        if "facade" in name or "interface" in name:
+            patterns["facade"] += 1
+
+    return patterns
+
+
+def _calculate_coupling_indicators(analysis_results: dict[str, Any]) -> dict[str, float]:
+    """Calculate coupling indicators from analysis results."""
+    if "coverage_analysis" not in analysis_results:
+        return {"afferent_coupling": 0.0, "efferent_coupling": 0.0, "instability": 0.0}
+
+    connectivity_stats = analysis_results["coverage_analysis"].get("connectivity_statistics", {})
+    connection_stats = connectivity_stats.get("connection_statistics", {})
+
+    avg_incoming = connection_stats.get("incoming_connections", {}).get("avg", 0.0)
+    avg_outgoing = connection_stats.get("outgoing_connections", {}).get("avg", 0.0)
+
+    # Calculate instability (I = Ce / (Ca + Ce))
+    instability = avg_outgoing / max(1, avg_incoming + avg_outgoing)
+
+    return {"afferent_coupling": avg_incoming, "efferent_coupling": avg_outgoing, "instability": instability}
+
+
+def _calculate_cohesion_indicators(analysis_results: dict[str, Any]) -> dict[str, float]:
+    """Calculate cohesion indicators from analysis results."""
+    # Simplified cohesion calculation based on function clustering
+    if "coverage_analysis" not in analysis_results:
+        return {"module_cohesion": 0.0, "functional_cohesion": 0.0}
+
+    network_analysis = analysis_results["coverage_analysis"].get("network_analysis", {})
+    cluster_analysis = network_analysis.get("cluster_analysis", {})
+    modularity_score = cluster_analysis.get("modularity_score", 0.0)
+
+    # Use modularity as a proxy for cohesion
+    module_cohesion = max(0.0, modularity_score)
+    functional_cohesion = module_cohesion * 0.8  # Conservative estimate
+
+    return {"module_cohesion": module_cohesion, "functional_cohesion": functional_cohesion}
+
+
+def _calculate_performance_risk_score(hotspot_count: int, critical_paths: int, performance_stats: dict[str, Any]) -> float:
+    """Calculate performance risk score."""
+    if not performance_stats:
+        return min(1.0, (hotspot_count + critical_paths) * 0.1)
+
+    avg_impact = performance_stats.get("avg", 0.0)
+    max_impact = performance_stats.get("max", 0.0)
+
+    # Risk based on hotspot count, impact, and critical paths
+    hotspot_risk = min(0.4, hotspot_count * 0.05)
+    impact_risk = min(0.4, avg_impact * 0.4)
+    max_impact_risk = min(0.2, max_impact * 0.2)
+
+    return hotspot_risk + impact_risk + max_impact_risk
+
+
+def _generate_performance_recommendations(hotspot_data: dict[str, Any]) -> list[str]:
+    """Generate performance recommendations based on hotspot data."""
+    recommendations = []
+
+    hotspot_count = hotspot_data.get("hotspot_functions_count", 0)
+    critical_paths = len(hotspot_data.get("critical_paths", []))
+
+    if hotspot_count > 10:
+        recommendations.append("High number of hotspot functions detected - prioritize performance optimization")
+    if critical_paths > 5:
+        recommendations.append("Multiple critical paths identified - consider architectural review")
+
+    hotspot_categories = hotspot_data.get("hotspot_categories", {})
+    if hotspot_categories.get("performance_bottleneck", 0) > 0:
+        recommendations.append("Performance bottlenecks identified - profile and optimize critical functions")
+    if hotspot_categories.get("architectural_hub", 0) > 3:
+        recommendations.append("Many architectural hubs - consider breaking down complex components")
+
+    return recommendations if recommendations else ["Performance appears well-distributed"]
+
+
+def _determine_refactoring_urgency(analysis_results: dict[str, Any]) -> str:
+    """Determine refactoring urgency based on analysis results."""
+    if "refactoring_recommendations" in analysis_results:
+        refactoring_data = analysis_results["refactoring_recommendations"]
+        debt_metrics = refactoring_data.get("technical_debt_metrics", {})
+        debt_level = debt_metrics.get("debt_level", "low")
+
+        urgency_map = {"low": "optional", "medium": "planned", "high": "immediate"}
+        return urgency_map.get(debt_level, "optional")
+
+    return "unknown"
+
+
+def _analyze_code_quality_trends(analysis_results: dict[str, Any]) -> dict[str, str]:
+    """Analyze overall code quality trends."""
+    # This is a simplified implementation - in reality would compare historical data
+    quality_indicators = []
+
+    if "complexity_analysis" in analysis_results:
+        avg_complexity = analysis_results["complexity_analysis"].get("average_complexity", 0.0)
+        quality_indicators.append(("complexity", avg_complexity))
+
+    if "coverage_analysis" in analysis_results:
+        coverage_percentage = analysis_results["coverage_analysis"].get("coverage_percentage", 0.0)
+        quality_indicators.append(("connectivity", coverage_percentage / 100.0))
+
+    if quality_indicators:
+        avg_quality = sum(score for _, score in quality_indicators) / len(quality_indicators)
+        if avg_quality > 0.8:
+            return {"trend": "improving", "description": "High code quality indicators"}
+        elif avg_quality > 0.6:
+            return {"trend": "stable", "description": "Moderate code quality"}
+        else:
+            return {"trend": "declining", "description": "Code quality needs attention"}
+
+    return {"trend": "unknown", "description": "Insufficient data for trend analysis"}
+
+
+def _analyze_health_trends(overall: float, connectivity: float, complexity: float, architecture: float) -> dict[str, str]:
+    """Analyze health trends across different metrics."""
+    scores = [overall, connectivity, complexity, architecture]
+    avg_score = sum(scores) / len(scores)
+
+    if avg_score > 0.8:
+        return {"trend": "excellent", "description": "Project health is excellent across all metrics"}
+    elif avg_score > 0.6:
+        return {"trend": "good", "description": "Project health is good with some areas for improvement"}
+    elif avg_score > 0.4:
+        return {"trend": "concerning", "description": "Project health shows concerning patterns"}
+    else:
+        return {"trend": "critical", "description": "Project health requires immediate attention"}
+
+
+def _generate_quality_indicators(
+    basic_metrics: dict[str, Any],
+    connectivity_metrics: dict[str, Any],
+    complexity_metrics: dict[str, Any],
+    architectural_metrics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Generate quality indicators for the project."""
+    indicators = []
+
+    # Connectivity quality indicator
+    connectivity_score = connectivity_metrics.get("connectivity_quality", 0.0)
+    indicators.append(
+        {
+            "metric": "connectivity_quality",
+            "score": connectivity_score,
+            "status": "excellent" if connectivity_score > 0.8 else "good" if connectivity_score > 0.6 else "needs_improvement",
+            "description": f"Function connectivity quality: {connectivity_score:.2f}",
+        }
+    )
+
+    # Complexity quality indicator
+    complexity_score = complexity_metrics.get("complexity_quality", 0.0)
+    indicators.append(
+        {
+            "metric": "complexity_quality",
+            "score": complexity_score,
+            "status": "excellent" if complexity_score > 0.8 else "good" if complexity_score > 0.6 else "needs_improvement",
+            "description": f"Code complexity quality: {complexity_score:.2f}",
+        }
+    )
+
+    # Architectural quality indicator
+    architectural_score = architectural_metrics.get("architectural_health", 0.0)
+    indicators.append(
+        {
+            "metric": "architectural_quality",
+            "score": architectural_score,
+            "status": "excellent" if architectural_score > 0.8 else "good" if architectural_score > 0.6 else "needs_improvement",
+            "description": f"Architectural quality: {architectural_score:.2f}",
+        }
+    )
+
+    return indicators
+
+
+def _generate_project_level_recommendations(
+    basic_metrics: dict[str, Any],
+    connectivity_metrics: dict[str, Any],
+    complexity_metrics: dict[str, Any],
+    architectural_metrics: dict[str, Any],
+) -> list[str]:
+    """Generate project-level recommendations based on metrics."""
+    recommendations = []
+
+    # Connectivity recommendations
+    connectivity_score = connectivity_metrics.get("connectivity_quality", 0.0)
+    if connectivity_score < 0.5:
+        recommendations.append("Improve function connectivity and reduce isolated functions")
+
+    # Complexity recommendations
+    complexity_score = complexity_metrics.get("complexity_quality", 0.0)
+    if complexity_score < 0.5:
+        recommendations.append("Focus on reducing code complexity through refactoring")
+
+    # Architectural recommendations
+    architectural_score = architectural_metrics.get("architectural_health", 0.0)
+    if architectural_score < 0.5:
+        recommendations.append("Review and improve overall project architecture")
+
+    # Function distribution recommendations
+    function_dist = basic_metrics.get("function_distribution", {})
+    if function_dist.get("unknown", 0) > function_dist.get("standard", 0):
+        recommendations.append("Classify and organize functions into appropriate architectural layers")
+
+    return recommendations if recommendations else ["Project shows good overall quality metrics"]
 
 
 async def _generate_analysis_report(

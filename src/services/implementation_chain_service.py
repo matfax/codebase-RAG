@@ -237,7 +237,7 @@ class ImplementationChainService:
             self.logger.info(f"Tracing {chain_type.value} chain from: {entry_point_breadcrumb}")
 
             # Get the entry point component
-            project_graph = await self.graph_rag_service.get_project_structure_graph(project_name)
+            project_graph = await self.graph_rag_service.build_structure_graph(project_name)
 
             if not project_graph:
                 self.logger.warning(f"No structure graph found for project: {project_name}")
@@ -327,7 +327,7 @@ class ImplementationChainService:
                 ]
 
             # Get project structure
-            project_graph = await self.graph_rag_service.get_project_structure_graph(project_name)
+            project_graph = await self.graph_rag_service.build_structure_graph(project_name)
 
             if not project_graph:
                 self.logger.warning(f"No structure graph found for project: {project_name}")
@@ -499,8 +499,14 @@ class ImplementationChainService:
     def _find_component_by_breadcrumb(self, graph: StructureGraph, breadcrumb: str) -> GraphNode | None:
         """Find a component in the graph by its breadcrumb."""
         for node in graph.nodes:
-            if node.breadcrumb == breadcrumb:
+            # Safety check: ensure node is an object with breadcrumb attribute
+            if hasattr(node, "breadcrumb") and node.breadcrumb == breadcrumb:
                 return node
+            elif isinstance(node, str) and node == breadcrumb:
+                # Handle case where node itself is a string breadcrumb
+                # This shouldn't happen but provides fallback
+                self.logger.warning(f"Found string node in graph: {node}")
+                continue
         return None
 
     async def _trace_forward_chain(
@@ -736,7 +742,7 @@ class ImplementationChainService:
             # Filter nodes by scope if specified
             nodes = graph.nodes
             if scope_breadcrumb:
-                nodes = [n for n in nodes if n.breadcrumb and n.breadcrumb.startswith(scope_breadcrumb)]
+                nodes = [n for n in nodes if hasattr(n, "breadcrumb") and n.breadcrumb and n.breadcrumb.startswith(scope_breadcrumb)]
 
             # Look for entry point characteristics
             for node in nodes:
@@ -920,10 +926,15 @@ class ImplementationChainService:
             # Collect all breadcrumbs
             breadcrumbs = []
             for link in links:
-                if link.source_component.breadcrumb:
+                if hasattr(link.source_component, "breadcrumb") and link.source_component.breadcrumb:
                     breadcrumbs.append(link.source_component.breadcrumb)
-                if link.target_component.breadcrumb:
+                elif link.source_component:
+                    breadcrumbs.append(str(link.source_component))
+
+                if hasattr(link.target_component, "breadcrumb") and link.target_component.breadcrumb:
                     breadcrumbs.append(link.target_component.breadcrumb)
+                elif link.target_component:
+                    breadcrumbs.append(str(link.target_component))
 
             if not breadcrumbs:
                 return ""
@@ -988,8 +999,10 @@ class ImplementationChainService:
             # Get all components in scope
             all_components = set()
             for node in graph.nodes:
-                if not scope_breadcrumb or (node.breadcrumb and node.breadcrumb.startswith(scope_breadcrumb)):
-                    all_components.add(node.chunk_id)
+                if not scope_breadcrumb or (
+                    hasattr(node, "breadcrumb") and node.breadcrumb and node.breadcrumb.startswith(scope_breadcrumb)
+                ):
+                    all_components.add(getattr(node, "chunk_id", str(node)))
 
             if not all_components:
                 return 0.0

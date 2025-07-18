@@ -85,8 +85,23 @@ async def trace_function_chain(
             }
 
         # Initialize services
+        from src.services.embedding_service import EmbeddingService
+        from src.services.graph_rag_service import get_graph_rag_service
+        from src.services.hybrid_search_service import get_hybrid_search_service
+        from src.services.implementation_chain_service import get_implementation_chain_service
+        from src.services.qdrant_service import QdrantService
+
         breadcrumb_resolver = BreadcrumbResolver()
-        implementation_chain_service = get_implementation_chain_service()
+        qdrant_service = QdrantService()
+        embedding_service = EmbeddingService()
+
+        # Initialize Graph RAG and Hybrid Search services with required dependencies
+        graph_rag_service = get_graph_rag_service(qdrant_service, embedding_service)
+        hybrid_search_service = get_hybrid_search_service()
+
+        implementation_chain_service = get_implementation_chain_service(
+            graph_rag_service=graph_rag_service, hybrid_search_service=hybrid_search_service
+        )
 
         # Validate input parameters
         validation_result = _validate_input_parameters(

@@ -290,6 +290,115 @@ result = await graph_identify_patterns_tool(
 2. Use `graph_find_similar_implementations_tool` for cross-project insights
 3. Apply `graph_identify_patterns_tool` for architectural analysis
 
+## Function Chain Tools
+
+The Function Chain tools provide specialized analysis of function call chains, execution flows, and path finding within codebases. These tools complement Graph RAG capabilities with focused function-level analysis.
+
+### `trace_function_chain_tool` - Function Chain Tracing
+
+Trace complete function chains from an entry point with comprehensive analysis options.
+
+**Parameters:**
+- `entry_point` (required): Function/class identifier (breadcrumb or natural language)
+- `project_name` (required): Name of the project to analyze
+- `direction` (optional, default: "forward"): Tracing direction ("forward", "backward", "bidirectional")
+- `max_depth` (optional, default: 10): Maximum depth for chain traversal
+- `output_format` (optional, default: "arrow"): Output format ("arrow", "mermaid", "both")
+- `include_mermaid` (optional, default: false): Whether to include Mermaid diagram output
+- `chain_type` (optional, default: "execution_flow"): Type of chain to trace ("execution_flow", "data_flow", "dependency_chain")
+- `min_link_strength` (optional, default: 0.3): Minimum link strength threshold (0.0-1.0)
+- `identify_branch_points` (optional, default: true): Whether to identify branch points
+- `identify_terminal_points` (optional, default: true): Whether to identify terminal points
+- `performance_monitoring` (optional, default: true): Whether to include performance monitoring
+
+**Example Usage:**
+```python
+result = await trace_function_chain_tool(
+    entry_point="process_user_data",
+    project_name="my-app",
+    direction="bidirectional",
+    output_format="both"
+)
+```
+
+### `find_function_path_tool` - Function Path Finding
+
+Find the most efficient path between two functions in a codebase with quality metrics.
+
+**Parameters:**
+- `start_function` (required): Starting function identifier (breadcrumb or natural language)
+- `end_function` (required): Target function identifier (breadcrumb or natural language)
+- `project_name` (required): Name of the project to search within
+- `strategy` (optional, default: "optimal"): Path finding strategy ("shortest", "optimal", "all")
+- `max_paths` (optional, default: 3): Maximum number of paths to return (1-10)
+- `max_depth` (optional, default: 15): Maximum search depth for path finding
+- `include_quality_metrics` (optional, default: true): Whether to calculate path quality metrics
+- `output_format` (optional, default: "arrow"): Output format ("arrow", "mermaid", "both")
+- `include_mermaid` (optional, default: false): Whether to include Mermaid diagram output
+- `min_link_strength` (optional, default: 0.3): Minimum link strength for path inclusion
+- `optimize_for` (optional, default: "reliability"): Optimization criteria ("reliability", "directness", "simplicity")
+
+**Example Usage:**
+```python
+result = await find_function_path_tool(
+    start_function="authenticate_user",
+    end_function="save_to_database",
+    project_name="my-app",
+    strategy="optimal",
+    max_paths=3
+)
+```
+
+### `analyze_project_chains_tool` - Project-Wide Chain Analysis
+
+Analyze function chains across an entire project with comprehensive insights and patterns.
+
+**Parameters:**
+- `project_name` (required): Name of the project to analyze
+- `analysis_scope` (optional, default: "full_project"): Scope of analysis ("full_project", "scoped_breadcrumbs", "specific_modules", "function_patterns")
+- `breadcrumb_patterns` (optional): List of breadcrumb patterns to focus analysis on
+- `analysis_types` (optional): Types of analysis to perform ("complexity_analysis", "hotspot_identification", "pattern_detection", "architectural_analysis")
+- `max_functions_per_chain` (optional, default: 50): Maximum functions to include per chain
+- `complexity_threshold` (optional, default: 0.7): Complexity threshold for highlighting (0.0-1.0)
+- `output_format` (optional, default: "comprehensive"): Output format ("comprehensive", "summary", "detailed")
+- `include_mermaid` (optional, default: true): Whether to include Mermaid diagram outputs
+- `include_hotspot_analysis` (optional, default: true): Whether to identify complexity hotspots
+- `include_refactoring_suggestions` (optional, default: false): Whether to provide refactoring recommendations
+- `enable_complexity_weighting` (optional, default: true): Whether to use weighted complexity calculations
+- `complexity_weights` (optional): Custom complexity weights (branching_factor, cyclomatic_complexity, etc.)
+
+**Example Usage:**
+```python
+result = await analyze_project_chains_tool(
+    project_name="my-app",
+    analysis_scope="function_patterns",
+    breadcrumb_patterns=["*service*", "*controller*"],
+    include_hotspot_analysis=True
+)
+```
+
+### Function Chain Best Practices
+
+**Prerequisites:**
+1. **Index First**: Ensure your project is indexed before using function chain tools
+2. **Verify Coverage**: Use `analyze_repository_tool` to understand function coverage
+
+**Performance Optimization:**
+- All function chain tools meet <2 second response time requirements
+- Use appropriate `max_depth` values to balance detail vs performance
+- Leverage caching by avoiding `force_rebuild_graph=true` unless necessary
+
+**Analysis Workflow:**
+1. **Start with Project Analysis**: Use `analyze_project_chains_tool` for overview
+2. **Identify Entry Points**: Find key functions or hotspots to investigate
+3. **Trace Specific Chains**: Use `trace_function_chain_tool` for detailed analysis
+4. **Find Connections**: Use `find_function_path_tool` to understand relationships
+
+**Output Formats:**
+- **Arrow Format**: Simple text-based representation ideal for logs and reports
+- **Mermaid Format**: Rich visual diagrams for documentation and presentations
+- **Both**: Complete output with text and visual representations
+
 For detailed information about Graph RAG architecture, see [Graph RAG Architecture Guide](GRAPH_RAG_ARCHITECTURE.md).
 
 ## Error Handling
