@@ -498,11 +498,17 @@ class PythonChunkingStrategy(BaseChunkingStrategy):
     def get_node_mappings(self) -> dict[ChunkType, list[str]]:
         """Get Python-specific AST node type mappings."""
         return {
+            # Core code structure chunks
             ChunkType.FUNCTION: ["function_definition"],
             ChunkType.CLASS: ["class_definition"],
             ChunkType.CONSTANT: ["assignment"],  # Filtered by context
             ChunkType.VARIABLE: ["assignment"],
             ChunkType.IMPORT: ["import_statement", "import_from_statement"],
+            # Function call and relationship detection chunks
+            ChunkType.FUNCTION_CALL: ["call"],
+            ChunkType.METHOD_CALL: ["call"],  # Filtered by attribute context
+            ChunkType.ASYNC_CALL: ["await"],
+            ChunkType.ATTRIBUTE_ACCESS: ["attribute"],
         }
 
     def extract_chunks(self, root_node: Node, file_path: str, content: str) -> list[CodeChunk]:
@@ -543,6 +549,22 @@ class PythonChunkingStrategy(BaseChunkingStrategy):
             # Include import statements for dependency tracking
             return True
 
+        elif chunk_type == ChunkType.FUNCTION_CALL:
+            # Include function calls for relationship detection
+            return self._is_significant_function_call(node)
+
+        elif chunk_type == ChunkType.METHOD_CALL:
+            # Include method calls for relationship detection
+            return self._is_method_call(node)
+
+        elif chunk_type == ChunkType.ASYNC_CALL:
+            # Include async calls for relationship detection
+            return True
+
+        elif chunk_type == ChunkType.ATTRIBUTE_ACCESS:
+            # Include significant attribute access for relationship detection
+            return self._is_significant_attribute_access(node)
+
         return True
 
     def extract_additional_metadata(self, node: Node, chunk: CodeChunk) -> dict[str, any]:
@@ -568,6 +590,24 @@ class PythonChunkingStrategy(BaseChunkingStrategy):
         type_hints = self._extract_type_hints(node)
         if type_hints:
             metadata["type_hints"] = type_hints
+
+        # Handle function call metadata
+        if chunk.chunk_type in [ChunkType.FUNCTION_CALL, ChunkType.METHOD_CALL]:
+            call_metadata = self._extract_call_metadata(node)
+            if call_metadata:
+                metadata.update(call_metadata)
+
+        # Handle async call metadata
+        elif chunk.chunk_type == ChunkType.ASYNC_CALL:
+            async_metadata = self._extract_async_call_metadata(node)
+            if async_metadata:
+                metadata.update(async_metadata)
+
+        # Handle attribute access metadata
+        elif chunk.chunk_type == ChunkType.ATTRIBUTE_ACCESS:
+            attr_metadata = self._extract_attribute_metadata(node)
+            if attr_metadata:
+                metadata.update(attr_metadata)
 
         return metadata
 
@@ -652,6 +692,157 @@ class PythonChunkingStrategy(BaseChunkingStrategy):
                     pass
 
         return type_hints
+
+    def _is_significant_function_call(self, node: Node) -> bool:
+        """Check if a function call is significant enough to include as a chunk."""
+        if node.type != "call":
+            return False
+
+        # Get the function being called
+        function_node = node.child_by_field_name("function")
+        if not function_node:
+            return False
+
+        # Include direct function calls (identifier)
+        if function_node.type == "identifier":
+            function_name = function_node.text.decode("utf-8")
+            # Filter out very common built-in functions that add noise
+            common_builtins = {"print", "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple"}
+            return function_name not in common_builtins
+
+        # Include module function calls (attribute access)
+        elif function_node.type == "attribute":
+            return True
+
+        return True
+
+    def _is_method_call(self, node: Node) -> bool:
+        """Check if a call node represents a method call (obj.method())."""
+        if node.type != "call":
+            return False
+
+        function_node = node.child_by_field_name("function")
+        if not function_node:
+            return False
+
+        # Method calls have attribute access as the function
+        return function_node.type == "attribute"
+
+    def _is_significant_attribute_access(self, node: Node) -> bool:
+        """Check if attribute access is significant for relationship detection."""
+        if node.type != "attribute":
+            return False
+
+        # Always include attribute access that could be method calls or property access
+        # We can filter further during processing based on usage context
+        object_node = node.child_by_field_name("object")
+        attribute_node = node.child_by_field_name("attribute")
+
+        if not object_node or not attribute_node:
+            return False
+
+        # Get attribute name
+        attribute_name = attribute_node.text.decode("utf-8")
+
+        # Filter out some very common attributes that might add noise
+        common_attrs = {"__dict__", "__class__", "__module__"}
+        return attribute_name not in common_attrs
+
+    def _extract_call_metadata(self, node: Node) -> dict[str, any]:
+        """Extract metadata for function/method call nodes."""
+        metadata = {}
+
+        if node.type != "call":
+            return metadata
+
+        # Get function being called
+        function_node = node.child_by_field_name("function")
+        if function_node:
+            if function_node.type == "identifier":
+                # Direct function call
+                metadata["call_type"] = "function"
+                metadata["function_name"] = function_node.text.decode("utf-8")
+            elif function_node.type == "attribute":
+                # Method call
+                metadata["call_type"] = "method"
+
+                # Extract object and method name
+                object_node = function_node.child_by_field_name("object")
+                attribute_node = function_node.child_by_field_name("attribute")
+
+                if object_node:
+                    metadata["object_name"] = object_node.text.decode("utf-8")
+                if attribute_node:
+                    metadata["method_name"] = attribute_node.text.decode("utf-8")
+
+        # Count arguments
+        arguments_node = node.child_by_field_name("arguments")
+        if arguments_node:
+            arg_count = len([child for child in arguments_node.children if child.type != "," and child.text.decode("utf-8").strip()])
+            metadata["argument_count"] = arg_count
+
+        return metadata
+
+    def _extract_async_call_metadata(self, node: Node) -> dict[str, any]:
+        """Extract metadata for async call nodes (await expressions)."""
+        metadata = {"is_async": True}
+
+        if node.type != "await":
+            return metadata
+
+        # Get the expression being awaited
+        for child in node.children:
+            if child.type == "call":
+                # Extract call metadata from the awaited call
+                call_metadata = self._extract_call_metadata(child)
+                metadata.update(call_metadata)
+                metadata["call_type"] = f"async_{call_metadata.get('call_type', 'unknown')}"
+                break
+
+        return metadata
+
+    def _extract_attribute_metadata(self, node: Node) -> dict[str, any]:
+        """Extract metadata for attribute access nodes."""
+        metadata = {}
+
+        if node.type != "attribute":
+            return metadata
+
+        # Extract object and attribute names
+        object_node = node.child_by_field_name("object")
+        attribute_node = node.child_by_field_name("attribute")
+
+        if object_node:
+            metadata["object_name"] = object_node.text.decode("utf-8")
+            metadata["object_type"] = object_node.type
+
+        if attribute_node:
+            metadata["attribute_name"] = attribute_node.text.decode("utf-8")
+
+        # Determine if this is a chained access
+        if object_node and object_node.type == "attribute":
+            metadata["is_chained"] = True
+            metadata["chain_depth"] = self._calculate_attribute_chain_depth(node)
+        else:
+            metadata["is_chained"] = False
+            metadata["chain_depth"] = 1
+
+        return metadata
+
+    def _calculate_attribute_chain_depth(self, node: Node) -> int:
+        """Calculate the depth of attribute access chain (e.g., a.b.c = depth 3)."""
+        depth = 1
+        current = node
+
+        while current and current.type == "attribute":
+            object_node = current.child_by_field_name("object")
+            if object_node and object_node.type == "attribute":
+                depth += 1
+                current = object_node
+            else:
+                break
+
+        return depth
 
 
 @register_chunking_strategy("javascript")

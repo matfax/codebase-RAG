@@ -36,6 +36,12 @@ class ChunkType(Enum):
     EXPORT = "export"
     MODULE_DOCSTRING = "module_docstring"
 
+    # Function call chunks (for relationship detection)
+    FUNCTION_CALL = "function_call"
+    METHOD_CALL = "method_call"
+    ASYNC_CALL = "async_call"
+    ATTRIBUTE_ACCESS = "attribute_access"
+
     # Configuration and data chunks
     CONFIG_BLOCK = "config_block"  # JSON, YAML, TOML sections
     DATA_STRUCTURE = "data_structure"  # Complex data definitions
