@@ -29,37 +29,37 @@
 
 ## Tasks
 
-- [ ] 1.0 實現共用 BreadcrumbResolver 服務
-  - [ ] 1.1 創建 BreadcrumbResolver 服務類，包含 resolve() 方法
-  - [ ] 1.2 實現 is_valid_breadcrumb() 檢查函數，驗證輸入是否為標準 breadcrumb 格式
-  - [ ] 1.3 實現 convert_natural_to_breadcrumb() 函數，使用現有搜尋服務進行語意轉換
-  - [ ] 1.4 添加錯誤處理和多候選結果支援，包含信心分數
-  - [ ] 1.5 實現快取機制，避免重複轉換相同的自然語言輸入
-  - [ ] 1.6 編寫 BreadcrumbResolver 的完整單元測試，覆蓋正常情況和邊界情況
-  - [ ] 1.7 添加日誌記錄，用於調試和監控轉換過程
+- [x] 1.0 實現共用 BreadcrumbResolver 服務
+  - [x] 1.1 創建 BreadcrumbResolver 服務類，包含 resolve() 方法
+  - [x] 1.2 實現 is_valid_breadcrumb() 檢查函數，驗證輸入是否為標準 breadcrumb 格式
+  - [x] 1.3 實現 convert_natural_to_breadcrumb() 函數，使用現有搜尋服務進行語意轉換
+  - [x] 1.4 添加錯誤處理和多候選結果支援，包含信心分數
+  - [x] 1.5 實現快取機制，避免重複轉換相同的自然語言輸入
+  - [x] 1.6 編寫 BreadcrumbResolver 的完整單元測試，覆蓋正常情況和邊界情況
+  - [x] 1.7 添加日誌記錄，用於調試和監控轉換過程
 
-- [ ] 2.0 實現 trace_function_chain_tool（最高優先級）
-  - [ ] 2.1 創建 trace_function_chain() 函數，接受所有必要參數
-  - [ ] 2.2 整合 BreadcrumbResolver 進行自然語言輸入處理
-  - [ ] 2.3 實現與 ImplementationChainService 的整合，支援 forward/backward/bidirectional 追蹤
-  - [ ] 2.4 實現預設箭頭格式輸出 (A => B => C)
-  - [ ] 2.5 添加可選的 Mermaid 圖表輸出格式
-  - [ ] 2.6 實現深度控制邏輯，預設最大深度為 10
-  - [ ] 2.7 添加分支點和終端點識別功能
-  - [ ] 2.8 實現錯誤處理，包含建議使用搜尋工具的提示
-  - [ ] 2.9 添加執行時間追蹤和效能監控
-  - [ ] 2.10 編寫完整的單元測試，包含各種追蹤方向和邊界情況
-  - [ ] 2.11 實現整合測試，驗證與現有 Graph RAG 基礎設施的相容性
+- [x] 2.0 實現 trace_function_chain_tool（最高優先級）
+  - [x] 2.1 創建 trace_function_chain() 函數，接受所有必要參數
+  - [x] 2.2 整合 BreadcrumbResolver 進行自然語言輸入處理
+  - [x] 2.3 實現與 ImplementationChainService 的整合，支援 forward/backward/bidirectional 追蹤
+  - [x] 2.4 實現預設箭頭格式輸出 (A => B => C)
+  - [x] 2.5 添加可選的 Mermaid 圖表輸出格式
+  - [x] 2.6 實現深度控制邏輯，預設最大深度為 10
+  - [x] 2.7 添加分支點和終端點識別功能
+  - [x] 2.8 實現錯誤處理，包含建議使用搜尋工具的提示
+  - [x] 2.9 添加執行時間追蹤和效能監控
+  - [x] 2.10 編寫完整的單元測試，包含各種追蹤方向和邊界情況
+  - [x] 2.11 實現整合測試，驗證與現有 Graph RAG 基礎設施的相容性
 
 - [ ] 3.0 實現 find_function_path_tool（次優先級）
-  - [ ] 3.1 創建 find_function_path() 函數，支援起點和終點參數
-  - [ ] 3.2 整合 BreadcrumbResolver 處理兩個函數的自然語言輸入
-  - [ ] 3.3 實現多路徑查找邏輯，支援 shortest/optimal/all 策略
-  - [ ] 3.4 實現路徑品質評估，包含可靠性和複雜度評分
-  - [ ] 3.5 添加路徑多樣性分析，計算關係類型的多樣性
-  - [ ] 3.6 實現路徑結果限制，預設最多返回 5 個路徑
-  - [ ] 3.7 添加路徑比較和推薦功能（最直接、最可靠路徑）
-  - [ ] 3.8 實現箭頭格式和 Mermaid 格式的路徑輸出
+  - [x] 3.1 創建 find_function_path() 函數，支援起點和終點參數
+  - [x] 3.2 整合 BreadcrumbResolver 處理兩個函數的自然語言輸入
+  - [x] 3.3 實現多路徑查找邏輯，支援 shortest/optimal/all 策略
+  - [x] 3.4 實現路徑品質評估，包含可靠性和複雜度評分
+  - [x] 3.5 添加路徑多樣性分析，計算關係類型的多樣性
+  - [x] 3.6 實現路徑結果限制，預設最多返回 5 個路徑
+  - [x] 3.7 添加路徑比較和推薦功能（最直接、最可靠路徑）
+  - [x] 3.8 實現箭頭格式和 Mermaid 格式的路徑輸出
   - [ ] 3.9 添加路徑不存在時的錯誤處理和建議
   - [ ] 3.10 編寫完整的單元測試，涵蓋各種路徑查找策略
   - [ ] 3.11 實現效能測試，確保在大型代碼庫中的響應時間

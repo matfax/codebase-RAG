@@ -4,193 +4,150 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+### Essential Setup
+```bash
+# Activate virtual environment (required before any development)
+source .venv/bin/activate  # or use uv venv to create if not exists
+
+# Install dependencies
+uv sync
+
+# Run tests
+uv run pytest tests/
+uv run pytest src/tests/  # Unit tests in src directory
+uv run pytest src/tests/test_specific_file.py  # Single test file
+測試前請記得啟用 .venv
+
+# Code quality
+uv run ruff check .  # Linting
+uv run ruff check --fix .  # Auto-fix issues
+uv run black .  # Code formatting
+uv run pre-commit run --all-files  # Pre-commit hooks
+```
+
+### Running the MCP Server
+```bash
+# Development mode - MCP server in stdio mode
+./mcp_server
+
+# Manual indexing for large codebases
+python manual_indexing.py -d /path/to/repo -m clear_existing
+python manual_indexing.py -d /path/to/repo -m incremental  # Only changed files
+```
+
+### Cache Services (Redis/Qdrant)
+```bash
+# Start cache services with Docker Compose
+docker-compose -f docker-compose.cache.yml up -d
+
+# Stop services
+docker-compose -f docker-compose.cache.yml down
+```
+
 ## Architecture Overview
 
-This is a **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases using natural language with **function-level precision** through intelligent syntax-aware code chunking.
+This is a **Codebase RAG (Retrieval-Augmented Generation) MCP Server** that enables AI agents to understand and query codebases using natural language with **function-level precision** through intelligent syntax-aware code chunking and advanced **Graph RAG capabilities**.
 
-### Project Structure
+### Core Architecture
 
+The system operates on a **two-phase architecture**:
+
+1. **Indexing Phase**: Parse source code using Tree-sitter → Extract semantic chunks (functions, classes, methods) → Generate embeddings → Store in Qdrant vector database
+2. **Query Phase**: Process natural language queries → Semantic search → Graph relationship analysis → Return contextual results
+
+### Key Components
+
+#### MCP Tools Layer (`src/tools/`)
+- **Core Tools**: `indexing/`, `project/`, `cache/` - Basic MCP operations
+- **Graph RAG Tools**: `graph_rag/` - Advanced code relationship analysis
+  - `structure_analysis.py` - Analyze code component relationships
+  - `function_chain_analysis.py` - Trace execution flows between functions
+  - `function_path_finding.py` - Find optimal paths between code components
+  - `project_chain_analysis.py` - Project-wide architectural analysis
+  - `pattern_identification.py` - Detect architectural patterns
+  - `similar_implementations.py` - Cross-project similarity analysis
+
+#### Services Layer (`src/services/`)
+- **Parsing & Chunking**: `code_parser_service.py`, `chunking_strategies.py`, `ast_extraction_service.py`
+- **Storage & Search**: `qdrant_service.py`, `embedding_service.py`, `hybrid_search_service.py`
+- **Graph RAG**: `graph_rag_service.py`, `structure_relationship_builder.py`, `implementation_chain_service.py`
+- **Performance**: `graph_performance_optimizer.py`, `graph_rag_cache_service.py`
+
+#### Data Models (`src/models/`)
+- **CodeChunk**: Enhanced with `breadcrumb` (hierarchical location), `imports_used` (dependencies), rich metadata
+- **FileMetadata**: Change tracking for incremental indexing
+
+### Intelligent Code Chunking System
+
+Uses **Tree-sitter parsers** for syntax-aware parsing across 8+ languages:
+- **Python**: Functions, classes, methods, async functions, decorators
+- **JavaScript/TypeScript**: Functions, classes, React components, interfaces
+- **Go/Rust/Java/C++**: Language-specific constructs
+
+Each chunk includes:
+- **Breadcrumb**: Hierarchical identifier (e.g., `module.class.method`)
+- **Imports Used**: Dependency tracking for graph building
+- **Rich Metadata**: Signatures, docstrings, access modifiers, type hints
+
+### Graph RAG Architecture
+
+**Two-Phase Design**:
+1. **Indexing**: Extract breadcrumbs and import dependencies, store in vector DB
+2. **Graph Building**: On-demand relationship graph construction from stored data
+
+**Relationship Types**:
+- **Import Dependencies**: Based on `imports_used` metadata
+- **Hierarchical**: Parent-child relationships (class → method)
+- **Function Calls**: Runtime execution relationships (planned feature)
+
+**Caching Strategy**:
+- **L1**: File-level parsing cache
+- **L2**: Breadcrumb resolution cache
+- **L3**: Complete relationship graphs
+- **TTL**: Based on file modification times
+
+### Collection Organization
+
+**Qdrant Collections**:
+- `project_{name}_code`: Source code chunks with embeddings
+- `project_{name}_config`: Configuration files (JSON, YAML)
+- `project_{name}_documentation`: Documentation (Markdown)
+- `project_{name}_file_metadata`: Change tracking for incremental updates
+
+### Async/Await Patterns
+
+The search pipeline is fully async. Key patterns:
+```python
+# Common async issues to avoid:
+# ❌ Missing await
+embeddings = embedding_service.generate_embeddings([query])
+
+# ✅ Proper await
+embeddings = await embedding_service.generate_embeddings([query])
+
+# ❌ Can't iterate coroutine
+for chunk in parser.parse_file(path):
+
+# ✅ Await first, then iterate
+chunks = await parser.parse_file(path)
+for chunk in chunks:
 ```
-src/
-├── main.py                    # MCP server entry point
-├── run_mcp.py                 # Server startup script
-├── models/                    # Data models and structures
-│   ├── code_chunk.py         # Intelligent chunk representations
-│   └── file_metadata.py      # File tracking and metadata
-├── services/                  # Core business logic
-│   ├── code_parser_service.py    # AST parsing and chunking
-│   ├── indexing_service.py       # Orchestration and processing
-│   ├── embedding_service.py      # Ollama integration
-│   ├── qdrant_service.py         # Vector database operations
-│   └── project_analysis_service.py # Repository analysis
-├── tools/                     # MCP tool implementations
-│   ├── core/                 # Error handling and utilities
-│   ├── indexing/             # Parsing and chunking tools
-│   └── project/              # Project management tools
-├── utils/                     # Shared utilities
-│   ├── language_registry.py     # Language support definitions
-│   ├── tree_sitter_manager.py   # Parser management
-│   └── performance_monitor.py   # Progress tracking
-└── prompts/                   # Advanced query prompts (future)
-
-Root Files:
-├── manual_indexing.py         # Standalone indexing tool
-├── pyproject.toml            # uv/Python configuration
-└── docs/                     # Documentation (referenced)
-
-6. **Data Flow**
-
-   **Full Indexing Flow with Intelligent Chunking:**
-   ```
-   Source Code → File Discovery → AST Parsing → Intelligent Chunking →
-   Function/Class Extraction → Batch Embedding → Streaming DB Storage → Metadata Storage
-   ```
-
-   **Incremental Indexing Flow:**
-   ```
-   File Discovery → Change Detection → Selective Processing →
-   AST Re-parsing → Smart Chunking → Embedding → DB Updates → Metadata Updates
-   ```
-
-   **Query Flow with Precision Results:**
-   ```
-   Natural Language → Embedding → Vector Search → Function-Level Matches →
-   Context Enhancement → Ranked Results with Breadcrumbs
-   ```
-
-   **⚠️ IMPORTANT: Async/Await Search Chain**
-   The search pipeline uses async/await throughout. Key async functions:
-   - `search_sync()` in `search_tools.py` - Main entry point (despite name, is async)
-   - `SearchService.search()` - Async search orchestration
-   - `EmbeddingService.generate_embeddings()` - Returns async generator
-   - `CodeParserService.parse_file()` - Async file parsing
-
-   Common async issues and fixes:
-   ```python
-   # ❌ WRONG - Missing await causes "coroutine was never awaited"
-   embeddings = embedding_service.generate_embeddings([query])
-
-   # ✅ CORRECT - Properly await async calls
-   embeddings = await embedding_service.generate_embeddings([query])
-
-   # ❌ WRONG - Can't iterate coroutine directly
-   for chunk in parser.parse_file(path):
-
-   # ✅ CORRECT - Await async function first
-   chunks = await parser.parse_file(path)
-   for chunk in chunks:
-   ```
-
-   **Manual Tool Flow:**
-   ```
-   CLI Input → Validation → Pre-analysis → Progress Tracking →
-   AST Processing → Core Processing → Syntax Error Reporting
-   ```
 
 ### Configuration
 
 Environment variables (`.env` file):
+- **QDRANT_HOST**, **QDRANT_PORT**: Vector database connection
+- **OLLAMA_HOST**: Embedding service endpoint
+- **REDIS_HOST**, **REDIS_PORT**: Cache configuration
+- **ENABLE_PERFORMANCE_MONITORING**: Performance tracking toggle
 
-### MCP Tools Available
+### Graph RAG vs Standard RAG
 
-#### `index_directory(directory, patterns, recursive, clear_existing, incremental, project_name)`
-#### `search(query, n_results, cross_project, search_mode, include_context, context_chunks, target_projects)`
+**Standard RAG**: Query → Vector Search → Return chunks
+**Graph RAG**: Query → Vector Search + Graph Traversal → Return chunks with relationships
 
-## Intelligent Code Chunking System
-
-### Overview
-The system uses **Tree-sitter** parsers to perform syntax-aware code analysis, breaking down source code into semantically meaningful chunks (functions, classes, methods) instead of processing entire files as single units.
-
-### Supported Languages and Chunk Types
-
-**Fully Implemented Languages:**
-- **Python (.py, .pyw, .pyi)**: Functions, classes, methods, constants, docstrings, decorators
-- **JavaScript (.js, .jsx, .mjs, .cjs)**: Functions, classes, modules, arrow functions
-- **TypeScript (.ts)**: Interfaces, types, classes, functions, generics, annotations
-- **TypeScript JSX (.tsx)**: React components, interfaces, types, functions
-- **Go (.go)**: Functions, structs, interfaces, methods, packages
-- **Rust (.rs)**: Functions, structs, impl blocks, traits, modules, macros
-- **Java (.java)**: Classes, methods, interfaces, annotations, generics
-- **C++ (.cpp, .cxx, .cc, .c, .hpp, .hxx, .hh, .h)**: Functions, classes, structs, namespaces, templates
-
-**Structured Files:**
-- **JSON/YAML**: Object-level chunking (e.g., `scripts`, `dependencies` as separate chunks)
-- **Markdown**: Header-based hierarchical chunking with section organization
-- **Configuration Files**: Section-based parsing with semantic grouping
-
-### Chunk Metadata Schema
-
-Each intelligent chunk includes rich metadata:
-```python
-{
-    "content": str,              # Actual code content
-    "file_path": str,            # Source file path
-    "chunk_type": str,           # function|class|method|interface|constant
-    "name": str,                 # Function/class name
-    "signature": str,            # Function signature or class inheritance
-    "start_line": int,           # Starting line number
-    "end_line": int,             # Ending line number
-    "language": str,             # Programming language
-    "docstring": str,            # Extracted documentation
-    "access_modifier": str,      # public|private|protected
-    "parent_class": str,         # Parent class for methods
-    "has_syntax_errors": bool,   # Syntax error flag
-    "error_details": str,        # Error description if any
-    "chunk_id": str,             # Unique identifier
-    "content_hash": str,         # Content hash for change detection
-}
-```
-
-### Incremental Indexing Workflow
-
-1. **Initial Indexing**: Full codebase processing with metadata storage
-2. **Change Detection**: Compare file modification times and content hashes
-3. **Selective Processing**: Only reprocess files with detected changes
-4. **Metadata Updates**: Update file metadata after successful processing
-5. **Collection Management**: Automatic cleanup of stale entries
-
-### Collection Architecture
-
-**Content Collections** (store intelligent chunks with embeddings):
-- `project_{name}_code`: **Intelligent code chunks** - functions, classes, methods from (.py, .js, .java, etc.)
-- `project_{name}_config`: **Structured config chunks** - JSON/YAML objects, configuration sections
-- `project_{name}_documentation`: **Document chunks** - Markdown headers, documentation sections
-
-**Metadata Collection** (tracks file states):
-- `project_{name}_file_metadata`: File change tracking for incremental indexing
-  - Stores: file_path, mtime, content_hash, file_size, indexed_at, syntax_error_count
-  - Used for: change detection, incremental processing, progress tracking, error monitoring
-
-## Critical Implementation Notes
-
-### Async/Await Patterns in Search Pipeline
-
-The entire search pipeline is **async** and requires proper await handling:
-
-1. **Search Entry Points**:
-   ```python
-   # search_tools.py - Main MCP tool entry
-   async def search_sync(...):  # Despite name, this is async!
-       search_service = SearchService(...)
-       results = await search_service.search(...)  # Must await
-   ```
-
-2. **Common Async Chain Issues**:
-   - `RuntimeWarning: coroutine 'X' was never awaited` - Missing await
-   - `'coroutine' object has no attribute 'Y'` - Trying to use coroutine without await
-   - `TypeError: 'async_generator' object is not iterable` - Need async for
-
-3. **Key Async Functions**:
-   - `EmbeddingService.generate_embeddings()` - Async embedding generation
-   - `SearchService.search()` - Main search orchestration
-   - `SearchCacheService.get_cached_results()` - Cache retrieval
-   - `CodeParserService.parse_file()` - File parsing (if used in search)
-   - `QdrantService.search()` - Vector database queries
-
-4. **Debugging Async Issues**:
-   ```python
-   # Add these debug prints to trace async flow:
-   print(f"Before await: {type(result)}")  # Shows <class 'coroutine'>
-   result = await some_async_function()
-   print(f"After await: {type(result)}")   # Shows actual result type
-   ```
+Graph RAG enables:
+- Understanding component dependencies and impact analysis
+- Tracing function execution flows across files
+- Architectural pattern recognition
+- Cross-project similarity analysis

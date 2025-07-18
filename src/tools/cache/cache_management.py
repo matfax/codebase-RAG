@@ -1178,11 +1178,11 @@ async def preload_embedding_cache(
     ):
         try:
             from src.services.embedding_cache_service import get_embedding_cache_service
-            from src.services.embedding_service import get_embedding_service
+            from src.services.embedding_service import EmbeddingService
 
             # Get services
             cache_service = await get_embedding_cache_service()
-            embedding_service = await get_embedding_service()
+            embedding_service = EmbeddingService()
 
             if not queries:
                 return {

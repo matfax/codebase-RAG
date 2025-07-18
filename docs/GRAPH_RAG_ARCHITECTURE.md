@@ -350,12 +350,164 @@ print(f"Edges: {len(graph.edges)}")
 
 ## Best Practices
 
-### 🎯 For Developers
+## Function Chain Architecture
 
-1. **Index First**: Always index your project before using Graph RAG tools
-2. **Use Appropriate Tools**: Choose the right tool for your analysis needs
-3. **Monitor Performance**: Watch cache hit rates and build times
-4. **Handle Errors**: Implement proper error handling for graph operations
+Building on the Graph RAG foundation, the **Function Chain architecture** provides specialized analysis of function execution flows, call chains, and path finding within codebases. This architecture complements Graph RAG by focusing specifically on function-level relationships and execution patterns.
+
+### Core Function Chain Concepts
+
+#### 🔗 Function Chain
+A **function chain** represents a sequence of function calls that form an execution path through the codebase:
+
+```
+Entry Point → Function A → Function B → Function C → Terminal Point
+```
+
+#### 🧭 Chain Direction
+Function chains can be analyzed in multiple directions:
+- **Forward**: Follow function calls from entry point outward
+- **Backward**: Trace back to find what calls a function
+- **Bidirectional**: Analyze both directions for complete context
+
+#### 🎯 Path Quality Metrics
+Function paths are evaluated using configurable quality metrics:
+- **Reliability Score**: How stable and well-tested the path is
+- **Complexity Score**: How complex the execution flow is
+- **Directness Score**: How direct the path is (fewer intermediate steps)
+- **Overall Score**: Weighted combination of all metrics
+
+### Function Chain Tools
+
+#### 🔍 `trace_function_chain_tool`
+**Purpose**: Trace complete function execution chains from an entry point
+
+**Key Features**:
+- Multi-directional chain tracing (forward/backward/bidirectional)
+- Configurable depth and link strength filtering
+- Branch point and terminal point identification
+- Multiple output formats (arrow, Mermaid, both)
+- Performance monitoring and optimization
+
+**Architecture Components**:
+- **BreadcrumbResolver**: Converts natural language to function breadcrumbs
+- **ImplementationChainService**: Builds and analyzes function relationships
+- **OutputFormatters**: Generates visual and text representations
+- **ComplexityCalculator**: Evaluates function complexity metrics
+
+#### 🛣️ `find_function_path_tool`
+**Purpose**: Find optimal paths between two functions with quality analysis
+
+**Key Features**:
+- Multiple path-finding strategies (shortest, optimal, all)
+- Quality metrics calculation and comparison
+- Configurable optimization criteria
+- Path quality ranking and recommendations
+- Visual path representation
+
+**Architecture Components**:
+- **PathStrategy Engine**: Implements different path-finding algorithms
+- **QualityMetrics Calculator**: Evaluates path quality scores
+- **PathComparison Service**: Ranks and compares multiple paths
+- **RecommendationEngine**: Suggests optimal paths based on criteria
+
+#### 📊 `analyze_project_chains_tool`
+**Purpose**: Comprehensive project-wide function chain analysis
+
+**Key Features**:
+- Project-scope pattern analysis
+- Complexity hotspot identification
+- Architectural pattern detection
+- Refactoring recommendations
+- Comprehensive reporting with visualizations
+
+**Architecture Components**:
+- **ProjectAnalysis Service**: Orchestrates project-wide analysis
+- **PatternDetection Engine**: Identifies common architectural patterns
+- **HotspotAnalyzer**: Finds complexity and performance bottlenecks
+- **RefactoringAdvisor**: Suggests improvements based on analysis
+
+### Complexity Calculation Architecture
+
+The Function Chain architecture includes a sophisticated **Complexity Calculator** with configurable weights:
+
+#### Default Complexity Weights
+- **Branching Factor**: 35% - Control flow complexity (if/for/while statements)
+- **Cyclomatic Complexity**: 30% - Code path complexity
+- **Call Depth**: 25% - Function call nesting depth
+- **Function Length**: 10% - Lines of code
+
+#### AST-Based Analysis
+For Python code, the system uses **Abstract Syntax Tree (AST)** analysis for precise complexity calculation:
+- Accurate detection of control flow statements
+- Precise function call depth measurement
+- Proper handling of nested functions and classes
+- Syntax error recovery with fallback heuristics
+
+### Output Format Architecture
+
+#### 🏹 Arrow Format
+Simple text-based representation ideal for:
+- Console output and logging
+- Documentation and reports
+- API responses and data processing
+
+```
+main => authenticate_user --[calls]--> validate_credentials => check_database
+```
+
+#### 🧱 Mermaid Format
+Rich visual diagrams for:
+- Documentation and presentations
+- Interactive visualizations
+- Architecture diagrams
+
+```mermaid
+flowchart TD
+    A[main] --> B[authenticate_user]
+    B -->|calls| C[validate_credentials]
+    C --> D[check_database]
+```
+
+#### 📋 Comprehensive Format
+Combined output with:
+- Multiple path representations
+- Quality metrics and comparisons
+- Recommendations and analysis
+- Performance statistics
+
+### Performance Architecture
+
+#### ⚡ Response Time Requirements
+All Function Chain tools are designed to meet **<2 second response time** requirements:
+- Optimized graph traversal algorithms
+- Intelligent caching strategies
+- Parallel processing where applicable
+- Memory-efficient data structures
+
+#### 📈 Caching Strategy
+- **Graph Structure Caching**: Reuse built relationship graphs
+- **Path Calculation Caching**: Cache frequently requested paths
+- **Complexity Metric Caching**: Store calculated complexity scores
+- **Result Format Caching**: Cache formatted outputs
+
+### Integration with Graph RAG
+
+Function Chain tools seamlessly integrate with existing Graph RAG capabilities:
+
+1. **Shared Infrastructure**: Uses the same indexing and breadcrumb systems
+2. **Complementary Analysis**: Function chains provide detailed execution analysis while Graph RAG provides structural analysis
+3. **Unified Caching**: Leverages the same caching infrastructure for performance
+4. **Consistent APIs**: Same parameter patterns and error handling approaches
+
+### Best Practices for Function Chain Analysis
+
+#### 🎯 For Developers
+
+1. **Index First**: Always index your project before using Function Chain tools
+2. **Start with Project Analysis**: Use `analyze_project_chains_tool` for overview
+3. **Identify Key Entry Points**: Focus on main functions, API endpoints, and event handlers
+4. **Use Appropriate Depth**: Balance detail vs performance with `max_depth` parameters
+5. **Leverage Output Formats**: Use arrow format for analysis, Mermaid for documentation
 
 ### 🏗️ For System Administrators
 

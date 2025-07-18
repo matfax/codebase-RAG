@@ -237,7 +237,7 @@ class PatternRecognitionService:
                 self.logger.info(f"Analysis scope limited to: {scope_breadcrumb}")
 
             # Step 1: Get project structure
-            project_graph = await self.graph_rag_service.get_project_structure_graph(project_name)
+            project_graph = await self.graph_rag_service.build_structure_graph(project_name)
 
             if not project_graph or not project_graph.nodes:
                 self.logger.warning(f"No structure graph found for project: {project_name}")

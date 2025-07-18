@@ -757,14 +757,14 @@ def get_cross_project_search_service(
     global _cross_project_search_service_instance
 
     if _cross_project_search_service_instance is None:
-        from .embedding_service import get_embedding_service
+        from .embedding_service import EmbeddingService
         from .graph_rag_service import get_graph_rag_service
-        from .qdrant_service import get_qdrant_service
+        from .qdrant_service import QdrantService
 
         if qdrant_service is None:
-            qdrant_service = get_qdrant_service()
+            qdrant_service = QdrantService()
         if embedding_service is None:
-            embedding_service = get_embedding_service()
+            embedding_service = EmbeddingService()
         if graph_rag_service is None:
             graph_rag_service = get_graph_rag_service()
 
