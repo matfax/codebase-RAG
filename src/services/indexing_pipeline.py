@@ -14,13 +14,13 @@ from typing import Any
 from uuid import uuid4
 
 from qdrant_client.http.models import PointStruct
-from services.change_detector_service import ChangeDetectorService
-from services.embedding_service import EmbeddingService
-from services.file_metadata_service import FileMetadataService
-from services.indexing_service import IndexingService
-from services.project_analysis_service import ProjectAnalysisService
-from services.qdrant_service import QdrantService
 
+from src.services.change_detector_service import ChangeDetectorService
+from src.services.embedding_service import EmbeddingService
+from src.services.file_metadata_service import FileMetadataService
+from src.services.indexing_service import IndexingService
+from src.services.project_analysis_service import ProjectAnalysisService
+from src.services.qdrant_service import QdrantService
 from src.utils.performance_monitor import MemoryMonitor
 
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ class IndexingPipeline:
                 self._report_progress(f"Removing {len(files_to_remove)} obsolete entries")
 
                 # Import deletion function
-                from tools.project.project_utils import delete_file_chunks
+                from src.tools.project.project_utils import delete_file_chunks
 
                 total_removed_points = 0
                 successful_deletions = 0

@@ -12,14 +12,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from services.query_builder_service import (
+from src.services.query_builder_service import (
     FilterOperator,
     QueryBuilderService,
     QueryFilter,
     QueryParameters,
     SearchContext,
 )
-from services.result_processing_service import (
+from src.services.result_processing_service import (
     ProcessedResult,
     ProcessingOptions,
     ProcessingStats,
@@ -27,13 +27,12 @@ from services.result_processing_service import (
     ResultProcessingService,
     SortOrder,
 )
-from services.search_strategies import (
+from src.services.search_strategies import (
     BaseSearchStrategy,
     SearchMode,
     SearchParameters,
     search_strategy_registry,
 )
-
 from src.tools.indexing.search_tools import (
     get_current_project,
     search_sync,

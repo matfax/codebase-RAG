@@ -12,8 +12,7 @@ import time
 from datetime import datetime
 from typing import Any, Optional
 
-from services.cache_service import CacheHealthStatus
-
+from src.services.cache_service import CacheHealthStatus
 from src.utils.performance_monitor import MemoryMonitor, get_cache_performance_monitor
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ Tests the multi-query RAG search capabilities for project exploration.
 import unittest
 from unittest.mock import Mock, patch
 
-from services.rag_search_strategy import (
+from src.services.rag_search_strategy import (
     RAGSearchResults,
     RAGSearchStrategy,
     SearchQuery,

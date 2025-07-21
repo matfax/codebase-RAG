@@ -5,7 +5,7 @@ of specific breadcrumbs in the codebase using Graph RAG capabilities.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from src.services.embedding_service import EmbeddingService
 from src.services.graph_analysis_report_service import (

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    from services.component_analysis_service import ComponentAnalysisService
+    from src.services.component_analysis_service import ComponentAnalysisService
 except ImportError:
     ComponentAnalysisService = None
 

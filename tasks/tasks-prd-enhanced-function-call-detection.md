@@ -42,19 +42,19 @@ Based on PRD: `prd-enhanced-function-call-detection.md`
   - [x] 2.4 Implement confidence scoring based on call context and AST node completeness
   - [x] 2.5 Create configurable weight thresholds and filtering system
 
-- [ ] 3.0 Build Function Call Resolver and Breadcrumb Integration
-  - [ ] 3.1 Create `FunctionCallExtractor` service to extract calls from AST nodes
-  - [ ] 3.2 Extend `BreadcrumbResolver` to resolve function call targets to breadcrumbs
-  - [ ] 3.3 Handle cross-file function resolution using existing project indexing
-  - [ ] 3.4 Implement attribute call chain resolution (e.g., `self.progress_tracker.set_total_items`)
-  - [ ] 3.5 Add error handling for unresolvable calls with confidence degradation
+- [x] 3.0 Build Function Call Resolver and Breadcrumb Integration
+  - [x] 3.1 Create `FunctionCallExtractor` service to extract calls from AST nodes
+  - [x] 3.2 Extend `BreadcrumbResolver` to resolve function call targets to breadcrumbs
+  - [x] 3.3 Handle cross-file function resolution using existing project indexing
+  - [x] 3.4 Implement attribute call chain resolution (e.g., `self.progress_tracker.set_total_items`)
+  - [x] 3.5 Add error handling for unresolvable calls with confidence degradation
 
-- [ ] 4.0 Integrate Function Call Detection with Graph Builder
-  - [ ] 4.1 Extend `StructureRelationshipBuilder` to include function call edges alongside import edges
-  - [ ] 4.2 Modify `GraphEdge` model to support call relationship types and metadata
-  - [ ] 4.3 Update graph traversal algorithms to handle function call relationships
-  - [ ] 4.4 Ensure backward compatibility with existing Graph RAG tools
-  - [ ] 4.5 Add configuration toggle to enable/disable call detection feature
+- [x] 4.0 Integrate Function Call Detection with Graph Builder
+  - [x] 4.1 Extend `StructureRelationshipBuilder` to include function call edges alongside import edges
+  - [x] 4.2 Modify `GraphEdge` model to support call relationship types and metadata
+  - [x] 4.3 Update graph traversal algorithms to handle function call relationships
+  - [x] 4.4 Ensure backward compatibility with existing Graph RAG tools
+  - [x] 4.5 Add configuration toggle to enable/disable call detection feature
 
 - [ ] 5.0 Add Performance Optimization and Caching Layer
   - [ ] 5.1 Implement breadcrumb resolution caching with TTL based on file modification times

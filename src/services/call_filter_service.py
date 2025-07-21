@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from models.function_call import CallType, FunctionCall
+from src.models.function_call import CallType, FunctionCall
 
 logger = logging.getLogger(__name__)
 

@@ -16,9 +16,10 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts import base
-from services.embedding_service import EmbeddingService
-from services.indexing_service import IndexingService
-from services.project_analysis_service import ProjectAnalysisService
+
+from src.services.embedding_service import EmbeddingService
+from src.services.indexing_service import IndexingService
+from src.services.project_analysis_service import ProjectAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class MCPPromptsSystem:
             """
             try:
                 # Use enhanced project exploration service
-                from services.project_exploration_service import (
+                from src.services.project_exploration_service import (
                     ProjectExplorationService,
                 )
 
@@ -156,7 +157,7 @@ class MCPPromptsSystem:
             """
             try:
                 # Use enhanced component analysis service
-                from services.component_analysis_service import ComponentAnalysisService
+                from src.services.component_analysis_service import ComponentAnalysisService
 
                 analysis_service = ComponentAnalysisService()
 
@@ -231,7 +232,7 @@ class MCPPromptsSystem:
             """
             try:
                 # Use enhanced functionality tracing service
-                from services.functionality_tracing_service import (
+                from src.services.functionality_tracing_service import (
                     FunctionalityTracingService,
                 )
 

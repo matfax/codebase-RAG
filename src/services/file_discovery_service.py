@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from services.project_analysis_service import ProjectAnalysisService
+from src.services.project_analysis_service import ProjectAnalysisService
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,9 @@ class FileDiscoveryService:
             if mode == "incremental":
                 # Try to get actual change detection if possible
                 try:
-                    from services.change_detector_service import ChangeDetectorService
-                    from services.file_metadata_service import FileMetadataService
-                    from services.qdrant_service import QdrantService
+                    from src.services.change_detector_service import ChangeDetectorService
+                    from src.services.file_metadata_service import FileMetadataService
+                    from src.services.qdrant_service import QdrantService
 
                     # Get project name
                     project_name = self.project_analysis._get_project_name(directory)

@@ -318,6 +318,47 @@ class GraphRAGService:
 
             self.logger.info("Invalidated all graph caches")
 
+    def configure_function_call_detection(self, enable: bool = True, confidence_threshold: float = 0.5, invalidate_cache: bool = True):
+        """
+        Configure function call detection settings for the Graph RAG service.
+
+        Args:
+            enable: Whether to enable function call detection in graph building
+            confidence_threshold: Minimum confidence threshold for function call edges
+            invalidate_cache: Whether to invalidate existing graph caches after configuration change
+        """
+        # Initialize relationship builder if not already done
+        if self.relationship_builder is None:
+            self.relationship_builder = StructureRelationshipBuilder(self.qdrant_service, self.structure_analyzer)
+
+        # Configure the relationship builder
+        self.relationship_builder.configure_function_call_detection(enable, confidence_threshold)
+
+        # Invalidate caches if requested (since changing configuration affects graph building)
+        if invalidate_cache:
+            self._graph_cache.clear()
+            self._cache_timestamps.clear()
+            self.logger.info("Graph caches invalidated due to function call detection configuration change")
+
+        self.logger.info(f"Function call detection configured: enabled={enable}, " f"confidence_threshold={confidence_threshold}")
+
+    def get_function_call_detection_config(self) -> dict[str, any]:
+        """
+        Get current function call detection configuration.
+
+        Returns:
+            Dictionary with current configuration settings
+        """
+        if self.relationship_builder is None:
+            # Return default configuration
+            return {"enabled": True, "confidence_threshold": 0.5, "status": "not_initialized"}
+
+        return {
+            "enabled": self.relationship_builder.enable_function_call_detection,
+            "confidence_threshold": self.relationship_builder.function_call_confidence_threshold,
+            "status": "configured",
+        }
+
     async def advanced_component_search(
         self,
         breadcrumb: str,

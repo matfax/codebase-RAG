@@ -32,8 +32,8 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
         try:
             from pathlib import Path
 
-            from services.project_analysis_service import ProjectAnalysisService
-            from services.project_cache_service import get_project_cache_service
+            from src.services.project_analysis_service import ProjectAnalysisService
+            from src.services.project_cache_service import get_project_cache_service
 
             dir_path = Path(directory).resolve()
             if not dir_path.exists():
@@ -115,7 +115,7 @@ async def get_project_info_async(directory: str = ".") -> dict[str, Any]:
             # Cache the result if cache service is available
             try:
                 cache_service = await get_project_cache_service()
-                from services.project_cache_service import ProjectMetadata
+                from src.services.project_cache_service import ProjectMetadata
 
                 metadata = ProjectMetadata(
                     project_name=project_info["name"],

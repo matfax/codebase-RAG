@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from services.code_parser_service import CodeParserService
-    from services.embedding_service import EmbeddingService
+    from src.services.code_parser_service import CodeParserService
+    from src.services.embedding_service import EmbeddingService
 except ImportError:
     # For testing without full service dependencies
     EmbeddingService = None

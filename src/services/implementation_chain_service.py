@@ -695,12 +695,12 @@ class ImplementationChainService:
     def _is_relevant_relationship(self, relationship_type: str, chain_type: ChainType) -> bool:
         """Check if a relationship type is relevant for the chain type."""
         relevance_map = {
-            ChainType.EXECUTION_FLOW: ["parent_child", "dependency", "calls"],
+            ChainType.EXECUTION_FLOW: ["parent_child", "dependency", "calls", "function_call", "sibling"],
             ChainType.DATA_FLOW: ["dependency", "data_flow", "transforms"],
             ChainType.DEPENDENCY_CHAIN: ["dependency", "uses", "imports"],
             ChainType.INHERITANCE_CHAIN: ["parent_child", "inherits", "extends"],
             ChainType.INTERFACE_IMPLEMENTATION: ["implementation", "implements", "realizes"],
-            ChainType.SERVICE_LAYER_CHAIN: ["dependency", "uses", "calls"],
+            ChainType.SERVICE_LAYER_CHAIN: ["dependency", "uses", "calls", "function_call"],
             ChainType.API_ENDPOINT_CHAIN: ["parent_child", "dependency", "handles"],
             ChainType.EVENT_HANDLING_CHAIN: ["dependency", "listens", "handles"],
             ChainType.CONFIGURATION_CHAIN: ["dependency", "configures", "uses"],

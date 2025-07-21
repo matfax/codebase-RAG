@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ..models.code_chunk import ChunkType, CodeChunk
+from ..models.function_call import CallDetectionResult, FunctionCall
+from .integrated_function_call_resolver import IntegratedFunctionCallResolver
 from .structure_analyzer_service import StructureAnalyzerService
 
 
@@ -43,14 +45,78 @@ class GraphEdge:
 
     source_breadcrumb: str
     target_breadcrumb: str
-    relationship_type: str  # "parent_child", "dependency", "implementation", "interface", "sibling"
+    relationship_type: str  # "parent_child", "dependency", "implementation", "interface", "sibling", "function_call"
     weight: float = 1.0
     confidence: float = 1.0  # Confidence in this relationship
     metadata: dict[str, Any] = None
 
+    # Valid relationship types
+    VALID_RELATIONSHIP_TYPES = {"parent_child", "dependency", "implementation", "interface", "sibling", "function_call"}
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+
+        # Validate relationship type
+        if self.relationship_type not in self.VALID_RELATIONSHIP_TYPES:
+            raise ValueError(f"Invalid relationship_type: {self.relationship_type}. " f"Must be one of: {self.VALID_RELATIONSHIP_TYPES}")
+
+        # Validate weight and confidence ranges
+        if not (0.0 <= self.weight <= 1.0):
+            raise ValueError(f"Weight must be between 0.0 and 1.0, got: {self.weight}")
+
+        if not (0.0 <= self.confidence <= 1.0):
+            raise ValueError(f"Confidence must be between 0.0 and 1.0, got: {self.confidence}")
+
+    def is_function_call(self) -> bool:
+        """Check if this edge represents a function call relationship."""
+        return self.relationship_type == "function_call"
+
+    def is_hierarchical(self) -> bool:
+        """Check if this edge represents a hierarchical relationship."""
+        return self.relationship_type in {"parent_child", "sibling"}
+
+    def is_dependency(self) -> bool:
+        """Check if this edge represents a dependency relationship."""
+        return self.relationship_type in {"dependency", "implementation", "interface"}
+
+    def get_call_type(self) -> str | None:
+        """Get the call type for function call edges."""
+        if self.is_function_call():
+            return self.metadata.get("call_type")
+        return None
+
+    def get_call_expression(self) -> str | None:
+        """Get the call expression for function call edges."""
+        if self.is_function_call():
+            return self.metadata.get("call_expression")
+        return None
+
+    def is_async_call(self) -> bool:
+        """Check if this function call edge represents an async call."""
+        if self.is_function_call():
+            return self.metadata.get("is_async", False)
+        return False
+
+    def get_line_number(self) -> int | None:
+        """Get the line number for function call edges."""
+        if self.is_function_call():
+            return self.metadata.get("line_number")
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert edge to dictionary representation."""
+        return {
+            "source_breadcrumb": self.source_breadcrumb,
+            "target_breadcrumb": self.target_breadcrumb,
+            "relationship_type": self.relationship_type,
+            "weight": self.weight,
+            "confidence": self.confidence,
+            "metadata": dict(self.metadata),
+            "is_function_call": self.is_function_call(),
+            "is_hierarchical": self.is_hierarchical(),
+            "is_dependency": self.is_dependency(),
+        }
 
 
 @dataclass
@@ -82,6 +148,7 @@ class RelationshipStats:
     dependency_relationships: int = 0
     interface_relationships: int = 0
     sibling_relationships: int = 0
+    function_call_relationships: int = 0
     orphaned_nodes: int = 0
     max_depth: int = 0
     build_time_ms: float = 0.0
@@ -117,10 +184,17 @@ class StructureRelationshipBuilder:
         self.max_dependency_depth = 5  # Maximum depth for dependency analysis
         self.confidence_threshold = 0.7  # Minimum confidence for relationships
 
+        # Function call detection configuration (Task 4.5)
+        self.enable_function_call_detection = True  # Feature toggle
+        self.function_call_confidence_threshold = 0.5  # Lower threshold for function calls
+
+        # Initialize function call resolver
+        self.function_call_resolver = IntegratedFunctionCallResolver()
+
         # Statistics tracking
         self._build_stats = RelationshipStats()
 
-        self.logger.info("StructureRelationshipBuilder initialized")
+        self.logger.info("StructureRelationshipBuilder initialized with function call detection")
 
     async def build_relationship_graph(self, chunks: list[CodeChunk], project_name: str) -> StructureGraph:
         """
@@ -160,7 +234,12 @@ class StructureRelationshipBuilder:
             sibling_edges = await self._build_sibling_relationships(nodes)
             edges.extend(sibling_edges)
 
-            # Phase 6: Calculate graph properties
+            # Phase 6: Build function call relationships (if enabled)
+            if self.enable_function_call_detection:
+                function_call_edges = await self._build_function_call_relationships(chunks, nodes, project_name)
+                edges.extend(function_call_edges)
+
+            # Phase 7: Calculate graph properties
             root_nodes = await self._identify_root_nodes(nodes, edges)
             await self._calculate_node_depths(nodes, edges, root_nodes)
 
@@ -410,6 +489,101 @@ class StructureRelationshipBuilder:
         self.logger.debug(f"Built {self._build_stats.sibling_relationships} sibling relationships")
         return edges
 
+    async def _build_function_call_relationships(
+        self, chunks: list[CodeChunk], nodes: dict[str, GraphNode], project_name: str
+    ) -> list[GraphEdge]:
+        """
+        Build function call relationships using the integrated function call resolver.
+
+        Args:
+            chunks: Original chunks to analyze
+            nodes: Graph nodes dictionary
+            project_name: Project name for target resolution context
+
+        Returns:
+            List of function call relationship edges
+        """
+        edges = []
+
+        try:
+            self.logger.debug("Building function call relationships")
+
+            # Group chunks by file for efficient processing
+            file_chunks = defaultdict(list)
+            file_content_cache = {}
+
+            for chunk in chunks:
+                if chunk.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.CLASS]:
+                    file_chunks[chunk.file_path].append(chunk)
+
+            # Process each file
+            for file_path, file_specific_chunks in file_chunks.items():
+                try:
+                    # Read file content for function call extraction (if needed)
+                    if file_path not in file_content_cache:
+                        try:
+                            with open(file_path, encoding="utf-8") as f:
+                                file_content_cache[file_path] = f.read()
+                        except Exception as e:
+                            self.logger.warning(f"Could not read file {file_path}: {e}")
+                            continue
+
+                    file_content = file_content_cache[file_path]
+                    content_lines = file_content.split("\n")
+
+                    # Process each chunk in the file
+                    for chunk in file_specific_chunks:
+                        if not chunk.breadcrumb or chunk.breadcrumb not in nodes:
+                            continue
+
+                        # Extract and resolve function calls for this chunk
+                        source_breadcrumb = chunk.breadcrumb
+                        call_results = await self.function_call_resolver.extract_and_resolve_calls(
+                            chunk, source_breadcrumb, content_lines, target_projects=[project_name]
+                        )
+
+                        # Convert successful function calls to graph edges
+                        if call_results.detection_success:
+                            for function_call in call_results.calls:
+                                # Filter by confidence threshold
+                                if function_call.confidence >= self.function_call_confidence_threshold:
+                                    # Ensure target breadcrumb exists in our graph
+                                    if function_call.target_breadcrumb in nodes:
+                                        edge = GraphEdge(
+                                            source_breadcrumb=source_breadcrumb,
+                                            target_breadcrumb=function_call.target_breadcrumb,
+                                            relationship_type="function_call",
+                                            weight=function_call.weight,
+                                            confidence=function_call.confidence,
+                                            metadata={
+                                                "call_type": function_call.call_type.value,
+                                                "call_expression": function_call.call_expression,
+                                                "line_number": function_call.line_number,
+                                                "argument_count": function_call.argument_count,
+                                                "file_path": function_call.file_path,
+                                                "is_async": function_call.call_type.value in ["async_call", "await_call"],
+                                            },
+                                        )
+                                        edges.append(edge)
+                                        self._build_stats.function_call_relationships += 1
+                                    else:
+                                        # Log unresolved calls for debugging
+                                        self.logger.debug(
+                                            f"Function call target not in graph: {function_call.target_breadcrumb} "
+                                            f"called from {source_breadcrumb}"
+                                        )
+
+                except Exception as e:
+                    self.logger.warning(f"Error processing function calls in file {file_path}: {e}")
+                    continue
+
+            self.logger.debug(f"Built {self._build_stats.function_call_relationships} function call relationships")
+            return edges
+
+        except Exception as e:
+            self.logger.error(f"Error building function call relationships: {e}")
+            return []
+
     async def _identify_root_nodes(self, nodes: dict[str, GraphNode], edges: list[GraphEdge]) -> list[str]:
         """
         Identify root nodes (nodes with no parents).
@@ -592,3 +766,20 @@ class StructureRelationshipBuilder:
     def get_build_statistics(self) -> RelationshipStats:
         """Get the latest build statistics."""
         return self._build_stats
+
+    def configure_function_call_detection(self, enable: bool, confidence_threshold: float = None):
+        """
+        Configure function call detection settings.
+
+        Args:
+            enable: Whether to enable function call detection
+            confidence_threshold: Minimum confidence threshold for function call edges
+        """
+        self.enable_function_call_detection = enable
+
+        if confidence_threshold is not None:
+            self.function_call_confidence_threshold = max(0.0, min(1.0, confidence_threshold))
+
+        self.logger.info(
+            f"Function call detection configured: enabled={enable}, " f"confidence_threshold={self.function_call_confidence_threshold}"
+        )

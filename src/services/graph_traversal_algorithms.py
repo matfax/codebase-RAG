@@ -35,6 +35,8 @@ class RelationshipFilter(Enum):
     DEPENDENCIES_ONLY = "dependencies_only"  # dependency relationships
     IMPLEMENTATIONS_ONLY = "implementations_only"  # interface implementations
     SIBLINGS_ONLY = "siblings_only"  # sibling relationships
+    FUNCTION_CALLS_ONLY = "function_calls_only"  # function call relationships
+    NO_FUNCTION_CALLS = "no_function_calls"  # exclude function call relationships
     CUSTOM = "custom"  # Custom filter function
 
 
@@ -428,7 +430,13 @@ class GraphTraversalAlgorithms:
     ) -> tuple[list[GraphNode], list[str]]:
         """Perform traversal weighted by relationship types."""
         # Define relationship weights
-        relationship_weights = {"parent_child": 1.0, "dependency": 0.8, "implementation": 0.9, "sibling": 0.6}
+        relationship_weights = {
+            "parent_child": 1.0,
+            "dependency": 0.8,
+            "implementation": 0.9,
+            "sibling": 0.6,
+            "function_call": 0.7,  # Function calls are important but not as critical as hierarchical relationships
+        }
 
         visited = set()
         visited_nodes = []
@@ -492,6 +500,10 @@ class GraphTraversalAlgorithms:
             filtered_edges = [e for e in filtered_edges if e.relationship_type == "implementation"]
         elif options.relationship_filter == RelationshipFilter.SIBLINGS_ONLY:
             filtered_edges = [e for e in filtered_edges if e.relationship_type == "sibling"]
+        elif options.relationship_filter == RelationshipFilter.FUNCTION_CALLS_ONLY:
+            filtered_edges = [e for e in filtered_edges if e.relationship_type == "function_call"]
+        elif options.relationship_filter == RelationshipFilter.NO_FUNCTION_CALLS:
+            filtered_edges = [e for e in filtered_edges if e.relationship_type != "function_call"]
         elif options.relationship_filter == RelationshipFilter.CUSTOM and options.custom_filter:
             filtered_edges = [e for e in filtered_edges if options.custom_filter(e)]
 
@@ -563,6 +575,89 @@ class GraphTraversalAlgorithms:
                 relationship_types.add(edge.relationship_type)
 
         return relationship_types
+
+    async def analyze_function_call_patterns(self, graph: StructureGraph, target_breadcrumb: str = None) -> dict[str, Any]:
+        """
+        Analyze function call patterns in the graph.
+
+        Args:
+            graph: Structure graph to analyze
+            target_breadcrumb: Optional specific component to analyze
+
+        Returns:
+            Dictionary with function call pattern analysis
+        """
+        try:
+            function_call_edges = [e for e in graph.edges if e.relationship_type == "function_call"]
+
+            if not function_call_edges:
+                return {"total_function_calls": 0, "has_function_calls": False, "message": "No function call relationships found in graph"}
+
+            # Overall statistics
+            total_calls = len(function_call_edges)
+            unique_callers = len(set(e.source_breadcrumb for e in function_call_edges))
+            unique_callees = len(set(e.target_breadcrumb for e in function_call_edges))
+
+            # Call type analysis
+            call_type_breakdown = defaultdict(int)
+            async_calls = 0
+
+            for edge in function_call_edges:
+                call_type = edge.get_call_type()
+                if call_type:
+                    call_type_breakdown[call_type] += 1
+                if edge.is_async_call():
+                    async_calls += 1
+
+            # Confidence and weight analysis
+            avg_confidence = sum(e.confidence for e in function_call_edges) / total_calls
+            avg_weight = sum(e.weight for e in function_call_edges) / total_calls
+
+            # Most called functions
+            callee_counts = defaultdict(int)
+            for edge in function_call_edges:
+                callee_counts[edge.target_breadcrumb] += 1
+
+            most_called = sorted(callee_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+            # Caller analysis
+            caller_counts = defaultdict(int)
+            for edge in function_call_edges:
+                caller_counts[edge.source_breadcrumb] += 1
+
+            most_active_callers = sorted(caller_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+            analysis = {
+                "total_function_calls": total_calls,
+                "has_function_calls": True,
+                "unique_callers": unique_callers,
+                "unique_callees": unique_callees,
+                "call_type_breakdown": dict(call_type_breakdown),
+                "async_call_percentage": (async_calls / total_calls) * 100 if total_calls > 0 else 0,
+                "average_confidence": avg_confidence,
+                "average_weight": avg_weight,
+                "most_called_functions": [{"breadcrumb": breadcrumb, "call_count": count} for breadcrumb, count in most_called],
+                "most_active_callers": [{"breadcrumb": breadcrumb, "calls_made": count} for breadcrumb, count in most_active_callers],
+            }
+
+            # Specific target analysis if requested
+            if target_breadcrumb and target_breadcrumb in graph.nodes:
+                target_incoming = [e for e in function_call_edges if e.target_breadcrumb == target_breadcrumb]
+                target_outgoing = [e for e in function_call_edges if e.source_breadcrumb == target_breadcrumb]
+
+                analysis["target_analysis"] = {
+                    "breadcrumb": target_breadcrumb,
+                    "calls_received": len(target_incoming),
+                    "calls_made": len(target_outgoing),
+                    "callers": [e.source_breadcrumb for e in target_incoming],
+                    "callees": [e.target_breadcrumb for e in target_outgoing],
+                }
+
+            return analysis
+
+        except Exception as e:
+            self.logger.error(f"Error analyzing function call patterns: {e}")
+            return {"total_function_calls": 0, "has_function_calls": False, "error": str(e)}
 
     def _calculate_max_distance(self, cluster_nodes: list[GraphNode]) -> int:
         """Calculate maximum distance between nodes in cluster."""

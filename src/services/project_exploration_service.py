@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from services.embedding_service import EmbeddingService
-    from services.indexing_service import IndexingService
-    from services.project_analysis_service import ProjectAnalysisService
-    from services.rag_search_strategy import RAGSearchStrategy
+    from src.services.embedding_service import EmbeddingService
+    from src.services.indexing_service import IndexingService
+    from src.services.project_analysis_service import ProjectAnalysisService
+    from src.services.rag_search_strategy import RAGSearchStrategy
 except ImportError:
     # For testing without full service dependencies
     ProjectAnalysisService = None

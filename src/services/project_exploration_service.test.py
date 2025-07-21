@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from services.project_exploration_service import (
+from src.services.project_exploration_service import (
     ProjectExplorationResult,
     ProjectExplorationService,
 )

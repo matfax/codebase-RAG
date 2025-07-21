@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
-from models.function_call import CallType, FunctionCall
+from src.models.function_call import CallType, FunctionCall
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +350,63 @@ class CallFrequencyAnalyzer:
         self.logger.debug(f"Calculated enhanced frequency factors for {len(factors)} calls")
 
         return factors
+
+    def calculate_frequency_factors(self, calls: list[FunctionCall]) -> list[FunctionCall]:
+        """
+        Calculate frequency factors for function calls and return updated calls.
+
+        This is the primary method used by FunctionCallExtractor.
+
+        Args:
+            calls: List of function calls to analyze
+
+        Returns:
+            List of function calls with frequency factors applied
+        """
+        if not calls:
+            return calls
+
+        # Analyze frequencies for these calls
+        analysis = self.analyze_file_frequencies(calls)
+
+        # Calculate enhanced frequency factors
+        factor_map = self.calculate_enhanced_frequency_factors(calls, analysis)
+
+        # Apply frequency factors to the calls
+        updated_calls = []
+        for call in calls:
+            call_id = f"{call.target_breadcrumb}@{call.line_number}"
+            frequency_factor = factor_map.get(call_id, 1.0)
+
+            # Update the call's weight with frequency factor
+            # Create a new call with updated weight
+            updated_call = FunctionCall(
+                source_breadcrumb=call.source_breadcrumb,
+                target_breadcrumb=call.target_breadcrumb,
+                call_type=call.call_type,
+                file_path=call.file_path,
+                line_number=call.line_number,
+                call_expression=call.call_expression,
+                confidence=call.confidence,
+                weight=call.weight * frequency_factor,  # Apply frequency factor
+                arguments_count=call.arguments_count,
+                is_conditional=call.is_conditional,
+                is_nested=call.is_nested,
+                frequency_in_file=call.frequency_in_file,
+                frequency_factor=call.frequency_factor,
+                ast_node_type=call.ast_node_type,
+                pattern_matched=call.pattern_matched,
+                detected_at=call.detected_at,
+                content_hash=call.content_hash,
+                has_type_hints=call.has_type_hints,
+                has_docstring=call.has_docstring,
+                has_syntax_errors=call.has_syntax_errors,
+                error_details=call.error_details,
+            )
+            updated_calls.append(updated_call)
+
+        self.logger.info(f"Applied frequency factors to {len(updated_calls)} calls")
+        return updated_calls
 
     def _detect_call_chains(self, calls: list[FunctionCall]) -> list[list[str]]:
         """

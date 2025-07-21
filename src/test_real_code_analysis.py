@@ -313,7 +313,7 @@ class ConfigManager:
             json.dump(self.config_data, f, indent=2)
 
     def get_database_url(self) -> str:
-        """Construct database URL from config."""
+        """Construct database URL from src.config."""
         db_config = self.config_data.get('database', {})
 
         host = db_config.get('host', 'localhost')

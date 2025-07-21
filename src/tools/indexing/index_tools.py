@@ -76,7 +76,7 @@ def get_embeddings_manager_instance():
     """Get or create embeddings manager instance."""
     global _embeddings_manager
     if _embeddings_manager is None:
-        from services.embedding_service import EmbeddingService
+        from src.services.embedding_service import EmbeddingService
 
         _embeddings_manager = EmbeddingService()
     return _embeddings_manager
@@ -848,7 +848,7 @@ def index_directory_sync(
         existing_index_info = check_existing_index(current_project)
 
         # Get file count estimation for better decision making
-        from services.indexing_service import IndexingService
+        from src.services.indexing_service import IndexingService
 
         indexing_service = IndexingService()
 
@@ -856,7 +856,7 @@ def index_directory_sync(
         logger.info("Analyzing directory structure...")
         try:
             # Use project analysis service for quick file count
-            from services.project_analysis_service import ProjectAnalysisService
+            from src.services.project_analysis_service import ProjectAnalysisService
 
             analysis_service = ProjectAnalysisService()
             quick_analysis = analysis_service.analyze_repository(str(dir_path))
@@ -866,7 +866,7 @@ def index_directory_sync(
             estimated_file_count = 0
 
         # Generate intelligent time estimates and recommendations
-        from services.time_estimator_service import TimeEstimatorService
+        from src.services.time_estimator_service import TimeEstimatorService
 
         time_estimator = TimeEstimatorService()
 

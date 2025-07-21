@@ -18,10 +18,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from services.code_parser_service import CodeParserService
-from services.indexing_service import IndexingService
-
 from src.models.code_chunk import ChunkType, CodeChunk, ParseResult
+from src.services.code_parser_service import CodeParserService
+from src.services.indexing_service import IndexingService
 
 
 class TestIntelligentChunkingIntegration:

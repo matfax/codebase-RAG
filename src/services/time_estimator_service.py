@@ -10,8 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from services.project_analysis_service import ProjectAnalysisService
-
+from src.services.project_analysis_service import ProjectAnalysisService
 from src.utils.file_system_utils import format_file_size
 
 

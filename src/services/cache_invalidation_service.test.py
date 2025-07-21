@@ -36,7 +36,7 @@ from .cache_invalidation_service import (
 @pytest.fixture
 def config():
     """Create test cache configuration."""
-    from config.cache_config import MemoryCacheConfig, RedisConfig
+    from src.config.cache_config import MemoryCacheConfig, RedisConfig
 
     return CacheConfig(
         redis=RedisConfig(

@@ -20,11 +20,12 @@ from threading import Lock
 from typing import Any, Optional, Union
 
 import redis.asyncio as redis
-from config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
-from utils.cache_eviction_policies import EvictionOptimizer, EvictionPolicy, EvictionPolicyFactory
-from utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
+
+from src.config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
+from src.utils.cache_eviction_policies import EvictionOptimizer, EvictionPolicy, EvictionPolicyFactory
+from src.utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
 
 
 class CacheError(Exception):
