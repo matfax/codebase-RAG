@@ -7,6 +7,7 @@ handling version compatibility and initialization errors gracefully.
 
 import logging
 from pathlib import Path
+from typing import Union
 
 try:
     from tree_sitter import Language, Parser

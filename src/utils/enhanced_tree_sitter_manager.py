@@ -10,7 +10,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 try:
     from tree_sitter import Language, Node, Parser

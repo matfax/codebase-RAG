@@ -355,7 +355,11 @@ class ConcurrencyOptimizer(BaseOptimizer):
     """Optimizer for concurrency and connection pool settings."""
 
     def __init__(
-        self, min_connections: int = 1, max_connections: int = 100, target_cpu_usage: float = 0.8, logger: logging.Logger | None = None
+        self,
+        min_connections: int = 1,
+        max_connections: int = 100,
+        target_cpu_usage: float = 0.8,
+        logger: logging.Logger | None = None,
     ):
         """Initialize concurrency optimizer."""
         super().__init__(logger)

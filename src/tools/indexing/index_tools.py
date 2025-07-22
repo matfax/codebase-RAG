@@ -12,7 +12,7 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient

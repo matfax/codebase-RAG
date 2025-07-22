@@ -12,7 +12,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from src.models.code_chunk import CodeChunk
 from src.models.function_call import CallDetectionResult, FunctionCall
@@ -150,7 +150,11 @@ class BatchCallProcessingService:
     - Performance optimization for large codebases
     """
 
-    def __init__(self, scheduling_config: BatchSchedulingConfig | None = None, processing_config: ConcurrentProcessingConfig | None = None):
+    def __init__(
+        self,
+        scheduling_config: BatchSchedulingConfig | None = None,
+        processing_config: ConcurrentProcessingConfig | None = None,
+    ):
         """
         Initialize the batch call processing service.
 

@@ -478,7 +478,7 @@ class CacheAlertService:
 
             # Handle special computed metrics
             if metric_name == "current_size_mb":
-                return value / 1024 / 1024 if isinstance(value, int | float) else None
+                return value / 1024 / 1024 if isinstance(value, Union[int, float]) else None
             elif metric_name == "eviction_rate_per_hour":
                 # Calculate eviction rate from eviction count and uptime
                 eviction_count = metrics.get("memory", {}).get("eviction_count", 0)
@@ -487,7 +487,7 @@ class CacheAlertService:
                     return (eviction_count / uptime) * 3600  # per hour
                 return 0
 
-            return float(value) if isinstance(value, int | float) else None
+            return float(value) if isinstance(value, Union[int, float]) else None
         except (KeyError, TypeError, ValueError):
             return None
 

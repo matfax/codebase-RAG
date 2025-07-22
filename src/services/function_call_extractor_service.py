@@ -9,7 +9,7 @@ function call detection with confidence scoring and breadcrumb integration.
 import hashlib
 import logging
 import time
-from typing import Optional
+from typing import Optional, Union
 
 import tree_sitter
 from tree_sitter import Node
@@ -50,6 +50,9 @@ class FunctionCallExtractor:
         self.enable_async_patterns = True
         self.enable_advanced_patterns = True
         self.min_confidence_threshold = 0.1  # Very low threshold, filtering done elsewhere
+
+        # MCP Performance Mode - for faster processing
+        self.mcp_performance_mode = True  # Enable aggressive performance optimizations for MCP tools
 
         self.logger.info("FunctionCallExtractor initialized")
 
@@ -161,6 +164,8 @@ class FunctionCallExtractor:
         """
         Extract Python function calls using Tree-sitter patterns from Wave 1.0.
 
+        Enhanced with deduplication logic to prevent Tree-sitter over-matching.
+
         Args:
             root_node: Root AST node of the chunk
             chunk: Source code chunk
@@ -168,12 +173,21 @@ class FunctionCallExtractor:
             content_lines: Lines of the source file
 
         Returns:
-            List of detected function calls
+            List of detected function calls (deduplicated)
         """
-        calls = []
+        # Deduplication tracking: (start_line, end_line, call_expression) -> FunctionCall
+        seen_calls: dict[tuple[int, int, str], FunctionCall] = {}
+        total_calls_processed = 0
 
         # Get appropriate patterns based on configuration
-        if self.enable_advanced_patterns:
+        if self.mcp_performance_mode:
+            # Use only the most essential patterns for MCP tools - prioritize speed
+            patterns = {
+                "direct_function_call": PythonCallPatterns.DIRECT_FUNCTION_CALL,
+                "method_call": PythonCallPatterns.METHOD_CALL,
+            }
+            self.logger.debug("MCP performance mode: using minimal patterns for speed")
+        elif self.enable_advanced_patterns:
             patterns = PythonCallPatterns.get_all_patterns()
         else:
             patterns = PythonCallPatterns.get_basic_patterns()
@@ -191,22 +205,61 @@ class FunctionCallExtractor:
 
                 # Process each match
                 for match_id, captures_dict in matches:
-                    # Process each capture in this match
-                    for capture_name, nodes in captures_dict.items():
-                        # Each capture can have multiple nodes
+                    # Look for the primary capture that represents the complete call
+                    primary_captures = self._find_primary_captures(captures_dict, pattern_name)
+
+                    # Process only primary captures to avoid partial matches
+                    for capture_name, nodes in primary_captures.items():
                         for node in nodes:
+                            # Skip if this looks like a partial capture (too short or missing parentheses)
+                            if not self._is_valid_call_node(node, pattern_name):
+                                continue
+
                             call = await self._create_function_call_from_capture(
                                 node, capture_name, pattern_name, chunk, source_breadcrumb, content_lines
                             )
 
                             if call and call.confidence >= self.min_confidence_threshold:
-                                calls.append(call)
+                                total_calls_processed += 1
+
+                                # Create deduplication key using more context
+                                dedup_key = (call.line_number, call.call_expression.strip(), call.target_breadcrumb)
+
+                                # Check if we've seen this exact call before
+                                if dedup_key in seen_calls:
+                                    existing_call = seen_calls[dedup_key]
+                                    # Keep the call with higher confidence or more specific pattern
+                                    if call.confidence > existing_call.confidence or self._is_more_specific_pattern(
+                                        pattern_name, existing_call.pattern_matched
+                                    ):
+                                        seen_calls[dedup_key] = call
+                                        self.logger.debug(
+                                            f"Replaced duplicate call at line {call.line_number}: {existing_call.pattern_matched} -> {pattern_name}"
+                                        )
+                                    else:
+                                        self.logger.debug(
+                                            f"Skipped duplicate call at line {call.line_number}: {pattern_name} (keeping {existing_call.pattern_matched})"
+                                        )
+                                else:
+                                    seen_calls[dedup_key] = call
 
             except Exception as e:
                 self.logger.debug(f"Error processing pattern {pattern_name}: {e}")
                 continue
 
-        return calls
+        # Convert deduplicated calls to list
+        deduplicated_calls = list(seen_calls.values())
+
+        # Log deduplication results
+        if total_calls_processed > len(deduplicated_calls):
+            duplicates_removed = total_calls_processed - len(deduplicated_calls)
+            self.logger.info(
+                f"Function call deduplication: {total_calls_processed} -> {len(deduplicated_calls)} (removed {duplicates_removed} duplicates)"
+            )
+        elif len(deduplicated_calls) > 0:
+            self.logger.debug(f"Function call extraction completed: {len(deduplicated_calls)} unique calls found")
+
+        return deduplicated_calls
 
     async def _create_function_call_from_capture(
         self, node: Node, capture_name: str, pattern_name: str, chunk: CodeChunk, source_breadcrumb: str, content_lines: list[str]
@@ -251,8 +304,26 @@ class FunctionCallExtractor:
                 arguments_count=self._count_arguments(node),
             )
 
-            # Calculate confidence score with AST context
-            ast_context = {"node": node, "content_lines": content_lines, "line_number": line_number}
+            # Calculate confidence score with enhanced AST context
+            ast_context = {
+                "node": node,
+                "node_type": node.type,
+                "node_text": node.text.decode("utf-8") if node.text else "",
+                "start_point": node.start_point,
+                "end_point": node.end_point,
+                "parent_node": node.parent,
+                "children_nodes": list(node.children),
+                "content_lines": content_lines,
+                "line_number": line_number,
+                "pattern_name": pattern_name,
+                "chunk_context": {
+                    "chunk_type": chunk.chunk_type.value,
+                    "chunk_name": chunk.name,
+                    "parent_name": chunk.parent_name,
+                    "file_path": chunk.file_path,
+                    "language": chunk.language,
+                },
+            }
             confidence_score, confidence_analysis = self.confidence_scorer.calculate_confidence(temp_call, ast_context)
 
             # Extract additional metadata
@@ -351,19 +422,309 @@ class FunctionCallExtractor:
 
     def _extract_target_breadcrumb_placeholder(self, node: Node, call_expression: str, pattern_name: str) -> str:
         """
-        Extract a placeholder target breadcrumb from the call expression.
+        Extract an intelligent target breadcrumb from the call expression.
 
-        This will be replaced with proper breadcrumb resolution in Task 3.2.
+        Enhanced breadcrumb resolution for same-project function calls.
         """
-        # Simple extraction for now - will be enhanced in Task 3.2
-        if "." in call_expression:
-            # Method or attribute call
-            parts = call_expression.split("(")[0].split(".")
-            return ".".join(parts)
+        # Extract the function/method name from call expression
+        if "(" in call_expression:
+            func_part = call_expression.split("(")[0].strip()
         else:
-            # Direct function call
-            func_name = call_expression.split("(")[0].strip()
-            return func_name
+            func_part = call_expression.strip()
+
+        # Handle different call patterns
+        if "." in func_part:
+            # Method or attribute call - analyze the pattern
+            parts = func_part.split(".")
+
+            # Self method calls (self.method_name)
+            if parts[0] == "self":
+                if len(parts) >= 2:
+                    # Try to infer class context from node's parent
+                    class_context = self._infer_class_context_from_node(node)
+                    if class_context:
+                        return f"{class_context}.{parts[1]}"
+                    else:
+                        # Use source breadcrumb context if available
+                        return f"current_class.{parts[1]}"
+
+            # Module function calls (time.time, os.path.join)
+            elif len(parts) == 2:
+                module_name, func_name = parts
+                # Check if it's a likely standard library call
+                if self._is_likely_standard_library(module_name):
+                    return func_part  # Keep as-is for stdlib calls
+                else:
+                    # Assume it's a same-project module
+                    return f"src.{module_name}.{func_name}"
+
+            # Chained attribute calls (obj.method.call)
+            elif len(parts) > 2:
+                # For complex chains, keep the last two parts
+                return ".".join(parts[-2:])
+
+        else:
+            # Direct function call - assume it's in current module/project
+            func_name = func_part
+
+            # Check if it's a likely builtin function
+            if self._is_likely_builtin_function(func_name):
+                return func_name  # Keep as-is for builtins
+            else:
+                # Assume it's a same-project function
+                return f"current_module.{func_name}"
+
+        # Fallback
+        return func_part
+
+    def _infer_class_context_from_node(self, node: Node) -> str | None:
+        """Infer class context by traversing up the AST."""
+        current = node.parent
+        max_depth = 20  # Safety limit to prevent infinite loops
+        depth = 0
+
+        while current and depth < max_depth:
+            if current.type == "class_definition":
+                # Look for class name in the node's children
+                for child in current.children:
+                    if child.type == "identifier":
+                        return child.text.decode("utf-8")
+            current = current.parent
+            depth += 1
+
+        return None
+
+    def _is_likely_standard_library(self, module_name: str) -> bool:
+        """Check if a module name is likely from Python standard library."""
+        stdlib_modules = {
+            "os",
+            "sys",
+            "time",
+            "datetime",
+            "json",
+            "re",
+            "math",
+            "random",
+            "collections",
+            "itertools",
+            "functools",
+            "pathlib",
+            "urllib",
+            "http",
+            "logging",
+            "threading",
+            "asyncio",
+            "typing",
+            "dataclasses",
+            "abc",
+            "copy",
+            "pickle",
+            "csv",
+            "sqlite3",
+            "hashlib",
+            "uuid",
+            "tempfile",
+            "shutil",
+            "glob",
+            "subprocess",
+            "socket",
+            "ssl",
+        }
+        return module_name.lower() in stdlib_modules
+
+    def _is_likely_builtin_function(self, func_name: str) -> bool:
+        """Check if a function name is likely a Python builtin."""
+        builtin_functions = {
+            "print",
+            "len",
+            "range",
+            "enumerate",
+            "zip",
+            "map",
+            "filter",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "min",
+            "max",
+            "sum",
+            "any",
+            "all",
+            "sorted",
+            "reversed",
+            "open",
+            "input",
+            "type",
+            "isinstance",
+            "hasattr",
+            "getattr",
+            "setattr",
+            "delattr",
+            "dir",
+            "vars",
+            "globals",
+            "locals",
+            "eval",
+            "exec",
+            "compile",
+            "repr",
+            "format",
+            "abs",
+            "round",
+        }
+        return func_name.lower() in builtin_functions
+
+    def _is_more_specific_pattern(self, new_pattern: str, existing_pattern: str) -> bool:
+        """
+        Determine if a new pattern is more specific than an existing pattern.
+
+        More specific patterns should take precedence during deduplication.
+
+        Args:
+            new_pattern: Name of the new pattern being evaluated
+            existing_pattern: Name of the existing pattern to compare against
+
+        Returns:
+            True if new_pattern is more specific than existing_pattern
+        """
+        # Define pattern specificity hierarchy (higher values = more specific)
+        pattern_specificity = {
+            # Async patterns are more specific than sync versions
+            "await_self_method_call": 10,
+            "await_chained_call": 9,
+            "await_method_call": 8,
+            "await_function_call": 7,
+            "await_asyncio_call": 9,
+            # Specific method types are more specific than generic ones
+            "self_method_call": 8,
+            "super_method_call": 8,
+            "chained_attribute_call": 7,
+            "subscript_method_call": 7,
+            "class_method_call": 6,
+            "dynamic_attribute_call": 6,
+            # Asyncio-specific patterns
+            "asyncio_gather_call": 9,
+            "asyncio_create_task_call": 9,
+            "asyncio_run_call": 9,
+            "asyncio_wait_call": 9,
+            "asyncio_wait_for_call": 9,
+            "asyncio_generic_call": 5,
+            # General patterns (less specific)
+            "method_call": 5,
+            "module_function_call": 4,
+            "unpacking_call": 4,
+            "direct_function_call": 3,
+        }
+
+        new_specificity = pattern_specificity.get(new_pattern, 1)
+        existing_specificity = pattern_specificity.get(existing_pattern, 1)
+
+        return new_specificity > existing_specificity
+
+    def _find_primary_captures(self, captures_dict: dict, pattern_name: str) -> dict:
+        """
+        Find primary captures that represent complete function calls.
+
+        Filter out partial captures like individual identifiers or argument lists.
+
+        Args:
+            captures_dict: Dictionary of capture names to node lists
+            pattern_name: Name of the pattern being processed
+
+        Returns:
+            Dictionary containing only primary captures
+        """
+        primary_captures = {}
+
+        # Define primary capture patterns for different query types
+        primary_suffixes = [
+            "call.direct",
+            "call.method",
+            "call.self_method",
+            "call.chained",
+            "call.module_function",
+            "call.subscript_method",
+            "call.super_method",
+            "call.class_method",
+            "call.dynamic",
+            "call.unpacking",
+            "async_call.await_function",
+            "async_call.await_method",
+            "async_call.await_self_method",
+            "async_call.await_chained",
+            "asyncio_call.gather",
+            "asyncio_call.create_task",
+            "asyncio_call.run",
+            "asyncio_call.wait",
+            "asyncio_call.wait_for",
+            "asyncio_call.generic",
+            "async_call.await_asyncio",
+        ]
+
+        # Look for primary capture names (these represent complete calls)
+        for capture_name, nodes in captures_dict.items():
+            # Include captures that end with primary suffixes
+            is_primary = any(capture_name.endswith(suffix) for suffix in primary_suffixes)
+
+            # Also include captures that represent the whole call node
+            if not is_primary and pattern_name in capture_name:
+                is_primary = True
+
+            if is_primary:
+                primary_captures[capture_name] = nodes
+
+        # If no primary captures found, fall back to all captures (backwards compatibility)
+        if not primary_captures:
+            return captures_dict
+
+        return primary_captures
+
+    def _is_valid_call_node(self, node: Node, pattern_name: str) -> bool:
+        """
+        Check if a node represents a valid function call.
+
+        Filter out partial matches like bare identifiers or argument lists.
+
+        Args:
+            node: Tree-sitter node to validate
+            pattern_name: Pattern name for context
+
+        Returns:
+            True if node represents a valid call
+        """
+        if not node or not node.text:
+            return False
+
+        node_text = node.text.decode("utf-8").strip()
+
+        # Skip empty or very short captures
+        if len(node_text) < 2:
+            return False
+
+        # Skip if it's just parentheses or argument list
+        if node_text.startswith("(") and node_text.endswith(")") and "(" not in node_text[1:-1]:
+            return False
+
+        # For function calls, expect either:
+        # 1. Complete call with parentheses: func() or obj.method()
+        # 2. Await expression: await func()
+        # 3. Node type should be 'call' for most patterns
+        if node.type == "call":
+            return True
+        elif node.type == "await" and "await" in pattern_name:
+            return True
+        elif "(" in node_text and ")" in node_text:
+            return True
+        elif node.type == "identifier" and len(node_text) <= 3:
+            # Skip short identifiers that are likely partial captures
+            return False
+
+        return True
 
     def _count_arguments(self, node: Node) -> int:
         """Count the number of arguments in a function call."""

@@ -7,7 +7,7 @@ integration for distributed tracing and observability.
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.utils.telemetry import (
     OPENTELEMETRY_AVAILABLE,

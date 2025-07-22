@@ -14,7 +14,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..models.code_chunk import ChunkType, CodeChunk
 from .cross_project_search_service import CrossProjectSearchFilter
@@ -1200,7 +1200,7 @@ class PatternRecognitionService:
             naming1 = set(pattern1.naming_evidence)
             naming2 = set(pattern2.naming_evidence)
             if naming1 or naming2:
-                naming_overlap = len(naming1 & naming2) / len(naming1 | naming2)
+                naming_overlap = len(naming1 & naming2) / len(Union[naming1, naming2])
                 similarity_factors.append(naming_overlap)
 
             return sum(similarity_factors) / len(similarity_factors) if similarity_factors else 0.0

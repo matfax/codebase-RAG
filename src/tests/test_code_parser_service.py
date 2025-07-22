@@ -1,4 +1,5 @@
 """
+from typing import Union
 Comprehensive unit tests for the CodeParser service.
 
 Tests cover all major functionality including:
@@ -223,7 +224,7 @@ class UserService {
 
     constructor(private apiClient: ApiClient) {}
 
-    async getUser(id: number): Promise<User | null> {
+    async getUser(id: number): Promise<Union[User, null]> {
         return this.users.find(user => user.id === id) || null;
     }
 

@@ -7,6 +7,7 @@ including parser management, language detection, and configuration management.
 
 import logging
 from pathlib import Path
+from typing import Union
 
 try:
     from tree_sitter import Language, Parser

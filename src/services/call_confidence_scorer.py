@@ -9,7 +9,7 @@ confidence scores to detected function calls.
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.function_call import CallType, FunctionCall
 
@@ -354,9 +354,13 @@ class CallConfidenceScorer:
 
         # Check if we have AST context
         if ast_context is None:
-            # No AST context available
-            completeness_score = 0.3
-            bonus_penalty = -self.config.missing_ast_penalty
+            # No AST context available - but be more lenient for same-project calls
+            if self._is_likely_same_project_call(call):
+                completeness_score = 0.6  # More lenient for same-project
+                bonus_penalty = -self.config.missing_ast_penalty * 0.5  # Reduced penalty
+            else:
+                completeness_score = 0.3
+                bonus_penalty = -self.config.missing_ast_penalty
             return completeness_score, bonus_penalty
 
         # Analyze AST node quality indicators
@@ -384,6 +388,15 @@ class CallConfidenceScorer:
             quality_indicators += 1
         total_indicators += 1
 
+        # Additional quality indicators from enhanced context
+        if ast_context.get("pattern_name"):
+            quality_indicators += 1
+        total_indicators += 1
+
+        if ast_context.get("chunk_context"):
+            quality_indicators += 1
+        total_indicators += 1
+
         # Calculate completeness score
         if total_indicators > 0:
             completeness_score = quality_indicators / total_indicators
@@ -391,8 +404,12 @@ class CallConfidenceScorer:
         # Apply bonuses/penalties based on completeness
         if completeness_score >= 0.9:
             bonus_penalty = self.config.complete_ast_bonus
+        elif completeness_score >= 0.7:
+            bonus_penalty = self.config.complete_ast_bonus * 0.5  # Partial bonus
         elif completeness_score <= 0.4:
-            bonus_penalty = -self.config.partial_ast_penalty
+            # Reduce penalty for same-project calls
+            penalty_factor = 0.5 if self._is_likely_same_project_call(call) else 1.0
+            bonus_penalty = -self.config.partial_ast_penalty * penalty_factor
 
         return completeness_score, bonus_penalty
 
@@ -453,6 +470,7 @@ class CallConfidenceScorer:
         """
         quality_score = 0.0
         quality_count = 0
+        is_same_project = self._is_likely_same_project_call(call)
 
         # Analyze source breadcrumb
         if call.source_breadcrumb:
@@ -461,24 +479,118 @@ class CallConfidenceScorer:
                 bonuses["full_source_breadcrumb"] = self.config.full_breadcrumb_bonus / 2
             else:
                 quality_score += 0.5
-                penalties["partial_source_breadcrumb"] = self.config.partial_breadcrumb_penalty / 2
+                # Reduce penalty for same-project calls
+                penalty_factor = 0.5 if is_same_project else 1.0
+                penalties["partial_source_breadcrumb"] = self.config.partial_breadcrumb_penalty * penalty_factor / 2
         else:
-            penalties["missing_source_breadcrumb"] = self.config.missing_breadcrumb_penalty / 2
+            # Reduce penalty for same-project calls
+            penalty_factor = 0.5 if is_same_project else 1.0
+            penalties["missing_source_breadcrumb"] = self.config.missing_breadcrumb_penalty * penalty_factor / 2
         quality_count += 1
 
-        # Analyze target breadcrumb
+        # Analyze target breadcrumb with improved same-project detection
         if call.target_breadcrumb:
-            if len(call.target_breadcrumb.split(".")) >= 2:
-                quality_score += 1.0
-                bonuses["full_target_breadcrumb"] = self.config.full_breadcrumb_bonus / 2
+            target_parts = call.target_breadcrumb.split(".")
+
+            # Better scoring for same-project breadcrumbs
+            if is_same_project:
+                if len(target_parts) >= 2:
+                    quality_score += 1.0
+                    bonuses["full_target_breadcrumb"] = self.config.full_breadcrumb_bonus / 2
+                    # Additional bonus for likely same-project calls
+                    bonuses["same_project_call"] = 0.05
+                else:
+                    quality_score += 0.7  # More generous for same-project
+                    # Reduced penalty
+                    penalties["partial_target_breadcrumb"] = self.config.partial_breadcrumb_penalty * 0.3 / 2
             else:
-                quality_score += 0.5
-                penalties["partial_target_breadcrumb"] = self.config.partial_breadcrumb_penalty / 2
+                if len(target_parts) >= 2:
+                    quality_score += 1.0
+                    bonuses["full_target_breadcrumb"] = self.config.full_breadcrumb_bonus / 2
+                else:
+                    quality_score += 0.5
+                    penalties["partial_target_breadcrumb"] = self.config.partial_breadcrumb_penalty / 2
         else:
-            penalties["missing_target_breadcrumb"] = self.config.missing_breadcrumb_penalty / 2
+            # Reduce penalty for same-project calls
+            penalty_factor = 0.3 if is_same_project else 1.0
+            penalties["missing_target_breadcrumb"] = self.config.missing_breadcrumb_penalty * penalty_factor / 2
         quality_count += 1
 
         return quality_score / quality_count if quality_count > 0 else 0.0
+
+    def _is_likely_same_project_call(self, call: FunctionCall) -> bool:
+        """
+        Determine if a function call is likely within the same project.
+
+        Args:
+            call: Function call to analyze
+
+        Returns:
+            True if likely same-project call
+        """
+        if not call.target_breadcrumb:
+            return True  # Assume same-project if no specific target
+
+        target = call.target_breadcrumb.lower()
+
+        # Patterns that indicate same-project calls
+        same_project_patterns = [
+            "self.",
+            "current_class.",
+            "current_module.",
+            "src.",
+            ".service",
+            ".model",
+            ".util",
+            ".tool",
+            ".cache",
+            "_service",
+            "_resolver",
+            "_extractor",
+            "_analyzer",
+            "_builder",
+        ]
+
+        # Patterns that indicate external calls
+        external_patterns = [
+            "time.",
+            "os.",
+            "sys.",
+            "json.",
+            "logging.",
+            "asyncio.",
+            "pathlib.",
+            "datetime.",
+            "collections.",
+            "functools.",
+            "itertools.",
+            "typing.",
+            "dataclasses.",
+            "abc.",
+            "copy.",
+            "re.",
+            "math.",
+            "random.",
+            "unknown_module.",
+            "unknown.",
+        ]
+
+        # Check for external patterns first
+        for pattern in external_patterns:
+            if pattern in target:
+                return False
+
+        # Check for same-project patterns
+        for pattern in same_project_patterns:
+            if pattern in target:
+                return True
+
+        # If target breadcrumb doesn't have dots, likely same-project
+        if "." not in target:
+            return True
+
+        # Default to same-project for ambiguous cases
+        return True
 
     def _analyze_expression_quality(self, call: FunctionCall, bonuses: dict[str, float], penalties: dict[str, float]) -> float:
         """

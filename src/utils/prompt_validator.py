@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from src.models.prompt_context import TaskType, UserRole
 

@@ -5,7 +5,7 @@ This module manages the registration of all MCP tools.
 
 import logging
 import os  # Add this import for environment variables
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from mcp.server.fastmcp import FastMCP
 

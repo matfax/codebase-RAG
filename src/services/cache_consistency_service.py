@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ..config.cache_config import CacheConfig, get_global_cache_config
 from ..models.cache_models import CacheEntry, CacheMetadata

@@ -15,7 +15,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.tools.core.error_utils import handle_tool_error, log_tool_usage
 from src.tools.core.errors import CacheError

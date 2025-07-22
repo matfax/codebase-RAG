@@ -8,7 +8,7 @@ circuit breaker functionality, advanced error handling, and self-healing capabil
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import redis.asyncio as redis
 from redis.asyncio.connection import ConnectionPool

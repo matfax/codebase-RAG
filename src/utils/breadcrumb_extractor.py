@@ -9,7 +9,7 @@ build breadcrumb paths showing the full context of code chunks.
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 try:
     from tree_sitter import Node

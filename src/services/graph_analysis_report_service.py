@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import ChunkType
 from src.services.embedding_service import EmbeddingService

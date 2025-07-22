@@ -7,6 +7,7 @@ extraction, and semantic analysis.
 """
 
 import logging
+from typing import Union
 
 from tree_sitter import Node
 

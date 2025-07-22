@@ -12,7 +12,7 @@ import sys
 import time
 import weakref
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from src.models.breadcrumb_cache_models import (
     BreadcrumbCacheConfig,

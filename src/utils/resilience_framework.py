@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, TypeVar
+from typing import Any, Dict, List, Optional, Set, TypeVar, Union
 
 from .cache_retry_service import CacheRetryService
 from .cache_retry_service import RetryConfig as CacheRetryConfig

@@ -10,7 +10,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..models.code_chunk import ChunkType, CodeChunk
 from ..models.function_call import CallDetectionResult, FunctionCall
@@ -559,7 +559,7 @@ class StructureRelationshipBuilder:
                                                 "call_type": function_call.call_type.value,
                                                 "call_expression": function_call.call_expression,
                                                 "line_number": function_call.line_number,
-                                                "argument_count": function_call.argument_count,
+                                                "argument_count": function_call.arguments_count,
                                                 "file_path": function_call.file_path,
                                                 "is_async": function_call.call_type.value in ["async_call", "await_call"],
                                             },

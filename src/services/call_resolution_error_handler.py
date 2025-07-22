@@ -10,7 +10,7 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.function_call import FunctionCall
 from src.services.breadcrumb_resolver_service import BreadcrumbCandidate, BreadcrumbResolutionResult

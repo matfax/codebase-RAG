@@ -8,7 +8,7 @@ including metadata, capabilities, and configuration information for each languag
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 from src.models.code_chunk import ChunkType
 

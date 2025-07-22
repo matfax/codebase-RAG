@@ -5,7 +5,8 @@ of specific breadcrumbs in the codebase using Graph RAG capabilities.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Union
 
 from src.services.embedding_service import EmbeddingService
 from src.services.graph_analysis_report_service import (
@@ -35,7 +36,7 @@ async def graph_analyze_structure(
     generate_report: bool = False,
     include_recommendations: bool = True,
     enable_performance_optimization: bool = True,
-    progress_callback: callable | None = None,
+    progress_callback: Callable | None = None,
 ) -> dict[str, Any]:
     """
     Analyze the structural relationships of a specific breadcrumb in the codebase.

@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import PointStruct

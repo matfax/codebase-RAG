@@ -6,7 +6,7 @@ This module provides retry logic for database and network operations.
 import logging
 import time
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, Union
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any
+from typing import Any, Union
 
 import psutil
 from git import GitCommandError, Repo

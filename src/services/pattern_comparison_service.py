@@ -14,7 +14,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from .implementation_chain_service import ChainType, ImplementationChain, ImplementationChainService
 from .pattern_recognition_service import PatternMatch, PatternRecognitionService, PatternType
@@ -634,7 +634,7 @@ class PatternComparisonService:
             # Structural evidence similarity
             evidence1 = set(pattern1.structural_evidence.keys())
             evidence2 = set(pattern2.structural_evidence.keys())
-            evidence_overlap = len(evidence1 & evidence2) / len(evidence1 | evidence2) if (evidence1 | evidence2) else 0.0
+            evidence_overlap = len(evidence1 & evidence2) / len(Union[evidence1, evidence2]) if (Union[evidence1, evidence2]) else 0.0
             similarity_factors.append(evidence_overlap)
 
             # Breadcrumb scope similarity
@@ -696,13 +696,15 @@ class PatternComparisonService:
             # Naming evidence similarity
             naming1 = set(pattern1.naming_evidence)
             naming2 = set(pattern2.naming_evidence)
-            naming_overlap = len(naming1 & naming2) / len(naming1 | naming2) if (naming1 | naming2) else 0.0
+            naming_overlap = len(naming1 & naming2) / len(Union[naming1, naming2]) if (Union[naming1, naming2]) else 0.0
             similarity_factors.append(naming_overlap)
 
             # Behavioral evidence similarity
             behavioral1 = set(pattern1.behavioral_evidence)
             behavioral2 = set(pattern2.behavioral_evidence)
-            behavioral_overlap = len(behavioral1 & behavioral2) / len(behavioral1 | behavioral2) if (behavioral1 | behavioral2) else 0.0
+            behavioral_overlap = (
+                len(behavioral1 & behavioral2) / len(Union[behavioral1, behavioral2]) if (Union[behavioral1, behavioral2]) else 0.0
+            )
             similarity_factors.append(behavioral_overlap)
 
             # File path similarity (same type of files)
@@ -712,7 +714,7 @@ class PatternComparisonService:
             # Compare file extensions
             ext1 = {f.split(".")[-1] for f in files1 if "." in f}
             ext2 = {f.split(".")[-1] for f in files2 if "." in f}
-            ext_overlap = len(ext1 & ext2) / len(ext1 | ext2) if (ext1 | ext2) else 0.0
+            ext_overlap = len(ext1 & ext2) / len(Union[ext1, ext2]) if (Union[ext1, ext2]) else 0.0
             similarity_factors.append(ext_overlap)
 
             return sum(similarity_factors) / len(similarity_factors) if similarity_factors else 0.0

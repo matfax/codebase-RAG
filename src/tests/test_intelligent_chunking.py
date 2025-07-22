@@ -1,4 +1,5 @@
 """
+from typing import Union
 Integration tests for intelligent code chunking functionality.
 
 These tests verify the end-to-end intelligent chunking workflow including:
@@ -143,7 +144,7 @@ class UserManager {
         this.users.push(user);
     }
 
-    getUser(id: number): User | undefined {
+    getUser(id: number): Union[User, undefined] {
         return this.users.find(u => u.id === id);
     }
 }

@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (

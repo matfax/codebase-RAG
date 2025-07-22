@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Union
 
 from ..config.cache_config import CacheConfig, get_global_cache_config
 from ..services.cache_service import get_cache_service

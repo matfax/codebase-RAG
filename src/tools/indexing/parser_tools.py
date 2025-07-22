@@ -7,7 +7,7 @@ used in intelligent code chunking.
 import logging
 import traceback
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 from mcp.server.fastmcp import FastMCP
 

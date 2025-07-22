@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 try:
     from src.services.embedding_service import EmbeddingService

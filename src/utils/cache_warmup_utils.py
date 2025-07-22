@@ -9,7 +9,7 @@ integration with the existing cache services.
 import asyncio
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..services.cache_warmup_service import WarmupItem, WarmupStrategy
 from .memory_utils import (
@@ -68,7 +68,7 @@ def estimate_item_memory_usage(cache_name: str, item_key: str, item_data: Any, c
         if isinstance(item_data, str):
             # String data - estimate UTF-8 encoding
             return len(item_data.encode("utf-8")) / (1024 * 1024)  # Convert to MB
-        elif isinstance(item_data, list | tuple):
+        elif isinstance(item_data, Union[list, tuple]):
             # List/tuple - estimate based on length
             return len(item_data) * 0.001  # Rough estimate: 1KB per item
         elif isinstance(item_data, dict):
@@ -102,7 +102,7 @@ def create_warmup_item(
     warmup_cost = 0.1  # Base cost
     if isinstance(item_data, str) and len(item_data) > 10000:
         warmup_cost += 0.5  # Large string
-    elif isinstance(item_data, list | tuple) and len(item_data) > 1000:
+    elif isinstance(item_data, Union[list, tuple]) and len(item_data) > 1000:
         warmup_cost += 0.3  # Large collection
     elif isinstance(item_data, dict) and len(item_data) > 100:
         warmup_cost += 0.2  # Large dictionary

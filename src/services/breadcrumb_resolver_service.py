@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.breadcrumb_cache_models import BreadcrumbCacheConfig
 from src.models.code_chunk import CodeChunk
@@ -920,7 +920,7 @@ class BreadcrumbResolver:
                 cache_key = self._create_call_cache_key(function_call, target_projects)
 
                 # Extract file dependencies and confidence
-                file_dependencies = [function_call.source_file_path] if function_call.source_file_path else []
+                file_dependencies = [function_call.file_path] if function_call.file_path else []
                 confidence_score = 0.0
                 if result.success and result.primary_candidate:
                     confidence_score = result.primary_candidate.confidence_score

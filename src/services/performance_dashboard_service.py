@@ -12,7 +12,7 @@ import statistics
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.services.performance_monitoring_service import (
     ComponentMetrics,

@@ -8,7 +8,7 @@ cross-file resolution, attribute chain resolution, and error handling.
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import CodeChunk
 from src.models.function_call import CallDetectionResult, FunctionCall

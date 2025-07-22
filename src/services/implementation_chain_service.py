@@ -14,7 +14,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import ChunkType, CodeChunk
 
@@ -1046,7 +1046,7 @@ class ImplementationChainService:
                     components2 = chain_components[j]
 
                     overlap = len(components1 & components2)
-                    union = len(components1 | components2)
+                    union = len(Union[components1, components2])
 
                     if union > 0:
                         overlap_score = overlap / union
@@ -1077,7 +1077,7 @@ class ImplementationChainService:
             # Factor 2: Component type similarity
             types1 = set(chain1.components_by_type.keys())
             types2 = set(chain2.components_by_type.keys())
-            type_overlap = len(types1 & types2) / len(types1 | types2) if (types1 | types2) else 0.0
+            type_overlap = len(types1 & types2) / len(Union[types1, types2]) if (Union[types1, types2]) else 0.0
             similarity_factors.append(type_overlap)
 
             # Factor 3: Quality similarity

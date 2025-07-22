@@ -1,4 +1,5 @@
 """
+from typing import Union
 MCP Prompts System - Core Implementation
 
 This module implements the MCP Prompts system for the Codebase RAG MCP Server,
@@ -75,7 +76,7 @@ class MCPPromptsSystem:
         @self.mcp_app.prompt()
         def explore_project(
             directory: str = ".",
-            focus_area: str | None = None,
+            focus_area: Union[str, None] = None,
             detail_level: str = "overview",
         ) -> list[base.Message]:
             """
@@ -437,7 +438,7 @@ class MCPPromptsSystem:
                     )
                 ]
 
-    def _build_exploration_prompt(self, directory: str, stats: dict, focus_area: str | None, detail_level: str) -> str:
+    def _build_exploration_prompt(self, directory: str, stats: dict, focus_area: Union[str, None], detail_level: str) -> str:
         """Build the project exploration prompt text."""
         base_prompt = (
             f"I need to explore and understand the codebase at '{directory}'. "
@@ -677,7 +678,7 @@ Help me find '{goal}' more effectively by improving my search approach."""
         self,
         directory: str,
         exploration_result,
-        focus_area: str | None,
+        focus_area: Union[str, None],
         detail_level: str,
         formatted_summary: str,
     ) -> str:
@@ -711,7 +712,7 @@ Please search the codebase systematically using the identified entry points and 
     def _create_fallback_exploration_prompt(
         self,
         directory: str,
-        focus_area: str | None,
+        focus_area: Union[str, None],
         detail_level: str,
         error_msg: str,
     ) -> list[base.Message]:

@@ -7,7 +7,7 @@ types of function calls, with support for frequency factors and confidence scori
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 from src.models.function_call import CallType, FunctionCall
 

@@ -6,7 +6,7 @@ on individual cache services and all cache services collectively.
 """
 
 import logging
-from typing import Any
+from typing import Any, Union
 
 from src.tools.core.cache_health_checks import (
     check_all_caches_health,

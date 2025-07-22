@@ -6,7 +6,7 @@ within projects.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from mcp.server.fastmcp import FastMCP
 

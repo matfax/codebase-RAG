@@ -454,7 +454,7 @@ class SearchCacheService:
             # Create cache entry data
             entry_data = {
                 "compressed_data": compressed_data.hex(),
-                "search_params": asdict(search_params),
+                "search_params": search_params.to_cache_dict(),  # Use method that properly converts enums
                 "total_results": total_results,
                 "result_types": result_types,
                 "score_range": score_range,

@@ -11,7 +11,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from src.models.code_chunk import CodeChunk
 from src.models.function_call import CallDetectionResult, FunctionCall

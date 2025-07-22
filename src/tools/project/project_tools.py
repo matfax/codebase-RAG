@@ -6,7 +6,7 @@ and project-level operations.
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Union
 
 from mcp.server.fastmcp import FastMCP
 
