@@ -9,9 +9,10 @@ import asyncio
 import logging
 import time
 import weakref
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Optional, Union
 
 from ..models.code_chunk import ChunkType, CodeChunk
@@ -19,6 +20,55 @@ from .cache_service import BaseCacheService
 from .graph_rag_service import GraphRAGService
 from .hybrid_search_service import HybridSearchService
 from .structure_relationship_builder import GraphEdge, GraphNode, StructureGraph
+
+
+class GraphExpansionStrategy(Enum):
+    """Strategies for expanding partial graphs."""
+
+    BREADTH_FIRST = "breadth_first"
+    DEPTH_FIRST = "depth_first"
+    IMPORTANCE_BASED = "importance_based"
+    RELEVANCE_SCORED = "relevance_scored"
+    ADAPTIVE = "adaptive"
+
+
+class QueryComplexity(Enum):
+    """Query complexity levels for adaptive processing."""
+
+    SIMPLE = "simple"
+    MODERATE = "moderate"
+    COMPLEX = "complex"
+    VERY_COMPLEX = "very_complex"
+
+
+@dataclass
+class GraphBuildOptions:
+    """Options for partial graph construction."""
+
+    max_nodes: int = 50
+    expansion_strategy: GraphExpansionStrategy = GraphExpansionStrategy.ADAPTIVE
+    include_context: bool = True
+    context_depth: int = 2
+    importance_threshold: float = 0.3
+    relevance_threshold: float = 0.5
+    max_expansion_rounds: int = 5
+    prefer_connected_components: bool = True
+
+
+@dataclass
+class NodeRelevanceScore:
+    """Relevance score for a node in context of a query."""
+
+    node_id: str
+    semantic_relevance: float = 0.0
+    structural_relevance: float = 0.0
+    importance_bonus: float = 0.0
+    total_score: float = 0.0
+
+    def calculate_total(self) -> float:
+        """Calculate total relevance score."""
+        self.total_score = self.semantic_relevance * 0.5 + self.structural_relevance * 0.3 + self.importance_bonus * 0.2
+        return self.total_score
 
 
 @dataclass
@@ -328,44 +378,57 @@ class LightweightGraphService:
         return age < timedelta(minutes=max_age_minutes)
 
     async def build_partial_graph(
-        self, project_name: str, query_scope: str, max_nodes: int = 50, include_context: bool = True
+        self, project_name: str, query_scope: str, options: GraphBuildOptions | None = None
     ) -> StructureGraph | None:
         """
-        Build partial graph for specific query scope (Task 1.2).
+        Build partial graph for specific query scope with enhanced algorithms (Task 1.2).
 
         Args:
             project_name: Project to query
-            query_scope: Specific scope (e.g., function name, class name)
-            max_nodes: Maximum nodes to include
-            include_context: Whether to include related context nodes
+            query_scope: Specific scope (e.g., function name, class name, natural language query)
+            options: Graph building options
 
         Returns:
             StructureGraph: Partial graph or None if failed
         """
+        if options is None:
+            options = GraphBuildOptions()
 
         try:
             start_time = time.time()
-            self.logger.info(f"Building partial graph for scope: {query_scope}")
+            self.logger.info(f"Building partial graph for scope: {query_scope} with strategy: {options.expansion_strategy.value}")
 
-            # Find target nodes matching the query scope
-            target_nodes = await self._find_target_nodes(query_scope)
-            if not target_nodes:
+            # Analyze query complexity for adaptive processing
+            query_complexity = await self._analyze_query_complexity(query_scope)
+
+            # Adjust options based on query complexity
+            options = await self._adapt_options_to_complexity(options, query_complexity)
+
+            # Find and score target nodes matching the query scope
+            scored_targets = await self._find_and_score_target_nodes(query_scope, options)
+            if not scored_targets:
                 self.logger.warning(f"No nodes found for scope: {query_scope}")
                 return None
 
-            # Start with target nodes
-            selected_nodes = set(target_nodes[: max_nodes // 2])  # Reserve half for target nodes
+            # Initialize selected nodes with highest scoring targets
+            budget_for_targets = min(options.max_nodes // 2, len(scored_targets))
+            selected_nodes = {score.node_id for score in scored_targets[:budget_for_targets]}
+            remaining_budget = options.max_nodes - len(selected_nodes)
 
-            # Add context if enabled
-            if include_context:
-                context_nodes = await self._get_context_nodes(selected_nodes, max_nodes - len(selected_nodes))
-                selected_nodes.update(context_nodes)
+            # Expand graph using selected strategy
+            if remaining_budget > 0 and options.include_context:
+                expanded_nodes = await self._expand_graph_with_strategy(selected_nodes, remaining_budget, query_scope, options)
+                selected_nodes.update(expanded_nodes)
 
-            # Build the partial graph structure
-            graph = await self._build_graph_structure(selected_nodes, project_name)
+            # Ensure graph connectivity if preferred
+            if options.prefer_connected_components:
+                selected_nodes = await self._ensure_connectivity(selected_nodes, options)
+
+            # Build the final graph structure
+            graph = await self._build_enhanced_graph_structure(selected_nodes, project_name, query_scope)
 
             elapsed_time = time.time() - start_time
-            self.logger.info(f"Partial graph built: {len(selected_nodes)} nodes in {elapsed_time:.2f}s")
+            self.logger.info(f"Enhanced partial graph built: {len(selected_nodes)} nodes in {elapsed_time:.2f}s")
 
             return graph
 
@@ -478,6 +541,482 @@ class LightweightGraphService:
                         )
 
         return StructureGraph(nodes=nodes, edges=edges, project_name=project_name)
+
+    async def _analyze_query_complexity(self, query_scope: str) -> QueryComplexity:
+        """Analyze query complexity for adaptive processing."""
+
+        # Simple heuristics for query complexity
+        query_length = len(query_scope.split())
+        has_wildcards = "*" in query_scope or "?" in query_scope
+        has_logical_ops = any(op in query_scope.lower() for op in ["and", "or", "not", "&", "|"])
+        has_path_notation = "." in query_scope or "/" in query_scope
+
+        complexity_score = 0
+        complexity_score += min(query_length * 0.1, 1.0)  # Length contribution
+        complexity_score += 0.3 if has_wildcards else 0
+        complexity_score += 0.4 if has_logical_ops else 0
+        complexity_score += 0.2 if has_path_notation else 0
+
+        if complexity_score < 0.3:
+            return QueryComplexity.SIMPLE
+        elif complexity_score < 0.6:
+            return QueryComplexity.MODERATE
+        elif complexity_score < 0.9:
+            return QueryComplexity.COMPLEX
+        else:
+            return QueryComplexity.VERY_COMPLEX
+
+    async def _adapt_options_to_complexity(self, options: GraphBuildOptions, complexity: QueryComplexity) -> GraphBuildOptions:
+        """Adapt graph building options based on query complexity."""
+
+        adapted = GraphBuildOptions(
+            max_nodes=options.max_nodes,
+            expansion_strategy=options.expansion_strategy,
+            include_context=options.include_context,
+            context_depth=options.context_depth,
+            importance_threshold=options.importance_threshold,
+            relevance_threshold=options.relevance_threshold,
+            max_expansion_rounds=options.max_expansion_rounds,
+            prefer_connected_components=options.prefer_connected_components,
+        )
+
+        # Adjust based on complexity
+        complexity_adjustments = {
+            QueryComplexity.SIMPLE: {"max_nodes": min(adapted.max_nodes, 30), "context_depth": 1, "max_expansion_rounds": 3},
+            QueryComplexity.MODERATE: {
+                "max_nodes": adapted.max_nodes,
+                "context_depth": adapted.context_depth,
+                "max_expansion_rounds": adapted.max_expansion_rounds,
+            },
+            QueryComplexity.COMPLEX: {
+                "max_nodes": min(adapted.max_nodes * 1.5, 100),
+                "context_depth": adapted.context_depth + 1,
+                "max_expansion_rounds": adapted.max_expansion_rounds + 2,
+            },
+            QueryComplexity.VERY_COMPLEX: {
+                "max_nodes": min(adapted.max_nodes * 2, 150),
+                "context_depth": adapted.context_depth + 2,
+                "max_expansion_rounds": adapted.max_expansion_rounds + 3,
+            },
+        }
+
+        adjustments = complexity_adjustments[complexity]
+        adapted.max_nodes = int(adjustments["max_nodes"])
+        adapted.context_depth = adjustments["context_depth"]
+        adapted.max_expansion_rounds = adjustments["max_expansion_rounds"]
+
+        return adapted
+
+    async def _find_and_score_target_nodes(self, query_scope: str, options: GraphBuildOptions) -> list[NodeRelevanceScore]:
+        """Find and score target nodes with relevance scoring."""
+
+        target_scores = []
+
+        # Exact name matches (highest priority)
+        exact_matches = self.memory_index.by_name.get(query_scope, set())
+        for node_id in exact_matches:
+            score = NodeRelevanceScore(node_id=node_id)
+            score.semantic_relevance = 1.0
+            score.structural_relevance = 0.8
+            metadata = self.memory_index.nodes.get(node_id)
+            if metadata:
+                score.importance_bonus = metadata.importance_score / 3.0
+            score.calculate_total()
+            target_scores.append(score)
+
+        # Breadcrumb exact matches
+        if query_scope in self.memory_index.by_breadcrumb:
+            node_id = self.memory_index.by_breadcrumb[query_scope]
+            if node_id not in [s.node_id for s in target_scores]:
+                score = NodeRelevanceScore(node_id=node_id)
+                score.semantic_relevance = 1.0
+                score.structural_relevance = 1.0
+                metadata = self.memory_index.nodes.get(node_id)
+                if metadata:
+                    score.importance_bonus = metadata.importance_score / 3.0
+                score.calculate_total()
+                target_scores.append(score)
+
+        # Partial name matches
+        query_lower = query_scope.lower()
+        for name, node_ids in self.memory_index.by_name.items():
+            if query_lower in name.lower() and query_lower != name.lower():
+                for node_id in node_ids:
+                    if node_id not in [s.node_id for s in target_scores]:
+                        score = NodeRelevanceScore(node_id=node_id)
+                        # Calculate semantic similarity based on string overlap
+                        overlap_ratio = len(query_lower) / len(name.lower())
+                        score.semantic_relevance = min(overlap_ratio * 0.8, 0.8)
+                        score.structural_relevance = 0.6
+                        metadata = self.memory_index.nodes.get(node_id)
+                        if metadata:
+                            score.importance_bonus = metadata.importance_score / 3.0
+                        score.calculate_total()
+                        target_scores.append(score)
+
+        # Breadcrumb partial matches
+        for breadcrumb, node_id in self.memory_index.by_breadcrumb.items():
+            if query_lower in breadcrumb.lower() and node_id not in [s.node_id for s in target_scores]:
+                score = NodeRelevanceScore(node_id=node_id)
+                overlap_ratio = len(query_lower) / len(breadcrumb.lower())
+                score.semantic_relevance = min(overlap_ratio * 0.7, 0.7)
+                score.structural_relevance = 0.8
+                metadata = self.memory_index.nodes.get(node_id)
+                if metadata:
+                    score.importance_bonus = metadata.importance_score / 3.0
+                score.calculate_total()
+                target_scores.append(score)
+
+        # Filter by relevance threshold and sort by total score
+        filtered_scores = [s for s in target_scores if s.total_score >= options.relevance_threshold]
+        return sorted(filtered_scores, key=lambda x: x.total_score, reverse=True)
+
+    async def _expand_graph_with_strategy(
+        self, selected_nodes: set[str], budget: int, query_scope: str, options: GraphBuildOptions
+    ) -> set[str]:
+        """Expand graph using the specified strategy."""
+
+        if options.expansion_strategy == GraphExpansionStrategy.BREADTH_FIRST:
+            return await self._expand_breadth_first(selected_nodes, budget, options)
+        elif options.expansion_strategy == GraphExpansionStrategy.DEPTH_FIRST:
+            return await self._expand_depth_first(selected_nodes, budget, options)
+        elif options.expansion_strategy == GraphExpansionStrategy.IMPORTANCE_BASED:
+            return await self._expand_importance_based(selected_nodes, budget, options)
+        elif options.expansion_strategy == GraphExpansionStrategy.RELEVANCE_SCORED:
+            return await self._expand_relevance_scored(selected_nodes, budget, query_scope, options)
+        else:  # ADAPTIVE
+            return await self._expand_adaptive(selected_nodes, budget, query_scope, options)
+
+    async def _expand_breadth_first(self, selected_nodes: set[str], budget: int, options: GraphBuildOptions) -> set[str]:
+        """Expand graph using breadth-first strategy."""
+
+        expanded = set()
+        queue = deque(selected_nodes)
+        visited = set(selected_nodes)
+        current_depth = 0
+
+        while queue and len(expanded) < budget and current_depth < options.context_depth:
+            level_size = len(queue)
+
+            for _ in range(level_size):
+                if not queue or len(expanded) >= budget:
+                    break
+
+                current_node = queue.popleft()
+                neighbors = await self._get_node_neighbors(current_node)
+
+                for neighbor in neighbors:
+                    if neighbor not in visited and len(expanded) < budget:
+                        metadata = self.memory_index.nodes.get(neighbor)
+                        if metadata and metadata.importance_score >= options.importance_threshold:
+                            expanded.add(neighbor)
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+
+            current_depth += 1
+
+        return expanded
+
+    async def _expand_depth_first(self, selected_nodes: set[str], budget: int, options: GraphBuildOptions) -> set[str]:
+        """Expand graph using depth-first strategy."""
+
+        expanded = set()
+
+        for start_node in selected_nodes:
+            if len(expanded) >= budget:
+                break
+            await self._dfs_expand(start_node, expanded, {start_node}, budget, 0, options)
+
+        return expanded
+
+    async def _dfs_expand(
+        self, node_id: str, expanded: set[str], visited: set[str], budget: int, depth: int, options: GraphBuildOptions
+    ) -> None:
+        """Recursive DFS expansion helper."""
+
+        if len(expanded) >= budget or depth >= options.context_depth:
+            return
+
+        neighbors = await self._get_node_neighbors(node_id)
+
+        for neighbor in neighbors:
+            if neighbor not in visited and len(expanded) < budget:
+                metadata = self.memory_index.nodes.get(neighbor)
+                if metadata and metadata.importance_score >= options.importance_threshold:
+                    expanded.add(neighbor)
+                    visited.add(neighbor)
+                    await self._dfs_expand(neighbor, expanded, visited, budget, depth + 1, options)
+
+    async def _expand_importance_based(self, selected_nodes: set[str], budget: int, options: GraphBuildOptions) -> set[str]:
+        """Expand graph based on node importance scores."""
+
+        candidates = set()
+
+        # Collect all neighboring nodes
+        for node_id in selected_nodes:
+            neighbors = await self._get_node_neighbors(node_id)
+            candidates.update(neighbors)
+
+        # Remove already selected nodes
+        candidates -= selected_nodes
+
+        # Score candidates by importance and select top ones
+        scored_candidates = []
+        for candidate in candidates:
+            metadata = self.memory_index.nodes.get(candidate)
+            if metadata and metadata.importance_score >= options.importance_threshold:
+                scored_candidates.append((candidate, metadata.importance_score))
+
+        # Sort by importance and take top budget candidates
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        return {candidate for candidate, _ in scored_candidates[:budget]}
+
+    async def _expand_relevance_scored(
+        self, selected_nodes: set[str], budget: int, query_scope: str, options: GraphBuildOptions
+    ) -> set[str]:
+        """Expand graph based on relevance to query scope."""
+
+        candidates = set()
+
+        # Collect neighboring nodes
+        for node_id in selected_nodes:
+            neighbors = await self._get_node_neighbors(node_id)
+            candidates.update(neighbors)
+
+        candidates -= selected_nodes
+
+        # Score candidates by relevance to query
+        scored_candidates = []
+        query_lower = query_scope.lower()
+
+        for candidate in candidates:
+            metadata = self.memory_index.nodes.get(candidate)
+            if not metadata or metadata.importance_score < options.importance_threshold:
+                continue
+
+            relevance_score = 0.0
+
+            # Name similarity
+            if query_lower in metadata.name.lower():
+                relevance_score += 0.4
+
+            # Breadcrumb similarity
+            if metadata.breadcrumb and query_lower in metadata.breadcrumb.lower():
+                relevance_score += 0.3
+
+            # Importance bonus
+            relevance_score += metadata.importance_score * 0.3
+
+            if relevance_score >= options.relevance_threshold:
+                scored_candidates.append((candidate, relevance_score))
+
+        # Sort by relevance and take top candidates
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        return {candidate for candidate, _ in scored_candidates[:budget]}
+
+    async def _expand_adaptive(self, selected_nodes: set[str], budget: int, query_scope: str, options: GraphBuildOptions) -> set[str]:
+        """Adaptive expansion combining multiple strategies."""
+
+        # Use 50% budget for importance-based expansion
+        importance_budget = budget // 2
+        importance_nodes = await self._expand_importance_based(selected_nodes, importance_budget, options)
+
+        # Use remaining budget for relevance-scored expansion
+        remaining_budget = budget - len(importance_nodes)
+        if remaining_budget > 0:
+            relevance_nodes = await self._expand_relevance_scored(selected_nodes | importance_nodes, remaining_budget, query_scope, options)
+            return importance_nodes | relevance_nodes
+
+        return importance_nodes
+
+    async def _get_node_neighbors(self, node_id: str) -> set[str]:
+        """Get all neighboring nodes for expansion."""
+
+        neighbors = set()
+        metadata = self.memory_index.nodes.get(node_id)
+
+        if metadata:
+            neighbors.update(metadata.children_ids)
+            neighbors.update(metadata.parent_ids)
+            neighbors.update(metadata.dependency_ids)
+
+        return neighbors
+
+    async def _ensure_connectivity(self, selected_nodes: set[str], options: GraphBuildOptions) -> set[str]:
+        """Ensure graph connectivity by adding bridging nodes if needed."""
+
+        # Find connected components
+        components = await self._find_connected_components(selected_nodes)
+
+        if len(components) <= 1:
+            return selected_nodes  # Already connected
+
+        # Find minimal bridges to connect components
+        bridging_nodes = await self._find_bridging_nodes(components, options)
+
+        return selected_nodes | bridging_nodes
+
+    async def _find_connected_components(self, nodes: set[str]) -> list[set[str]]:
+        """Find connected components in the selected nodes."""
+
+        components = []
+        unvisited = set(nodes)
+
+        while unvisited:
+            # Start new component with arbitrary unvisited node
+            start_node = next(iter(unvisited))
+            component = set()
+            queue = deque([start_node])
+
+            while queue:
+                current = queue.popleft()
+                if current in unvisited:
+                    unvisited.remove(current)
+                    component.add(current)
+
+                    # Add connected neighbors
+                    neighbors = await self._get_node_neighbors(current)
+                    for neighbor in neighbors:
+                        if neighbor in nodes and neighbor in unvisited:
+                            queue.append(neighbor)
+
+            if component:
+                components.append(component)
+
+        return components
+
+    async def _find_bridging_nodes(self, components: list[set[str]], options: GraphBuildOptions) -> set[str]:
+        """Find minimal nodes to bridge disconnected components."""
+
+        bridging_nodes = set()
+
+        if len(components) < 2:
+            return bridging_nodes
+
+        # Try to connect each component to the largest one
+        largest_component = max(components, key=len)
+        other_components = [c for c in components if c != largest_component]
+
+        for component in other_components:
+            # Find best bridge between this component and largest component
+            best_bridge = await self._find_best_bridge(component, largest_component, options)
+            if best_bridge:
+                bridging_nodes.update(best_bridge)
+
+        return bridging_nodes
+
+    async def _find_best_bridge(self, component1: set[str], component2: set[str], options: GraphBuildOptions) -> set[str]:
+        """Find best bridging path between two components."""
+
+        # Find shortest path between any nodes in the two components
+        min_path_length = float("inf")
+        best_path = []
+
+        for node1 in list(component1)[:5]:  # Limit search for performance
+            for node2 in list(component2)[:5]:
+                path = await self._bfs_path_search(node1, node2, options.context_depth + 2)
+                if path and len(path) < min_path_length:
+                    min_path_length = len(path)
+                    best_path = path
+
+        # Return intermediate nodes (excluding endpoints which are already in components)
+        if len(best_path) > 2:
+            return set(best_path[1:-1])  # Exclude first and last
+
+        return set()
+
+    async def _build_enhanced_graph_structure(self, node_ids: set[str], project_name: str, query_scope: str) -> StructureGraph:
+        """Build enhanced graph structure with query context."""
+
+        nodes = {}
+        edges = []
+
+        # Create nodes with enhanced metadata
+        for node_id in node_ids:
+            metadata = self.memory_index.nodes.get(node_id)
+            if metadata:
+                # Calculate query relevance for this node
+                query_relevance = self._calculate_query_relevance(metadata, query_scope)
+
+                node = GraphNode(
+                    chunk_id=node_id,
+                    breadcrumb=metadata.breadcrumb or metadata.name,
+                    name=metadata.name,
+                    chunk_type=metadata.chunk_type,
+                    file_path=metadata.file_path,
+                    depth=0,
+                    semantic_weight=metadata.importance_score,
+                )
+
+                # Add query relevance as additional metadata
+                node.query_relevance = query_relevance
+                nodes[metadata.breadcrumb or node_id] = node
+
+        # Create edges with enhanced relationship types
+        edge_types_added = set()
+
+        for node_id in node_ids:
+            metadata = self.memory_index.nodes.get(node_id)
+            if not metadata:
+                continue
+
+            # Parent-child edges
+            for child_id in metadata.children_ids:
+                if child_id in node_ids:
+                    child_metadata = self.memory_index.nodes.get(child_id)
+                    if child_metadata:
+                        edge_key = (metadata.breadcrumb or metadata.name, child_metadata.breadcrumb or child_metadata.name, "parent_child")
+                        if edge_key not in edge_types_added:
+                            edges.append(
+                                GraphEdge(
+                                    source_breadcrumb=metadata.breadcrumb or metadata.name,
+                                    target_breadcrumb=child_metadata.breadcrumb or child_metadata.name,
+                                    relationship_type="parent_child",
+                                )
+                            )
+                            edge_types_added.add(edge_key)
+
+            # Dependency edges
+            for dep_id in metadata.dependency_ids:
+                if dep_id in node_ids:
+                    dep_metadata = self.memory_index.nodes.get(dep_id)
+                    if dep_metadata:
+                        edge_key = (metadata.breadcrumb or metadata.name, dep_metadata.breadcrumb or dep_metadata.name, "dependency")
+                        if edge_key not in edge_types_added:
+                            edges.append(
+                                GraphEdge(
+                                    source_breadcrumb=metadata.breadcrumb or metadata.name,
+                                    target_breadcrumb=dep_metadata.breadcrumb or dep_metadata.name,
+                                    relationship_type="dependency",
+                                )
+                            )
+                            edge_types_added.add(edge_key)
+
+        graph = StructureGraph(nodes=nodes, edges=edges, project_name=project_name)
+        graph.query_scope = query_scope  # Add query context to graph
+        return graph
+
+    def _calculate_query_relevance(self, metadata: NodeMetadata, query_scope: str) -> float:
+        """Calculate how relevant a node is to the query scope."""
+
+        relevance = 0.0
+        query_lower = query_scope.lower()
+
+        # Exact name match
+        if metadata.name.lower() == query_lower:
+            relevance += 1.0
+        elif query_lower in metadata.name.lower():
+            relevance += 0.6
+
+        # Breadcrumb match
+        if metadata.breadcrumb:
+            if query_lower in metadata.breadcrumb.lower():
+                relevance += 0.4
+
+        # Importance bonus
+        relevance += metadata.importance_score * 0.2
+
+        return min(relevance, 1.0)
 
     async def get_precomputed_query(self, project_name: str, query_type: str) -> list[str]:
         """Get pre-computed query results (Task 1.3)."""
