@@ -837,6 +837,39 @@ class HybridSearchService:
 
         return {"must": conditions} if len(conditions) > 1 else conditions[0]
 
+    async def get_all_chunks(self, project_name: str) -> list[CodeChunk]:
+        """
+        Get all chunks for a project (needed for LightweightGraphService initialization).
+
+        Args:
+            project_name: Name of the project to get chunks for
+
+        Returns:
+            List of all CodeChunk objects for the project
+        """
+        try:
+            collection_name = f"project_{project_name}_code"
+
+            # Get all points from the collection (using a large limit)
+            search_results = await self.qdrant_service.scroll(
+                collection_name=collection_name,
+                limit=10000,  # Large limit to get all chunks
+                with_payload=True,
+                with_vectors=False,  # Don't need vectors for metadata extraction
+            )
+
+            chunks = []
+            for result in search_results:
+                chunk = self._create_code_chunk_from_payload(result.payload)
+                chunks.append(chunk)
+
+            self.logger.info(f"Retrieved {len(chunks)} chunks for project {project_name}")
+            return chunks
+
+        except Exception as e:
+            self.logger.error(f"Error getting all chunks for project {project_name}: {e}")
+            return []
+
     def _create_code_chunk_from_payload(self, payload: dict) -> CodeChunk:
         """Create a CodeChunk object from Qdrant payload."""
         try:

@@ -7,6 +7,7 @@ for fast querying, supporting the full project processing by removing MCP limita
 
 import asyncio
 import logging
+import re
 import time
 import weakref
 from collections import defaultdict, deque
@@ -95,6 +96,36 @@ class NodeMetadata:
 
 
 @dataclass
+class QueryCacheEntry:
+    """Cache entry for query results with metadata."""
+
+    result: Any
+    timestamp: datetime
+    access_count: int = 0
+    ttl_seconds: int = 1800
+    hit_score: float = 0.0  # For cache replacement algorithms
+
+    def is_expired(self) -> bool:
+        """Check if cache entry is expired."""
+        return datetime.now() - self.timestamp > timedelta(seconds=self.ttl_seconds)
+
+    def update_access(self) -> None:
+        """Update access statistics."""
+        self.access_count += 1
+        self.hit_score = self.access_count / max(1, (datetime.now() - self.timestamp).total_seconds() / 3600)
+
+
+@dataclass
+class QueryPattern:
+    """Recognized pattern for common queries."""
+
+    pattern_type: str  # "entry_point", "api_search", "class_lookup", etc.
+    regex_pattern: str
+    weight: float = 1.0
+    cache_ttl: int = 3600  # Patterns can be cached longer
+
+
+@dataclass
 class MemoryIndex:
     """Memory-based index for fast node lookups."""
 
@@ -158,8 +189,31 @@ class LightweightGraphService:
         # Memory index
         self.memory_index = MemoryIndex()
 
-        # Pre-computed query cache
-        self.precomputed_queries = {"entry_points": {}, "main_functions": {}, "public_apis": {}, "common_patterns": {}}
+        # Enhanced pre-computed query cache with TTL and invalidation
+        self.precomputed_queries = {
+            "entry_points": {},  # main, __main__, index, app functions
+            "main_functions": {},  # Top functions by importance
+            "public_apis": {},  # Exported/public functions
+            "common_patterns": {},  # Common code patterns
+            "api_endpoints": {},  # Web API endpoints
+            "data_models": {},  # Classes representing data structures
+            "utility_functions": {},  # Helper/utility functions
+            "test_functions": {},  # Test functions
+            "configuration_points": {},  # Config-related functions
+            "error_handlers": {},  # Error handling functions
+        }
+
+        # Query cache with TTL and metadata
+        self.query_cache = {}  # cache_key -> {result, timestamp, access_count, ttl}
+        self.query_cache_stats = {"hits": 0, "misses": 0, "evictions": 0, "total_queries": 0}
+
+        # Query pattern recognition cache
+        self.query_patterns = {}  # pattern -> cached_results
+
+        # Cache configuration
+        self.cache_ttl_seconds = 1800  # 30 minutes default TTL
+        self.max_cache_size = 1000
+        self.cache_warmup_enabled = True
 
         # Multi-layer cache configuration
         self.l1_cache = {}  # In-memory fast cache
@@ -286,49 +340,322 @@ class LightweightGraphService:
                             self.memory_index.nodes[node_id].dependency_ids.add(dep_id)
 
     async def _precompute_common_queries(self, project_name: str) -> None:
-        """Pre-compute common queries for fast retrieval."""
+        """Enhanced pre-compute common queries for fast retrieval with comprehensive categorization."""
 
         try:
-            # Entry points: main functions, __main__, etc.
-            entry_points = []
-            for node_id, metadata in self.memory_index.nodes.items():
-                if (
-                    metadata.name in ["main", "__main__", "index", "app"]
-                    or metadata.chunk_type == ChunkType.FUNCTION
-                    and "main" in metadata.name.lower()
-                ):
-                    entry_points.append(node_id)
+            start_time = time.time()
+            self.logger.info(f"Pre-computing enhanced queries for project: {project_name}")
 
+            # Initialize query pattern recognition
+            await self._initialize_query_patterns()
+
+            # Entry points: main functions, __main__, etc.
+            entry_points = await self._find_entry_points()
             self.precomputed_queries["entry_points"][project_name] = entry_points
 
             # Main functions: functions with high importance scores
-            main_functions = sorted(
-                [
-                    (node_id, metadata)
-                    for node_id, metadata in self.memory_index.nodes.items()
-                    if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD]
-                ],
-                key=lambda x: x[1].importance_score,
-                reverse=True,
-            )[:20]  # Top 20 functions
-
-            self.precomputed_queries["main_functions"][project_name] = [nid for nid, _ in main_functions]
+            main_functions = await self._find_main_functions()
+            self.precomputed_queries["main_functions"][project_name] = main_functions
 
             # Public APIs: exported functions, public methods
-            public_apis = []
-            for node_id, metadata in self.memory_index.nodes.items():
-                if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD] and not metadata.name.startswith("_"):  # Not private
-                    public_apis.append(node_id)
-
+            public_apis = await self._find_public_apis()
             self.precomputed_queries["public_apis"][project_name] = public_apis
 
+            # API endpoints: HTTP endpoints, routes
+            api_endpoints = await self._find_api_endpoints()
+            self.precomputed_queries["api_endpoints"][project_name] = api_endpoints
+
+            # Data models: Classes representing data structures
+            data_models = await self._find_data_models()
+            self.precomputed_queries["data_models"][project_name] = data_models
+
+            # Utility functions: Helper/utility functions
+            utility_functions = await self._find_utility_functions()
+            self.precomputed_queries["utility_functions"][project_name] = utility_functions
+
+            # Test functions: Test-related functions
+            test_functions = await self._find_test_functions()
+            self.precomputed_queries["test_functions"][project_name] = test_functions
+
+            # Configuration points: Config-related functions
+            config_points = await self._find_configuration_points()
+            self.precomputed_queries["configuration_points"][project_name] = config_points
+
+            # Error handlers: Error handling functions
+            error_handlers = await self._find_error_handlers()
+            self.precomputed_queries["error_handlers"][project_name] = error_handlers
+
+            # Common patterns: Identify architectural patterns
+            common_patterns = await self._find_common_patterns()
+            self.precomputed_queries["common_patterns"][project_name] = common_patterns
+
+            # Cache the results with TTL
+            await self._cache_precomputed_results(project_name)
+
+            elapsed_time = time.time() - start_time
             self.logger.info(
-                f"Pre-computed queries: {len(entry_points)} entry points, "
-                f"{len(main_functions)} main functions, {len(public_apis)} public APIs"
+                f"Enhanced pre-computed queries completed in {elapsed_time:.2f}s: "
+                f"{len(entry_points)} entry points, {len(main_functions)} main functions, "
+                f"{len(public_apis)} public APIs, {len(api_endpoints)} API endpoints, "
+                f"{len(data_models)} data models, {len(utility_functions)} utilities, "
+                f"{len(test_functions)} tests, {len(config_points)} config points, "
+                f"{len(error_handlers)} error handlers, {len(common_patterns)} patterns"
             )
 
         except Exception as e:
-            self.logger.error(f"Failed to pre-compute common queries: {e}")
+            self.logger.error(f"Failed to pre-compute enhanced queries: {e}")
+
+    async def _initialize_query_patterns(self) -> None:
+        """Initialize query pattern recognition patterns."""
+
+        patterns = [
+            QueryPattern("entry_point", r"\b(main|__main__|index|app|start|run|init)\b", 1.0, 3600),
+            QueryPattern("api_endpoint", r"\b(route|endpoint|api|handler|view)\b", 0.9, 3600),
+            QueryPattern("data_model", r"\b(model|schema|entity|dto|data)\b", 0.8, 3600),
+            QueryPattern("utility", r"\b(util|helper|tool|common|shared)\b", 0.7, 3600),
+            QueryPattern("test", r"\b(test|spec|check|validate|mock)\b", 0.6, 3600),
+            QueryPattern("config", r"\b(config|setting|option|parameter|env)\b", 0.7, 3600),
+            QueryPattern("error", r"\b(error|exception|handle|catch|fail)\b", 0.8, 3600),
+            QueryPattern("class_lookup", r"^[A-Z][a-zA-Z0-9]*$", 0.9, 3600),  # PascalCase
+            QueryPattern("function_lookup", r"^[a-z][a-zA-Z0-9_]*$", 0.8, 3600),  # camelCase/snake_case
+        ]
+
+        for pattern in patterns:
+            self.query_patterns[pattern.pattern_type] = pattern
+
+    async def _find_entry_points(self) -> list[str]:
+        """Find entry point functions."""
+
+        entry_points = []
+        entry_names = {"main", "__main__", "index", "app", "start", "run", "init", "begin", "execute"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            # Direct name matches
+            if metadata.name.lower() in entry_names:
+                entry_points.append(node_id)
+                continue
+
+            # Functions with 'main' in name
+            if metadata.chunk_type == ChunkType.FUNCTION and "main" in metadata.name.lower():
+                entry_points.append(node_id)
+                continue
+
+            # Files named main, index, app
+            if metadata.file_path:
+                file_name = metadata.file_path.split("/")[-1].split(".")[0].lower()
+                if file_name in entry_names and metadata.chunk_type == ChunkType.FUNCTION:
+                    entry_points.append(node_id)
+
+        return entry_points
+
+    async def _find_main_functions(self) -> list[str]:
+        """Find main functions by importance score."""
+
+        functions = [
+            (node_id, metadata)
+            for node_id, metadata in self.memory_index.nodes.items()
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]
+        ]
+
+        # Sort by importance score and select top functions
+        sorted_functions = sorted(functions, key=lambda x: x[1].importance_score, reverse=True)
+        return [node_id for node_id, _ in sorted_functions[:25]]  # Top 25
+
+    async def _find_public_apis(self) -> list[str]:
+        """Find public API functions."""
+
+        public_apis = []
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]:
+                # Not private (doesn't start with _)
+                if not metadata.name.startswith("_"):
+                    # Additional checks for API indicators
+                    is_api = (
+                        metadata.importance_score > 0.5
+                        or any(keyword in metadata.name.lower() for keyword in ["api", "endpoint", "handler", "route", "service"])
+                        or (metadata.signature and "public" in metadata.signature.lower())
+                    )
+
+                    if is_api:
+                        public_apis.append(node_id)
+
+        return public_apis
+
+    async def _find_api_endpoints(self) -> list[str]:
+        """Find API endpoint functions."""
+
+        api_endpoints = []
+        api_keywords = {"route", "endpoint", "api", "handler", "view", "controller", "resource"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]:
+                # Check name for API keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in api_keywords):
+                    api_endpoints.append(node_id)
+                    continue
+
+                # Check file path for API-related directories
+                if metadata.file_path:
+                    path_lower = metadata.file_path.lower()
+                    if any(keyword in path_lower for keyword in ["api", "route", "handler", "controller", "endpoint"]):
+                        api_endpoints.append(node_id)
+                        continue
+
+                # Check breadcrumb for API patterns
+                if metadata.breadcrumb:
+                    breadcrumb_lower = metadata.breadcrumb.lower()
+                    if any(keyword in breadcrumb_lower for keyword in api_keywords):
+                        api_endpoints.append(node_id)
+
+        return api_endpoints
+
+    async def _find_data_models(self) -> list[str]:
+        """Find data model classes."""
+
+        data_models = []
+        model_keywords = {"model", "schema", "entity", "dto", "data", "struct", "record"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.CLASS, ChunkType.INTERFACE]:
+                # Check name for model keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in model_keywords):
+                    data_models.append(node_id)
+                    continue
+
+                # Check for PascalCase naming (common for data models)
+                if re.match(r"^[A-Z][a-zA-Z0-9]*$", metadata.name):
+                    # Additional heuristic: importance score suggests it's significant
+                    if metadata.importance_score > 0.6:
+                        data_models.append(node_id)
+
+        return data_models
+
+    async def _find_utility_functions(self) -> list[str]:
+        """Find utility/helper functions."""
+
+        utilities = []
+        util_keywords = {"util", "helper", "tool", "common", "shared", "support"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]:
+                # Check name for utility keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in util_keywords):
+                    utilities.append(node_id)
+                    continue
+
+                # Check file path for utility directories
+                if metadata.file_path:
+                    path_lower = metadata.file_path.lower()
+                    if any(keyword in path_lower for keyword in ["util", "helper", "tool", "common", "shared", "lib"]):
+                        utilities.append(node_id)
+
+        return utilities
+
+    async def _find_test_functions(self) -> list[str]:
+        """Find test functions."""
+
+        test_functions = []
+        test_keywords = {"test", "spec", "check", "validate", "mock", "assert", "should"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]:
+                # Check name for test keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in test_keywords):
+                    test_functions.append(node_id)
+                    continue
+
+                # Check file path for test directories
+                if metadata.file_path:
+                    path_lower = metadata.file_path.lower()
+                    if any(keyword in path_lower for keyword in ["test", "spec", "__test__", "tests"]):
+                        test_functions.append(node_id)
+
+        return test_functions
+
+    async def _find_configuration_points(self) -> list[str]:
+        """Find configuration-related functions."""
+
+        config_points = []
+        config_keywords = {"config", "setting", "option", "parameter", "env", "setup", "init"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.CLASS]:
+                # Check name for config keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in config_keywords):
+                    config_points.append(node_id)
+                    continue
+
+                # Check file path for config files
+                if metadata.file_path:
+                    path_lower = metadata.file_path.lower()
+                    if any(keyword in path_lower for keyword in ["config", "setting", "env", "setup"]):
+                        config_points.append(node_id)
+
+        return config_points
+
+    async def _find_error_handlers(self) -> list[str]:
+        """Find error handling functions."""
+
+        error_handlers = []
+        error_keywords = {"error", "exception", "handle", "catch", "fail", "rescue", "recover"}
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.FUNCTION, ChunkType.METHOD, ChunkType.ASYNC_FUNCTION]:
+                # Check name for error keywords
+                name_lower = metadata.name.lower()
+                if any(keyword in name_lower for keyword in error_keywords):
+                    error_handlers.append(node_id)
+                    continue
+
+                # Check signature for exception handling
+                if metadata.signature:
+                    sig_lower = metadata.signature.lower()
+                    if any(keyword in sig_lower for keyword in ["exception", "error", "catch", "raise"]):
+                        error_handlers.append(node_id)
+
+        return error_handlers
+
+    async def _find_common_patterns(self) -> dict[str, list[str]]:
+        """Find common architectural patterns."""
+
+        patterns = {"singleton": [], "factory": [], "builder": [], "observer": [], "decorator": [], "adapter": [], "strategy": []}
+
+        pattern_keywords = {
+            "singleton": ["singleton"],
+            "factory": ["factory", "create", "make", "build"],
+            "builder": ["builder", "construct"],
+            "observer": ["observer", "listener", "subscriber", "notify"],
+            "decorator": ["decorator", "decorate", "wrap"],
+            "adapter": ["adapter", "adapt", "convert"],
+            "strategy": ["strategy", "algorithm", "policy"],
+        }
+
+        for node_id, metadata in self.memory_index.nodes.items():
+            if metadata.chunk_type in [ChunkType.CLASS, ChunkType.FUNCTION, ChunkType.METHOD]:
+                name_lower = metadata.name.lower()
+
+                for pattern_type, keywords in pattern_keywords.items():
+                    if any(keyword in name_lower for keyword in keywords):
+                        patterns[pattern_type].append(node_id)
+
+        return patterns
+
+    async def _cache_precomputed_results(self, project_name: str) -> None:
+        """Cache pre-computed results with TTL."""
+
+        timestamp = datetime.now()
+
+        for query_type, results in self.precomputed_queries.items():
+            if project_name in results:
+                cache_key = f"precomputed_{query_type}_{project_name}"
+                cache_entry = QueryCacheEntry(result=results[project_name], timestamp=timestamp, ttl_seconds=self.cache_ttl_seconds)
+                self.query_cache[cache_key] = cache_entry
 
     def _calculate_importance_score(self, chunk: CodeChunk) -> float:
         """Calculate importance score for a code chunk."""
@@ -1019,11 +1346,248 @@ class LightweightGraphService:
         return min(relevance, 1.0)
 
     async def get_precomputed_query(self, project_name: str, query_type: str) -> list[str]:
-        """Get pre-computed query results (Task 1.3)."""
+        """Enhanced get pre-computed query results with caching and pattern recognition (Task 1.3)."""
 
-        if query_type in self.precomputed_queries:
-            return self.precomputed_queries[query_type].get(project_name, [])
-        return []
+        try:
+            self.query_cache_stats["total_queries"] += 1
+
+            # Check cache first
+            cache_key = f"precomputed_{query_type}_{project_name}"
+            if cache_key in self.query_cache:
+                cache_entry = self.query_cache[cache_key]
+                if not cache_entry.is_expired():
+                    cache_entry.update_access()
+                    self.query_cache_stats["hits"] += 1
+                    return cache_entry.result
+                else:
+                    # Remove expired entry
+                    del self.query_cache[cache_key]
+                    self.query_cache_stats["evictions"] += 1
+
+            self.query_cache_stats["misses"] += 1
+
+            # Check if query needs recomputation
+            if query_type in self.precomputed_queries and project_name in self.precomputed_queries[query_type]:
+                result = self.precomputed_queries[query_type][project_name]
+
+                # Cache the result
+                cache_entry = QueryCacheEntry(result=result, timestamp=datetime.now(), ttl_seconds=self.cache_ttl_seconds)
+                self.query_cache[cache_key] = cache_entry
+
+                return result
+
+            # Fallback: trigger recomputation if not found
+            await self._precompute_common_queries(project_name)
+            return self.precomputed_queries.get(query_type, {}).get(project_name, [])
+
+        except Exception as e:
+            self.logger.error(f"Failed to get precomputed query {query_type}: {e}")
+            return []
+
+    async def query_with_pattern_recognition(self, project_name: str, query: str) -> dict[str, Any]:
+        """
+        Enhanced query with pattern recognition for common query types.
+
+        Args:
+            project_name: Project to query
+            query: Natural language query
+
+        Returns:
+            Dict containing results and pattern information
+        """
+
+        try:
+            self.query_cache_stats["total_queries"] += 1
+
+            # Check pattern cache first
+            pattern_cache_key = f"pattern_{hash(query)}_{project_name}"
+            if pattern_cache_key in self.query_cache:
+                cache_entry = self.query_cache[pattern_cache_key]
+                if not cache_entry.is_expired():
+                    cache_entry.update_access()
+                    self.query_cache_stats["hits"] += 1
+                    return cache_entry.result
+
+            self.query_cache_stats["misses"] += 1
+
+            # Recognize query patterns
+            recognized_patterns = await self._recognize_query_patterns(query)
+
+            results = {"query": query, "patterns": recognized_patterns, "results": {}, "confidence": 0.0}
+
+            # Process each recognized pattern
+            for pattern_info in recognized_patterns:
+                pattern_type = pattern_info["type"]
+                confidence = pattern_info["confidence"]
+
+                if pattern_type in self.precomputed_queries:
+                    pattern_results = await self.get_precomputed_query(project_name, pattern_type)
+                    results["results"][pattern_type] = {"nodes": pattern_results, "confidence": confidence, "count": len(pattern_results)}
+
+            # Calculate overall confidence
+            if recognized_patterns:
+                results["confidence"] = sum(p["confidence"] for p in recognized_patterns) / len(recognized_patterns)
+
+            # Cache the pattern recognition result
+            cache_entry = QueryCacheEntry(result=results, timestamp=datetime.now(), ttl_seconds=self.cache_ttl_seconds)
+            self.query_cache[pattern_cache_key] = cache_entry
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Pattern recognition query failed: {e}")
+            return {"query": query, "patterns": [], "results": {}, "confidence": 0.0}
+
+    async def _recognize_query_patterns(self, query: str) -> list[dict[str, Any]]:
+        """Recognize patterns in natural language queries."""
+
+        recognized = []
+        query_lower = query.lower()
+
+        for pattern_type, pattern in self.query_patterns.items():
+            # Check regex match
+            if re.search(pattern.regex_pattern, query_lower, re.IGNORECASE):
+                confidence = pattern.weight
+
+                # Boost confidence for exact matches
+                if pattern_type == "entry_point" and any(word in query_lower for word in ["main", "entry", "start"]):
+                    confidence = min(confidence + 0.2, 1.0)
+
+                recognized.append({"type": pattern_type, "confidence": confidence, "pattern": pattern.regex_pattern})
+
+        # Sort by confidence
+        return sorted(recognized, key=lambda x: x["confidence"], reverse=True)
+
+    async def get_query_suggestions(self, project_name: str, partial_query: str) -> list[dict[str, Any]]:
+        """Get query suggestions based on pre-computed results."""
+
+        suggestions = []
+        partial_lower = partial_query.lower()
+
+        # Search through pre-computed query types
+        for query_type, projects in self.precomputed_queries.items():
+            if project_name in projects and projects[project_name]:
+                # Calculate relevance to partial query
+                type_relevance = 0.0
+
+                # Check if query type matches partial query
+                if any(word in query_type for word in partial_lower.split()):
+                    type_relevance += 0.8
+
+                # Check pattern matches
+                if query_type in self.query_patterns:
+                    pattern = self.query_patterns[query_type]
+                    if re.search(pattern.regex_pattern, partial_lower, re.IGNORECASE):
+                        type_relevance += pattern.weight * 0.5
+
+                if type_relevance > 0.3:
+                    suggestions.append(
+                        {
+                            "query_type": query_type,
+                            "relevance": type_relevance,
+                            "count": len(projects[project_name]),
+                            "suggestion": f"Find {query_type.replace('_', ' ')} in {project_name}",
+                        }
+                    )
+
+        # Sort by relevance
+        return sorted(suggestions, key=lambda x: x["relevance"], reverse=True)[:10]
+
+    async def warm_query_cache(self, project_name: str) -> dict[str, Any]:
+        """Warm up the query cache with common queries."""
+
+        if not self.cache_warmup_enabled:
+            return {"status": "disabled", "warmed": 0}
+
+        try:
+            start_time = time.time()
+            warmed_count = 0
+
+            # Pre-compute all query types
+            await self._precompute_common_queries(project_name)
+
+            # Warm up pattern-based queries
+            common_queries = [
+                "main function",
+                "entry point",
+                "api endpoints",
+                "data models",
+                "utility functions",
+                "test functions",
+                "error handlers",
+            ]
+
+            for query in common_queries:
+                await self.query_with_pattern_recognition(project_name, query)
+                warmed_count += 1
+
+            elapsed_time = time.time() - start_time
+
+            return {"status": "completed", "warmed": warmed_count, "time_seconds": elapsed_time, "cache_size": len(self.query_cache)}
+
+        except Exception as e:
+            self.logger.error(f"Cache warming failed: {e}")
+            return {"status": "failed", "error": str(e), "warmed": 0}
+
+    async def get_cache_statistics(self) -> dict[str, Any]:
+        """Get comprehensive cache statistics."""
+
+        # Calculate cache metrics
+        total_entries = len(self.query_cache)
+        expired_entries = sum(1 for entry in self.query_cache.values() if entry.is_expired())
+
+        # Hit rate calculation
+        total_requests = self.query_cache_stats["hits"] + self.query_cache_stats["misses"]
+        hit_rate = self.query_cache_stats["hits"] / max(1, total_requests)
+
+        return {
+            "cache_stats": self.query_cache_stats,
+            "hit_rate": hit_rate,
+            "total_entries": total_entries,
+            "expired_entries": expired_entries,
+            "cache_utilization": min(total_entries / self.max_cache_size, 1.0),
+            "precomputed_types": list(self.precomputed_queries.keys()),
+            "pattern_types": list(self.query_patterns.keys()),
+            "memory_index_stats": self.get_memory_index_stats(),
+        }
+
+    async def clear_expired_cache_entries(self) -> int:
+        """Clear expired cache entries and return count cleared."""
+
+        cleared_count = 0
+        expired_keys = []
+
+        for key, entry in self.query_cache.items():
+            if entry.is_expired():
+                expired_keys.append(key)
+
+        for key in expired_keys:
+            del self.query_cache[key]
+            cleared_count += 1
+
+        self.query_cache_stats["evictions"] += cleared_count
+        return cleared_count
+
+    async def invalidate_cache_for_project(self, project_name: str) -> int:
+        """Invalidate all cache entries for a specific project."""
+
+        invalidated_count = 0
+        keys_to_remove = []
+
+        for key in self.query_cache.keys():
+            if project_name in key:
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del self.query_cache[key]
+            invalidated_count += 1
+
+        # Also clear precomputed queries for the project
+        for query_type in self.precomputed_queries:
+            if project_name in self.precomputed_queries[query_type]:
+                del self.precomputed_queries[query_type][project_name]
+
+        return invalidated_count
 
     async def find_intelligent_path(self, start_node: str, end_node: str, max_depth: int = 10) -> list[str] | None:
         """
