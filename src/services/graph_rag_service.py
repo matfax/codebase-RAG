@@ -141,20 +141,8 @@ class GraphRAGService:
                 self.logger.warning(f"No chunks found for project: {project_name}")
                 return StructureGraph(nodes={}, edges=[], project_name=project_name)
 
-            # AGGRESSIVE performance protection - severely limit chunks for MCP tools
-            max_chunks_for_mcp = 5  # Extremely aggressive limit for MCP tools - prioritize speed over completeness
-            if len(chunks) > max_chunks_for_mcp:
-                self.logger.warning(
-                    f"Large project detected ({len(chunks)} chunks), aggressively limiting to {max_chunks_for_mcp} for MCP tool performance"
-                )
-                # Only use function chunks - skip everything else for speed
-                function_chunks = [c for c in chunks if c.chunk_type.value == "function"][:max_chunks_for_mcp]
-                if len(function_chunks) < max_chunks_for_mcp:
-                    # Add some method chunks if we don't have enough functions
-                    method_chunks = [c for c in chunks if c.chunk_type.value == "method"][: (max_chunks_for_mcp - len(function_chunks))]
-                    function_chunks.extend(method_chunks)
-                chunks = function_chunks
-                self.logger.info(f"MCP performance mode: processing only {len(chunks)} most relevant chunks (functions/methods only)")
+            # Log project size for monitoring - now supporting full project processing
+            self.logger.info(f"Processing {len(chunks)} chunks for project: {project_name}")
 
             # Build the graph structure
             graph = await self.relationship_builder.build_relationship_graph(chunks, project_name)

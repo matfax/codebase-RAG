@@ -267,6 +267,10 @@ class LightweightGraphService:
                 # Pre-compute common queries
                 await self._precompute_common_queries(project_name)
 
+                # Warmup L3 cache with common route patterns
+                if self.cache_warmup_enabled:
+                    await self._warmup_l3_cache(project_name)
+
                 self.memory_index.total_nodes = len(self.memory_index.nodes)
                 self.memory_index.last_updated = datetime.now()
 
@@ -705,7 +709,7 @@ class LightweightGraphService:
         return age < timedelta(minutes=max_age_minutes)
 
     async def build_partial_graph(
-        self, project_name: str, query_scope: str, options: GraphBuildOptions | None = None
+        self, project_name: str, query_scope: str, options: GraphBuildOptions | None = None, timeout_seconds: int | None = None
     ) -> StructureGraph | None:
         """
         Build partial graph for specific query scope with enhanced algorithms (Task 1.2).
@@ -720,6 +724,28 @@ class LightweightGraphService:
         """
         if options is None:
             options = GraphBuildOptions()
+
+        # Determine effective timeout
+        effective_timeout = timeout_seconds if timeout_seconds is not None else (self.default_timeout if self.enable_timeout else None)
+
+        # Implement timeout handling with partial results
+        if effective_timeout is not None:
+            try:
+                return await asyncio.wait_for(
+                    self._build_partial_graph_internal(project_name, query_scope, options), timeout=effective_timeout
+                )
+            except asyncio.TimeoutError:
+                self.performance_metrics["timeouts"] += 1
+                self.logger.warning(f"Partial graph building timed out after {effective_timeout}s, returning partial results")
+
+                # Return partial graph based on what we can build quickly
+                return await self._get_partial_graph_on_timeout(project_name, query_scope, options, effective_timeout)
+        else:
+            # No timeout - run normally
+            return await self._build_partial_graph_internal(project_name, query_scope, options)
+
+    async def _build_partial_graph_internal(self, project_name: str, query_scope: str, options: GraphBuildOptions) -> StructureGraph | None:
+        """Internal implementation of partial graph building without timeout handling."""
 
         try:
             start_time = time.time()
@@ -762,6 +788,559 @@ class LightweightGraphService:
         except Exception as e:
             self.logger.error(f"Failed to build partial graph: {e}")
             return None
+
+    async def progressive_find_intelligent_path(
+        self,
+        start_node: str,
+        end_node: str,
+        max_depth: int = 10,
+        path_strategies: list[str] | None = None,
+        use_precomputed_routes: bool = True,
+        timeout_seconds: int | None = None,
+    ):
+        """
+        Progressive path finding that yields results as they become available, ordered by confidence.
+
+        This async generator implementation provides streaming results for better user experience:
+        1. Immediate cache hits (highest confidence)
+        2. Pre-computed routes (high confidence)
+        3. Fast path strategies (medium confidence)
+        4. Complete path results (variable confidence based on quality)
+
+        Yields:
+            dict: Path result with confidence score and metadata
+        """
+
+        if not self.enable_progressive_results:
+            # Fall back to regular method if progressive results are disabled
+            result = await self.find_intelligent_path(
+                start_node, end_node, max_depth, path_strategies, use_precomputed_routes, timeout_seconds
+            )
+            yield result
+            return
+
+        start_time = time.time()
+        self.performance_metrics["total_queries"] += 1
+
+        try:
+            # Determine effective timeout
+            effective_timeout = timeout_seconds if timeout_seconds is not None else (self.default_timeout if self.enable_timeout else None)
+
+            # Phase 1: Immediate cache hits (confidence: 0.95)
+            cache_key = f"intelligent_path_{start_node}_{end_node}_{max_depth}"
+            l1_result = self._check_l1_cache(cache_key)
+            if l1_result:
+                l1_result["confidence"] = 0.95
+                l1_result["source"] = "L1_cache"
+                l1_result["phase"] = "immediate_cache"
+                l1_result["response_time_ms"] = (time.time() - start_time) * 1000
+                self.performance_metrics["cache_hits"] += 1
+                yield l1_result
+                return  # L1 cache is our best result
+
+            # Phase 2: L2 cache check (confidence: 0.90)
+            l2_result = await self._check_l2_path_cache(start_node, end_node, max_depth)
+            if l2_result:
+                l2_result["confidence"] = 0.90
+                l2_result["source"] = "L2_cache"
+                l2_result["phase"] = "path_cache"
+                l2_result["response_time_ms"] = (time.time() - start_time) * 1000
+                self.performance_metrics["cache_hits"] += 1
+                yield l2_result
+                return  # L2 cache is still high confidence
+
+            # Phase 3: Resolve node IDs for further processing
+            start_id = await self._resolve_node_id(start_node)
+            end_id = await self._resolve_node_id(end_node)
+
+            if not start_id or not end_id:
+                yield {
+                    "success": False,
+                    "confidence": 0.0,
+                    "source": "node_resolution",
+                    "phase": "node_resolution",
+                    "error": f"Could not resolve nodes: start='{start_node}' end='{end_node}'",
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                }
+                return
+
+            # Phase 4: L3 pre-computed routes (confidence: 0.85)
+            if use_precomputed_routes:
+                l3_result = await self._check_l3_precomputed_routes(start_id, end_id)
+                if l3_result:
+                    l3_result["confidence"] = 0.85
+                    l3_result["source"] = "L3_precomputed"
+                    l3_result["phase"] = "precomputed_routes"
+                    l3_result["response_time_ms"] = (time.time() - start_time) * 1000
+                    self.performance_metrics["cache_hits"] += 1
+
+                    # Promote to higher cache levels
+                    self._store_l1_cache(cache_key, l3_result)
+                    await self._store_l2_path_cache(start_node, end_node, max_depth, l3_result)
+
+                    yield l3_result
+                    return  # Pre-computed routes are high confidence
+
+            # Phase 5: Progressive path finding with multiple strategies
+            strategies = await self._select_optimal_strategies(start_id, end_id, max_depth)
+            if not strategies:
+                strategies = ["bfs", "dijkstra"]  # Fallback strategies
+
+            # Create timeout context if needed
+            path_results = []
+
+            async def run_strategy_with_timeout(strategy):
+                try:
+                    if effective_timeout:
+                        return await asyncio.wait_for(
+                            self._run_single_path_strategy(strategy, start_id, end_id, max_depth),
+                            timeout=effective_timeout / len(strategies),  # Divide timeout among strategies
+                        )
+                    else:
+                        return await self._run_single_path_strategy(strategy, start_id, end_id, max_depth)
+                except asyncio.TimeoutError:
+                    return None
+
+            # Run strategies progressively, yielding results as they become available
+            for i, strategy in enumerate(strategies):
+                strategy_start = time.time()
+
+                try:
+                    result = await run_strategy_with_timeout(strategy)
+
+                    if result and result.get("path"):
+                        # Calculate confidence based on strategy and result quality
+                        confidence = await self._calculate_progressive_confidence(result, strategy, i, len(strategies), start_time)
+
+                        result.update(
+                            {
+                                "confidence": confidence,
+                                "source": f"path_strategy_{strategy}",
+                                "phase": f"strategy_{i+1}_of_{len(strategies)}",
+                                "strategy": strategy,
+                                "response_time_ms": (time.time() - start_time) * 1000,
+                                "strategy_time_ms": (time.time() - strategy_start) * 1000,
+                            }
+                        )
+
+                        path_results.append(result)
+
+                        # Yield result if it meets confidence threshold
+                        if confidence >= self.confidence_threshold:
+                            # Store in cache for future use
+                            self._store_l1_cache(cache_key, result)
+                            await self._store_l2_path_cache(start_node, end_node, max_depth, result)
+                            await self._store_l3_cache(start_node, end_node, result)
+
+                            yield result
+                            return  # High confidence result found
+                        else:
+                            # Yield as intermediate result
+                            result["intermediate"] = True
+                            yield result
+
+                except Exception as e:
+                    self.logger.debug(f"Strategy {strategy} failed: {e}")
+                    continue
+
+            # Phase 6: Return best result if no high-confidence result was found
+            if path_results:
+                best_result = max(path_results, key=lambda r: r.get("confidence", 0))
+                best_result["final_result"] = True
+                best_result["source"] = f"best_of_{len(path_results)}_strategies"
+                best_result["phase"] = "final_selection"
+
+                # Store best result in cache
+                self._store_l1_cache(cache_key, best_result)
+                await self._store_l2_path_cache(start_node, end_node, max_depth, best_result)
+                await self._store_l3_cache(start_node, end_node, best_result)
+
+                yield best_result
+            else:
+                # No results found
+                yield {
+                    "success": False,
+                    "confidence": 0.0,
+                    "source": "no_path_found",
+                    "phase": "final_failure",
+                    "error": f"No path found between {start_node} and {end_node}",
+                    "strategies_attempted": strategies,
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                }
+
+        except Exception as e:
+            self.logger.error(f"Progressive path finding failed: {e}")
+            yield {
+                "success": False,
+                "confidence": 0.0,
+                "source": "exception",
+                "phase": "error",
+                "error": str(e),
+                "response_time_ms": (time.time() - start_time) * 1000,
+            }
+
+    async def _run_single_path_strategy(self, strategy: str, start_id: str, end_id: str, max_depth: int) -> dict[str, Any] | None:
+        """Run a single path finding strategy and return the result."""
+
+        try:
+            if strategy == "bfs":
+                path = await self._optimized_bfs_path_search(start_id, end_id, max_depth)
+            elif strategy == "dijkstra":
+                path = await self._dijkstra_path_search(start_id, end_id, max_depth)
+            elif strategy == "astar":
+                path = await self._astar_path_search(start_id, end_id, max_depth)
+            elif strategy == "bidirectional":
+                path = await self._bidirectional_path_search(start_id, end_id, max_depth)
+            else:
+                # Fallback to BFS
+                path = await self._optimized_bfs_path_search(start_id, end_id, max_depth)
+
+            if path:
+                quality_score = await self._calculate_path_quality_score(path)
+                return {"success": True, "path": path, "length": len(path), "quality_score": quality_score, "strategy_used": strategy}
+            else:
+                return None
+
+        except Exception as e:
+            self.logger.debug(f"Path strategy {strategy} failed: {e}")
+            return None
+
+    async def _calculate_progressive_confidence(
+        self, result: dict[str, Any], strategy: str, strategy_index: int, total_strategies: int, query_start_time: float
+    ) -> float:
+        """Calculate confidence score for progressive results."""
+
+        base_confidence = 0.0
+
+        # Strategy-based confidence
+        strategy_confidences = {
+            "bfs": 0.7,  # Fast and reliable
+            "dijkstra": 0.8,  # More accurate pathfinding
+            "astar": 0.85,  # Heuristic-guided
+            "bidirectional": 0.75,  # Good for longer paths
+        }
+        base_confidence = strategy_confidences.get(strategy, 0.6)
+
+        # Quality-based confidence boost
+        quality_score = result.get("quality_score", 0.5)
+        quality_boost = min(quality_score * 0.2, 0.2)  # Max 0.2 boost
+
+        # Path length penalty (very long paths are less reliable)
+        path_length = result.get("length", 0)
+        if path_length > 10:
+            length_penalty = min((path_length - 10) * 0.01, 0.15)  # Max 0.15 penalty
+        else:
+            length_penalty = 0
+
+        # Early result bonus (faster strategies get slight boost)
+        if strategy_index == 0:
+            early_bonus = 0.05
+        else:
+            early_bonus = 0
+
+        # Response time factor (very slow results get penalty)
+        response_time = time.time() - query_start_time
+        if response_time > 5:  # More than 5 seconds
+            time_penalty = min((response_time - 5) * 0.02, 0.1)  # Max 0.1 penalty
+        else:
+            time_penalty = 0
+
+        # Calculate final confidence
+        final_confidence = base_confidence + quality_boost - length_penalty + early_bonus - time_penalty
+
+        # Ensure confidence is within valid range
+        return max(0.0, min(1.0, final_confidence))
+
+    async def progressive_build_partial_graph(
+        self, project_name: str, query_scope: str, options: GraphBuildOptions | None = None, timeout_seconds: int | None = None
+    ):
+        """
+        Progressive graph building that yields intermediate results as they become available.
+
+        This async generator provides streaming graph building results:
+        1. Quick node matches (high confidence)
+        2. Basic graph structure (medium confidence)
+        3. Enhanced graph with relationships (variable confidence)
+
+        Yields:
+            StructureGraph: Partial graphs with increasing completeness and confidence
+        """
+
+        if not self.enable_progressive_results:
+            # Fall back to regular method
+            result = await self.build_partial_graph(project_name, query_scope, options, timeout_seconds)
+            if result:
+                result.metadata = result.metadata or {}
+                result.metadata["confidence"] = 0.8  # Standard confidence for non-progressive
+            yield result
+            return
+
+        if options is None:
+            options = GraphBuildOptions()
+
+        start_time = time.time()
+
+        try:
+            # Phase 1: Quick node discovery (confidence: 0.9)
+            target_nodes = await self._find_target_nodes(query_scope)
+
+            if target_nodes:
+                # Create initial graph with just target nodes
+                quick_graph = StructureGraph(nodes={}, edges=[], project_name=project_name)
+
+                for node_id in target_nodes[:5]:  # Limit for quick response
+                    if node_id in self.memory_index.nodes:
+                        metadata = self.memory_index.nodes[node_id]
+                        quick_graph.nodes[node_id] = {
+                            "id": node_id,
+                            "breadcrumb": getattr(metadata, "breadcrumb", "unknown"),
+                            "chunk_type": str(getattr(metadata, "chunk_type", "unknown")),
+                        }
+
+                quick_graph.metadata = {
+                    "confidence": 0.9,
+                    "phase": "quick_discovery",
+                    "nodes_found": len(target_nodes),
+                    "nodes_included": len(quick_graph.nodes),
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                    "partial_result": True,
+                }
+
+                yield quick_graph
+
+            # Phase 2: Build basic graph structure (confidence: 0.8)
+            if target_nodes:
+                selected_nodes = set(target_nodes[:10])  # Limit for progressive response
+
+                # Add immediate neighbors
+                for node_id in target_nodes[:5]:
+                    neighbors = await self._get_node_neighbors(node_id)
+                    selected_nodes.update(list(neighbors)[:3])  # Max 3 neighbors per node
+
+                    if len(selected_nodes) >= 15:  # Progressive limit
+                        break
+
+                # Build basic graph
+                basic_graph = await self._build_enhanced_graph_structure(selected_nodes, project_name, query_scope)
+
+                if basic_graph:
+                    basic_graph.metadata = basic_graph.metadata or {}
+                    basic_graph.metadata.update(
+                        {
+                            "confidence": 0.8,
+                            "phase": "basic_structure",
+                            "total_nodes": len(basic_graph.nodes),
+                            "total_edges": len(basic_graph.edges),
+                            "response_time_ms": (time.time() - start_time) * 1000,
+                            "partial_result": True,
+                        }
+                    )
+
+                    yield basic_graph
+
+            # Phase 3: Enhanced graph (full processing with timeout)
+            effective_timeout = timeout_seconds if timeout_seconds is not None else (self.default_timeout if self.enable_timeout else None)
+
+            if effective_timeout:
+                try:
+                    final_graph = await asyncio.wait_for(
+                        self._build_partial_graph_internal(project_name, query_scope, options), timeout=effective_timeout
+                    )
+                except asyncio.TimeoutError:
+                    # Return timeout partial graph
+                    timeout_graph = await self._get_partial_graph_on_timeout(project_name, query_scope, options, effective_timeout)
+                    if timeout_graph:
+                        timeout_graph.metadata = timeout_graph.metadata or {}
+                        timeout_graph.metadata.update({"confidence": 0.6, "phase": "timeout_partial"})
+                    yield timeout_graph
+                    return
+            else:
+                final_graph = await self._build_partial_graph_internal(project_name, query_scope, options)
+
+            if final_graph:
+                # Calculate final confidence based on completeness
+                node_count = len(final_graph.nodes)
+                edge_count = len(final_graph.edges)
+
+                # Higher confidence for more complete graphs
+                completeness_factor = min(node_count / 20, 1.0)  # Normalize to 20 nodes
+                connectivity_factor = min(edge_count / 30, 1.0)  # Normalize to 30 edges
+
+                final_confidence = 0.7 + (completeness_factor * 0.15) + (connectivity_factor * 0.15)
+
+                final_graph.metadata = final_graph.metadata or {}
+                final_graph.metadata.update(
+                    {
+                        "confidence": final_confidence,
+                        "phase": "complete_graph",
+                        "total_nodes": node_count,
+                        "total_edges": edge_count,
+                        "response_time_ms": (time.time() - start_time) * 1000,
+                        "partial_result": False,
+                    }
+                )
+
+                yield final_graph
+            else:
+                # No final graph could be built
+                empty_graph = StructureGraph(nodes={}, edges=[], project_name=project_name)
+                empty_graph.metadata = {
+                    "confidence": 0.0,
+                    "phase": "failed",
+                    "error": "Could not build final graph",
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                }
+                yield empty_graph
+
+        except Exception as e:
+            self.logger.error(f"Progressive graph building failed: {e}")
+            error_graph = StructureGraph(nodes={}, edges=[], project_name=project_name)
+            error_graph.metadata = {
+                "confidence": 0.0,
+                "phase": "error",
+                "error": str(e),
+                "response_time_ms": (time.time() - start_time) * 1000,
+            }
+            yield error_graph
+
+    async def _get_partial_graph_on_timeout(
+        self, project_name: str, query_scope: str, options: GraphBuildOptions, timeout_seconds: int
+    ) -> StructureGraph | None:
+        """
+        Return a partial graph when graph building times out.
+
+        This method attempts to build a minimal useful graph with basic node matching
+        and immediate connections when the full graph building process times out.
+        """
+        start_time = time.time()
+        self.performance_metrics["partial_results"] += 1
+
+        try:
+            self.logger.info(f"Building emergency partial graph due to timeout: {query_scope}")
+
+            # Quick target node discovery (most basic matching)
+            target_nodes = []
+
+            # Simple name matching in memory index
+            query_lower = query_scope.lower()
+            for node_id, metadata in self.memory_index.nodes.items():
+                if hasattr(metadata, "breadcrumb") and metadata.breadcrumb:
+                    if query_lower in metadata.breadcrumb.lower():
+                        target_nodes.append(node_id)
+                        if len(target_nodes) >= 5:  # Limit for timeout scenario
+                            break
+
+            # If no direct matches, try broader search
+            if not target_nodes:
+                for node_id, metadata in list(self.memory_index.nodes.items())[:20]:  # First 20 nodes
+                    if hasattr(metadata, "chunk_type") and metadata.chunk_type:
+                        if str(metadata.chunk_type).lower() in query_lower:
+                            target_nodes.append(node_id)
+                            if len(target_nodes) >= 3:
+                                break
+
+            if not target_nodes:
+                self.logger.warning(f"No target nodes found for timeout partial graph: {query_scope}")
+                return StructureGraph(
+                    nodes={},
+                    edges=[],
+                    project_name=project_name,
+                    metadata={
+                        "partial_result": True,
+                        "timeout_reason": f"Timeout after {timeout_seconds}s, no matching nodes found",
+                        "query_scope": query_scope,
+                        "response_time_ms": (time.time() - start_time) * 1000,
+                        "suggestions": [
+                            "Try a more specific query",
+                            "Increase timeout duration",
+                            "Check if the target exists in the project",
+                        ],
+                    },
+                )
+
+            # Build minimal graph with just target nodes and immediate connections
+            selected_nodes = set(target_nodes)
+
+            # Add immediate neighbors for context (limited to avoid timeout)
+            for node_id in target_nodes[:3]:  # Only for first few to save time
+                if node_id in self.memory_index.nodes:
+                    metadata = self.memory_index.nodes[node_id]
+                    # Add direct children and parents only
+                    if hasattr(metadata, "children_ids"):
+                        selected_nodes.update(list(metadata.children_ids)[:2])  # Max 2 children
+                    if hasattr(metadata, "parent_ids"):
+                        selected_nodes.update(list(metadata.parent_ids)[:2])  # Max 2 parents
+
+                if len(selected_nodes) >= 10:  # Total node limit for timeout
+                    break
+
+            # Build graph structure quickly with basic information
+            graph = StructureGraph(nodes={}, edges=[], project_name=project_name)
+
+            for node_id in selected_nodes:
+                if node_id in self.memory_index.nodes:
+                    metadata = self.memory_index.nodes[node_id]
+                    graph.nodes[node_id] = {
+                        "id": node_id,
+                        "breadcrumb": getattr(metadata, "breadcrumb", "unknown"),
+                        "chunk_type": str(getattr(metadata, "chunk_type", "unknown")),
+                        "partial_data": True,  # Mark as incomplete
+                    }
+
+            # Add basic edges between connected nodes
+            for node_id in list(selected_nodes)[:5]:  # Limit edge computation
+                if node_id in self.memory_index.nodes:
+                    metadata = self.memory_index.nodes[node_id]
+                    if hasattr(metadata, "children_ids"):
+                        for child_id in metadata.children_ids:
+                            if child_id in selected_nodes:
+                                graph.edges.append(
+                                    {"source": node_id, "target": child_id, "relationship": "parent-child", "partial_data": True}
+                                )
+                                if len(graph.edges) >= 10:  # Edge limit
+                                    break
+
+                    if len(graph.edges) >= 10:
+                        break
+
+            # Add metadata about the partial result
+            graph.metadata = {
+                "partial_result": True,
+                "timeout_reason": f"Timeout after {timeout_seconds}s, returning partial graph with {len(graph.nodes)} nodes",
+                "query_scope": query_scope,
+                "target_nodes_found": len(target_nodes),
+                "total_nodes_included": len(selected_nodes),
+                "response_time_ms": (time.time() - start_time) * 1000,
+                "limitations": [
+                    "Graph contains only immediately connected nodes",
+                    "Edge relationships may be incomplete",
+                    "Some relevant nodes may be missing",
+                ],
+                "suggestions": [
+                    f"Increase timeout (current: {timeout_seconds}s) for complete results",
+                    "Try querying specific node names directly",
+                    "Use build_partial_graph with smaller scope",
+                ],
+            }
+
+            self.logger.info(f"Emergency partial graph built: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+            return graph
+
+        except Exception as e:
+            self.logger.error(f"Failed to build partial graph on timeout: {e}")
+            return StructureGraph(
+                nodes={},
+                edges=[],
+                project_name=project_name,
+                metadata={
+                    "partial_result": True,
+                    "timeout_reason": f"Timeout after {timeout_seconds}s, partial graph generation also failed",
+                    "error": str(e),
+                    "query_scope": query_scope,
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                    "suggestions": ["Try with significantly longer timeout", "Check system resources", "Simplify the query scope"],
+                },
+            )
 
     async def _find_target_nodes(self, query_scope: str) -> list[str]:
         """Find nodes matching the query scope."""
@@ -1589,44 +2168,240 @@ class LightweightGraphService:
 
         return invalidated_count
 
-    async def find_intelligent_path(self, start_node: str, end_node: str, max_depth: int = 10) -> list[str] | None:
+    async def find_intelligent_path(
+        self,
+        start_node: str,
+        end_node: str,
+        max_depth: int = 10,
+        path_strategies: list[str] | None = None,
+        use_precomputed_routes: bool = True,
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
         """
-        Find intelligent path between nodes using cache and index (Task 1.4).
+        Find intelligent path between nodes using cache and index optimization (Task 1.4).
+
+        This enhanced implementation leverages:
+        1. Multi-layer caching (L1: memory, L2: path cache, L3: route cache)
+        2. Memory index for O(1) lookups
+        3. Pre-computed common routes
+        4. Multiple path finding strategies with intelligent selection
+        5. Heuristic-based optimization
 
         Args:
             start_node: Starting node ID or name
             end_node: Target node ID or name
             max_depth: Maximum search depth
+            path_strategies: List of strategies to try ['bfs', 'dijkstra', 'astar', 'bidirectional']
+            use_precomputed_routes: Whether to use pre-computed routes for common patterns
 
         Returns:
-            List[str]: Path as list of node IDs, or None if no path found
+            Dict containing path information, quality metrics, and performance stats
         """
 
-        try:
-            # Check L1 cache first
-            cache_key = f"path_{start_node}_{end_node}"
-            if cache_key in self.l1_cache:
-                self.performance_metrics["cache_hits"] += 1
-                return self.l1_cache[cache_key]
+        # Determine effective timeout
+        effective_timeout = timeout_seconds if timeout_seconds is not None else (self.default_timeout if self.enable_timeout else None)
 
-            # Resolve node names to IDs if needed
+        # Implement timeout handling with partial results
+        if effective_timeout is not None:
+            try:
+                return await asyncio.wait_for(
+                    self._find_intelligent_path_internal(start_node, end_node, max_depth, path_strategies, use_precomputed_routes),
+                    timeout=effective_timeout,
+                )
+            except asyncio.TimeoutError:
+                self.performance_metrics["timeouts"] += 1
+                self.logger.warning(f"Path finding timed out after {effective_timeout}s, returning partial results")
+
+                # Return partial results based on available cache data
+                return await self._get_partial_results_on_timeout(start_node, end_node, max_depth, effective_timeout)
+        else:
+            # No timeout - run normally
+            return await self._find_intelligent_path_internal(start_node, end_node, max_depth, path_strategies, use_precomputed_routes)
+
+    async def _find_intelligent_path_internal(
+        self,
+        start_node: str,
+        end_node: str,
+        max_depth: int = 10,
+        path_strategies: list[str] | None = None,
+        use_precomputed_routes: bool = True,
+    ) -> dict[str, Any]:
+        """Internal implementation of intelligent path finding without timeout handling."""
+
+        start_time = time.time()
+        self.performance_metrics["total_queries"] += 1
+
+        try:
+            # L1 Cache Check (Memory Cache)
+            cache_key = f"intelligent_path_{start_node}_{end_node}_{max_depth}"
+            l1_result = self._check_l1_cache(cache_key)
+            if l1_result:
+                self.performance_metrics["cache_hits"] += 1
+                l1_result["cache_hit"] = "L1"
+                l1_result["response_time_ms"] = (time.time() - start_time) * 1000
+                return l1_result
+
+            # L2 Cache Check (Path Cache with TTL)
+            l2_result = await self._check_l2_path_cache(start_node, end_node, max_depth)
+            if l2_result:
+                self.performance_metrics["cache_hits"] += 1
+                l2_result["cache_hit"] = "L2"
+                l2_result["response_time_ms"] = (time.time() - start_time) * 1000
+                # Promote to L1 cache
+                self._store_l1_cache(cache_key, l2_result)
+                return l2_result
+
+            # Resolve node names to IDs using memory index
             start_id = await self._resolve_node_id(start_node)
             end_id = await self._resolve_node_id(end_node)
 
             if not start_id or not end_id:
-                return None
+                return {
+                    "success": False,
+                    "error": "Node resolution failed",
+                    "start_resolved": start_id is not None,
+                    "end_resolved": end_id is not None,
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                }
 
-            # BFS path finding using memory index
-            path = await self._bfs_path_search(start_id, end_id, max_depth)
+            # L3 Cache Check (Pre-computed routes for common patterns)
+            if use_precomputed_routes:
+                l3_result = await self._check_l3_precomputed_routes(start_id, end_id)
+                if l3_result:
+                    self.performance_metrics["cache_hits"] += 1
+                    l3_result["cache_hit"] = "L3_precomputed"
+                    l3_result["response_time_ms"] = (time.time() - start_time) * 1000
+                    # Promote to L1 and L2 cache
+                    self._store_l1_cache(cache_key, l3_result)
+                    await self._store_l2_path_cache(start_node, end_node, max_depth, l3_result)
+                    return l3_result
 
-            # Cache result
-            self.l1_cache[cache_key] = path
+            # Intelligent strategy selection based on graph characteristics
+            if not path_strategies:
+                path_strategies = await self._select_optimal_strategies(start_id, end_id, max_depth)
 
-            return path
+            # Execute path finding with multiple strategies
+            best_path = await self._execute_intelligent_path_finding(start_id, end_id, max_depth, path_strategies)
+
+            # Store results in all cache layers
+            response_time_ms = (time.time() - start_time) * 1000
+            best_path["response_time_ms"] = response_time_ms
+            best_path["cache_hit"] = None
+
+            # Store in all cache levels
+            self._store_l1_cache(cache_key, best_path)
+            await self._store_l2_path_cache(start_node, end_node, max_depth, best_path)
+            await self._store_l3_cache(start_node, end_node, best_path)
+
+            return best_path
 
         except Exception as e:
             self.logger.error(f"Failed to find intelligent path: {e}")
-            return None
+            return {"success": False, "error": str(e), "response_time_ms": (time.time() - start_time) * 1000}
+
+    async def _get_partial_results_on_timeout(self, start_node: str, end_node: str, max_depth: int, timeout_seconds: int) -> dict[str, Any]:
+        """
+        Return partial results when path finding times out.
+
+        This method tries to provide useful information even when the full computation
+        times out, prioritizing cached data and fast lookups.
+        """
+        start_time = time.time()
+        self.performance_metrics["partial_results"] += 1
+
+        try:
+            # Quick cache checks for any available partial data
+            cache_key = f"intelligent_path_{start_node}_{end_node}_{max_depth}"
+
+            # Check L1 cache for quick results
+            l1_result = self._check_l1_cache(cache_key)
+            if l1_result:
+                l1_result["partial_result"] = True
+                l1_result["timeout_reason"] = f"Timeout after {timeout_seconds}s, returning L1 cached result"
+                l1_result["response_time_ms"] = (time.time() - start_time) * 1000
+                return l1_result
+
+            # Check L2 cache for path-specific results
+            l2_result = await self._check_l2_path_cache(start_node, end_node, max_depth)
+            if l2_result:
+                l2_result["partial_result"] = True
+                l2_result["timeout_reason"] = f"Timeout after {timeout_seconds}s, returning L2 cached result"
+                l2_result["response_time_ms"] = (time.time() - start_time) * 1000
+                return l2_result
+
+            # Try to resolve at least the nodes to provide basic information
+            start_id = await self._resolve_node_id(start_node)
+            end_id = await self._resolve_node_id(end_node)
+
+            # Provide basic node information if available
+            partial_info = {
+                "success": False,
+                "partial_result": True,
+                "timeout_reason": f"Timeout after {timeout_seconds}s, no cached results available",
+                "start_node": start_node,
+                "end_node": end_node,
+                "start_id": start_id,
+                "end_id": end_id,
+                "max_depth": max_depth,
+                "response_time_ms": (time.time() - start_time) * 1000,
+                "suggestions": [],
+            }
+
+            # Add helpful suggestions based on what we know
+            if start_id and start_id in self.memory_index.nodes:
+                start_metadata = self.memory_index.nodes[start_id]
+                partial_info["start_node_info"] = {
+                    "breadcrumb": getattr(start_metadata, "breadcrumb", "unknown"),
+                    "chunk_type": getattr(start_metadata, "chunk_type", "unknown"),
+                    "direct_connections": len(
+                        getattr(start_metadata, "children_ids", set())
+                        | getattr(start_metadata, "parent_ids", set())
+                        | getattr(start_metadata, "dependency_ids", set())
+                    ),
+                }
+                partial_info["suggestions"].append(f"Try querying with a smaller max_depth (current: {max_depth})")
+
+            if end_id and end_id in self.memory_index.nodes:
+                end_metadata = self.memory_index.nodes[end_id]
+                partial_info["end_node_info"] = {
+                    "breadcrumb": getattr(end_metadata, "breadcrumb", "unknown"),
+                    "chunk_type": getattr(end_metadata, "chunk_type", "unknown"),
+                    "direct_connections": len(
+                        getattr(end_metadata, "children_ids", set())
+                        | getattr(end_metadata, "parent_ids", set())
+                        | getattr(end_metadata, "dependency_ids", set())
+                    ),
+                }
+
+            # Add suggestions for optimization
+            if not partial_info["suggestions"]:
+                partial_info["suggestions"] = [
+                    f"Consider increasing timeout (current: {timeout_seconds}s)",
+                    "Try querying for intermediate nodes first",
+                    "Check if both nodes exist in the project",
+                ]
+
+            self.logger.info(f"Returning partial results due to timeout: {start_node} -> {end_node}")
+            return partial_info
+
+        except Exception as e:
+            # Even partial result generation failed - return minimal info
+            self.logger.error(f"Failed to generate partial results: {e}")
+            return {
+                "success": False,
+                "partial_result": True,
+                "timeout_reason": f"Timeout after {timeout_seconds}s, partial result generation also failed",
+                "error": str(e),
+                "start_node": start_node,
+                "end_node": end_node,
+                "max_depth": max_depth,
+                "response_time_ms": (time.time() - start_time) * 1000,
+                "suggestions": [
+                    "Try with a longer timeout",
+                    "Verify that both nodes exist in the project",
+                    "Check system resources and try again",
+                ],
+            }
 
     async def _resolve_node_id(self, identifier: str) -> str | None:
         """Resolve node name or breadcrumb to node ID."""
@@ -1691,3 +2466,642 @@ class LightweightGraphService:
             "last_updated": self.memory_index.last_updated.isoformat(),
             "performance_metrics": self.performance_metrics,
         }
+
+    # ===================== Task 1.4: Intelligent Path Finding Support Methods =====================
+
+    def _check_l1_cache(self, cache_key: str) -> dict[str, Any] | None:
+        """Check L1 (memory) cache for path results."""
+
+        if cache_key in self.l1_cache:
+            result = self.l1_cache[cache_key]
+            # Verify cache entry is still valid (simple TTL check)
+            if isinstance(result, dict) and result.get("cached_at"):
+                cached_at = result.get("cached_at", 0)
+                if time.time() - cached_at < 300:  # 5 minute TTL for L1
+                    return result
+                else:
+                    # Remove expired entry
+                    del self.l1_cache[cache_key]
+
+        return None
+
+    async def _check_l2_path_cache(self, start_node: str, end_node: str, max_depth: int) -> dict[str, Any] | None:
+        """Check L2 (path-specific) cache with more sophisticated TTL."""
+
+        cache_key = f"l2_path_{start_node}_{end_node}_{max_depth}"
+
+        if cache_key in self.l2_cache:
+            result = self.l2_cache[cache_key]
+            if isinstance(result, dict) and result.get("cached_at"):
+                cached_at = result.get("cached_at", 0)
+                if time.time() - cached_at < 900:  # 15 minute TTL for L2
+                    return result
+                else:
+                    del self.l2_cache[cache_key]
+
+        return None
+
+    async def _check_l3_precomputed_routes(self, start_id: str, end_id: str) -> dict[str, Any] | None:
+        """Check L3 cache for pre-computed common routes between important nodes."""
+
+        # Check if both nodes are in our important node sets
+        start_metadata = self.memory_index.nodes.get(start_id)
+        end_metadata = self.memory_index.nodes.get(end_id)
+
+        if not start_metadata or not end_metadata:
+            return None
+
+        # Check if this is a common route pattern
+        route_patterns = [
+            ("entry_points", "main_functions"),
+            ("main_functions", "api_endpoints"),
+            ("api_endpoints", "data_models"),
+            ("utility_functions", "main_functions"),
+            ("entry_points", "api_endpoints"),
+        ]
+
+        for project_name in self.precomputed_queries.get("entry_points", {}):
+            for start_type, end_type in route_patterns:
+                start_nodes = self.precomputed_queries.get(start_type, {}).get(project_name, [])
+                end_nodes = self.precomputed_queries.get(end_type, {}).get(project_name, [])
+
+                if start_id in start_nodes and end_id in end_nodes:
+                    # Found a common route pattern, check if we have it cached
+                    route_key = f"l3_route_{start_type}_{end_type}_{start_id}_{end_id}"
+
+                    if route_key in self.l3_cache:
+                        result = self.l3_cache[route_key]
+                        if isinstance(result, dict) and result.get("cached_at"):
+                            cached_at = result.get("cached_at", 0)
+                            if time.time() - cached_at < 3600:  # 1 hour TTL for L3
+                                return result
+                            else:
+                                del self.l3_cache[route_key]
+
+        return None
+
+    def _store_l1_cache(self, cache_key: str, result: dict[str, Any]) -> None:
+        """Store result in L1 cache with timestamp."""
+
+        # Manage cache size
+        if len(self.l1_cache) >= 100:  # L1 cache size limit
+            # Remove oldest entries (simple FIFO)
+            oldest_keys = list(self.l1_cache.keys())[:20]
+            for key in oldest_keys:
+                del self.l1_cache[key]
+
+        result_copy = result.copy()
+        result_copy["cached_at"] = time.time()
+        self.l1_cache[cache_key] = result_copy
+
+    async def _store_l2_path_cache(self, start_node: str, end_node: str, max_depth: int, result: dict[str, Any]) -> None:
+        """Store result in L2 path cache."""
+
+        cache_key = f"l2_path_{start_node}_{end_node}_{max_depth}"
+
+        # Manage cache size
+        if len(self.l2_cache) >= 200:  # L2 cache size limit
+            oldest_keys = list(self.l2_cache.keys())[:40]
+            for key in oldest_keys:
+                del self.l2_cache[key]
+
+        result_copy = result.copy()
+        result_copy["cached_at"] = time.time()
+        self.l2_cache[cache_key] = result_copy
+
+    async def _store_l3_cache(self, start_node: str, end_node: str, result: dict[str, Any]) -> None:
+        """Store result in L3 cache for common route patterns."""
+
+        # Determine if this is a common route pattern worth caching in L3
+        start_metadata = self.memory_index.nodes.get(start_node)
+        end_metadata = self.memory_index.nodes.get(end_node)
+
+        if not start_metadata or not end_metadata:
+            return
+
+        # Check if this qualifies for L3 caching (common patterns between important nodes)
+        start_type = self._classify_node_type(start_metadata)
+        end_type = self._classify_node_type(end_metadata)
+
+        common_patterns = [
+            ("entry_points", "main_functions"),
+            ("main_functions", "api_endpoints"),
+            ("api_endpoints", "data_models"),
+            ("utility_functions", "main_functions"),
+            ("main_functions", "public_apis"),
+            ("public_apis", "data_models"),
+        ]
+
+        if (start_type, end_type) in common_patterns or (end_type, start_type) in common_patterns:
+            route_key = f"l3_route_{start_type}_{end_type}_{start_node}_{end_node}"
+
+            # Manage L3 cache size (larger than L1/L2 since these are expensive to compute)
+            if len(self.l3_cache) >= 500:  # L3 cache size limit
+                # Remove oldest 100 entries
+                oldest_keys = list(self.l3_cache.keys())[:100]
+                for key in oldest_keys:
+                    del self.l3_cache[key]
+
+            result_copy = result.copy()
+            result_copy["cached_at"] = time.time()
+            result_copy["cache_level"] = "L3"
+            result_copy["route_pattern"] = f"{start_type}_{end_type}"
+            self.l3_cache[route_key] = result_copy
+
+            self.logger.debug(f"Stored L3 cache entry for route pattern: {start_type} -> {end_type}")
+
+    def _classify_node_type(self, node_metadata) -> str:
+        """Classify a node into semantic categories for L3 caching."""
+        if not hasattr(node_metadata, "chunk_type") or not hasattr(node_metadata, "breadcrumb"):
+            return "unknown"
+
+        breadcrumb = node_metadata.breadcrumb.lower()
+        chunk_type = node_metadata.chunk_type
+
+        # Entry points classification
+        if any(pattern in breadcrumb for pattern in ["main", "__main__", "index", "app", "start"]):
+            return "entry_points"
+
+        # API endpoints
+        if any(pattern in breadcrumb for pattern in ["api", "endpoint", "route", "handler", "controller"]):
+            return "api_endpoints"
+
+        # Data models
+        if any(pattern in breadcrumb for pattern in ["model", "schema", "entity", "dto", "data"]):
+            return "data_models"
+
+        # Utility functions
+        if any(pattern in breadcrumb for pattern in ["util", "helper", "tool", "common", "shared"]):
+            return "utility_functions"
+
+        # Public APIs
+        if chunk_type == "function" and not breadcrumb.startswith("_"):
+            return "public_apis"
+
+        # Main functions (top-level functions with high importance)
+        if chunk_type == "function":
+            return "main_functions"
+
+        return "other"
+
+    async def _warmup_l3_cache(self, project_name: str) -> None:
+        """Pre-populate L3 cache with common route patterns."""
+        try:
+            self.logger.info(f"Starting L3 cache warmup for project: {project_name}")
+
+            # Get important nodes by category
+            entry_points = await self._get_nodes_by_type("entry_points", project_name)
+            main_functions = await self._get_nodes_by_type("main_functions", project_name)
+            api_endpoints = await self._get_nodes_by_type("api_endpoints", project_name)
+            data_models = await self._get_nodes_by_type("data_models", project_name)
+
+            # Pre-compute common patterns (limit to avoid overwhelming)
+            warmup_patterns = [
+                (entry_points[:3], main_functions[:5]),
+                (main_functions[:5], api_endpoints[:5]),
+                (api_endpoints[:5], data_models[:5]),
+            ]
+
+            warmup_count = 0
+            for start_nodes, end_nodes in warmup_patterns:
+                for start_node in start_nodes:
+                    for end_node in end_nodes:
+                        if warmup_count >= 20:  # Limit warmup operations
+                            break
+
+                        try:
+                            # Use the intelligent path finding to warm up cache
+                            await self.find_optimal_path(start_node, end_node, project_name, max_depth=8)
+                            warmup_count += 1
+                        except Exception as e:
+                            self.logger.debug(f"Warmup path computation failed: {start_node} -> {end_node}: {e}")
+                            continue
+
+                    if warmup_count >= 20:
+                        break
+
+                if warmup_count >= 20:
+                    break
+
+            self.logger.info(f"L3 cache warmup completed: {warmup_count} routes pre-computed")
+
+        except Exception as e:
+            self.logger.warning(f"L3 cache warmup failed: {e}")
+
+    async def _get_nodes_by_type(self, node_type: str, project_name: str) -> list[str]:
+        """Get nodes of a specific type for cache warmup."""
+        try:
+            matching_nodes = []
+            for node_id, metadata in self.memory_index.nodes.items():
+                if self._classify_node_type(metadata) == node_type:
+                    matching_nodes.append(node_id)
+
+            return matching_nodes[:10]  # Limit to avoid overwhelming
+        except Exception as e:
+            self.logger.debug(f"Error getting nodes by type {node_type}: {e}")
+            return []
+
+    async def _select_optimal_strategies(self, start_id: str, end_id: str, max_depth: int) -> list[str]:
+        """Intelligently select optimal path finding strategies based on graph characteristics."""
+
+        start_metadata = self.memory_index.nodes.get(start_id)
+        end_metadata = self.memory_index.nodes.get(end_id)
+
+        strategies = []
+
+        # Analyze node characteristics to select strategies
+        if start_metadata and end_metadata:
+            # Calculate graph distance heuristic
+            start_neighbors = len(start_metadata.children_ids | start_metadata.parent_ids | start_metadata.dependency_ids)
+            end_neighbors = len(end_metadata.children_ids | end_metadata.parent_ids | end_metadata.dependency_ids)
+
+            # Strategy selection logic
+            if max_depth <= 3:
+                # Short paths: BFS is usually optimal
+                strategies = ["bfs", "bidirectional"]
+            elif start_neighbors > 10 or end_neighbors > 10:
+                # High-degree nodes: use weighted approaches
+                strategies = ["dijkstra", "astar", "bfs"]
+            elif start_metadata.importance_score > 1.0 and end_metadata.importance_score > 1.0:
+                # Important nodes: try multiple strategies
+                strategies = ["astar", "dijkstra", "bidirectional", "bfs"]
+            else:
+                # Default case
+                strategies = ["bfs", "dijkstra"]
+        else:
+            strategies = ["bfs", "bidirectional"]
+
+        return strategies
+
+    async def _execute_intelligent_path_finding(self, start_id: str, end_id: str, max_depth: int, strategies: list[str]) -> dict[str, Any]:
+        """Execute path finding with multiple strategies and return the best result."""
+
+        if start_id == end_id:
+            return {
+                "success": True,
+                "path": [start_id],
+                "path_length": 1,
+                "quality_score": 1.0,
+                "strategy_used": "direct",
+                "execution_time_ms": 0.0,
+            }
+
+        best_result = None
+        strategy_results = []
+
+        for strategy in strategies:
+            strategy_start = time.time()
+
+            try:
+                if strategy == "bfs":
+                    path = await self._optimized_bfs_path_search(start_id, end_id, max_depth)
+                elif strategy == "dijkstra":
+                    path = await self._dijkstra_path_search(start_id, end_id, max_depth)
+                elif strategy == "astar":
+                    path = await self._astar_path_search(start_id, end_id, max_depth)
+                elif strategy == "bidirectional":
+                    path = await self._bidirectional_path_search(start_id, end_id, max_depth)
+                else:
+                    continue
+
+                strategy_time = (time.time() - strategy_start) * 1000
+
+                if path:
+                    quality_score = await self._calculate_path_quality_score(path)
+
+                    result = {
+                        "success": True,
+                        "path": path,
+                        "path_length": len(path),
+                        "quality_score": quality_score,
+                        "strategy_used": strategy,
+                        "execution_time_ms": strategy_time,
+                    }
+
+                    strategy_results.append(result)
+
+                    # Update best result based on quality and length
+                    if not best_result or self._is_better_path(result, best_result):
+                        best_result = result
+
+                    # Early termination for perfect paths
+                    if quality_score >= 0.95 and len(path) <= 3:
+                        break
+
+            except Exception as e:
+                self.logger.warning(f"Strategy {strategy} failed: {e}")
+                continue
+
+        if best_result:
+            best_result["alternative_strategies"] = [
+                {
+                    "strategy": r["strategy_used"],
+                    "quality_score": r["quality_score"],
+                    "path_length": r["path_length"],
+                    "execution_time_ms": r["execution_time_ms"],
+                }
+                for r in strategy_results
+                if r["strategy_used"] != best_result["strategy_used"]
+            ]
+            return best_result
+        else:
+            return {"success": False, "error": "No path found with any strategy", "strategies_tried": strategies, "path": None}
+
+    async def _optimized_bfs_path_search(self, start_id: str, end_id: str, max_depth: int) -> list[str] | None:
+        """Optimized BFS using memory index for O(1) neighbor lookups."""
+
+        if start_id == end_id:
+            return [start_id]
+
+        queue = deque([(start_id, [start_id])])
+        visited = {start_id}
+
+        for depth in range(max_depth):
+            if not queue:
+                break
+
+            level_size = len(queue)
+
+            for _ in range(level_size):
+                current_id, path = queue.popleft()
+
+                # Get neighbors from memory index (O(1) lookup)
+                metadata = self.memory_index.nodes.get(current_id)
+                if not metadata:
+                    continue
+
+                neighbors = list(metadata.children_ids | metadata.parent_ids | metadata.dependency_ids)
+
+                # Sort neighbors by importance for better path quality
+                neighbors.sort(
+                    key=lambda nid: self.memory_index.nodes.get(nid, NodeMetadata("", "", ChunkType.RAW_CODE, "")).importance_score,
+                    reverse=True,
+                )
+
+                for neighbor_id in neighbors:
+                    if neighbor_id == end_id:
+                        return path + [neighbor_id]
+
+                    if neighbor_id not in visited:
+                        visited.add(neighbor_id)
+                        queue.append((neighbor_id, path + [neighbor_id]))
+
+        return None
+
+    async def _dijkstra_path_search(self, start_id: str, end_id: str, max_depth: int) -> list[str] | None:
+        """Dijkstra's algorithm using importance scores as weights."""
+        import heapq
+
+        distances = {start_id: 0.0}
+        previous = {}
+        visited = set()
+        queue = [(0.0, start_id)]
+
+        while queue:
+            current_dist, current_id = heapq.heappop(queue)
+
+            if current_id in visited:
+                continue
+
+            visited.add(current_id)
+
+            if current_id == end_id:
+                # Reconstruct path
+                path = []
+                node = end_id
+                while node is not None:
+                    path.append(node)
+                    node = previous.get(node)
+                path.reverse()
+                return path
+
+            # Get neighbors from memory index
+            metadata = self.memory_index.nodes.get(current_id)
+            if not metadata:
+                continue
+
+            neighbors = metadata.children_ids | metadata.parent_ids | metadata.dependency_ids
+
+            for neighbor_id in neighbors:
+                if neighbor_id in visited:
+                    continue
+
+                neighbor_metadata = self.memory_index.nodes.get(neighbor_id)
+                if not neighbor_metadata:
+                    continue
+
+                # Calculate edge weight (inverse of importance for shortest path)
+                weight = 1.0 / max(0.1, neighbor_metadata.importance_score)
+                distance = current_dist + weight
+
+                if neighbor_id not in distances or distance < distances[neighbor_id]:
+                    distances[neighbor_id] = distance
+                    previous[neighbor_id] = current_id
+                    heapq.heappush(queue, (distance, neighbor_id))
+
+        return None
+
+    async def _astar_path_search(self, start_id: str, end_id: str, max_depth: int) -> list[str] | None:
+        """A* algorithm with importance-based heuristic."""
+        import heapq
+
+        def heuristic(node_id: str) -> float:
+            """Heuristic function based on name similarity and importance."""
+            node_metadata = self.memory_index.nodes.get(node_id)
+            end_metadata = self.memory_index.nodes.get(end_id)
+
+            if not node_metadata or not end_metadata:
+                return 1.0
+
+            # Simple heuristic: inverse of importance difference
+            importance_diff = abs(node_metadata.importance_score - end_metadata.importance_score)
+            return importance_diff + 0.1
+
+        g_score = {start_id: 0.0}
+        f_score = {start_id: heuristic(start_id)}
+        previous = {}
+        visited = set()
+        queue = [(f_score[start_id], start_id)]
+
+        while queue:
+            _, current_id = heapq.heappop(queue)
+
+            if current_id in visited:
+                continue
+
+            visited.add(current_id)
+
+            if current_id == end_id:
+                # Reconstruct path
+                path = []
+                node = end_id
+                while node is not None:
+                    path.append(node)
+                    node = previous.get(node)
+                path.reverse()
+                return path
+
+            # Get neighbors
+            metadata = self.memory_index.nodes.get(current_id)
+            if not metadata:
+                continue
+
+            neighbors = metadata.children_ids | metadata.parent_ids | metadata.dependency_ids
+
+            for neighbor_id in neighbors:
+                if neighbor_id in visited:
+                    continue
+
+                neighbor_metadata = self.memory_index.nodes.get(neighbor_id)
+                if not neighbor_metadata:
+                    continue
+
+                tentative_g_score = g_score[current_id] + (1.0 / max(0.1, neighbor_metadata.importance_score))
+
+                if neighbor_id not in g_score or tentative_g_score < g_score[neighbor_id]:
+                    previous[neighbor_id] = current_id
+                    g_score[neighbor_id] = tentative_g_score
+                    f_score[neighbor_id] = tentative_g_score + heuristic(neighbor_id)
+                    heapq.heappush(queue, (f_score[neighbor_id], neighbor_id))
+
+        return None
+
+    async def _bidirectional_path_search(self, start_id: str, end_id: str, max_depth: int) -> list[str] | None:
+        """Bidirectional BFS for faster pathfinding."""
+
+        if start_id == end_id:
+            return [start_id]
+
+        # Forward and backward search queues
+        forward_queue = deque([(start_id, [start_id])])
+        backward_queue = deque([(end_id, [end_id])])
+        forward_visited = {start_id: [start_id]}
+        backward_visited = {end_id: [end_id]}
+
+        for _ in range(max_depth // 2):
+            # Forward search
+            if forward_queue:
+                current_id, path = forward_queue.popleft()
+                metadata = self.memory_index.nodes.get(current_id)
+
+                if metadata:
+                    neighbors = metadata.children_ids | metadata.parent_ids | metadata.dependency_ids
+
+                    for neighbor_id in neighbors:
+                        if neighbor_id in backward_visited:
+                            # Found intersection - combine paths
+                            return path + backward_visited[neighbor_id][::-1]
+
+                        if neighbor_id not in forward_visited:
+                            new_path = path + [neighbor_id]
+                            forward_visited[neighbor_id] = new_path
+                            forward_queue.append((neighbor_id, new_path))
+
+            # Backward search
+            if backward_queue:
+                current_id, path = backward_queue.popleft()
+                metadata = self.memory_index.nodes.get(current_id)
+
+                if metadata:
+                    neighbors = metadata.children_ids | metadata.parent_ids | metadata.dependency_ids
+
+                    for neighbor_id in neighbors:
+                        if neighbor_id in forward_visited:
+                            # Found intersection - combine paths
+                            return forward_visited[neighbor_id] + path[::-1]
+
+                        if neighbor_id not in backward_visited:
+                            new_path = path + [neighbor_id]
+                            backward_visited[neighbor_id] = new_path
+                            backward_queue.append((neighbor_id, new_path))
+
+        return None
+
+    async def _calculate_path_quality_score(self, path: list[str]) -> float:
+        """Calculate quality score for a path based on multiple factors."""
+
+        if not path or len(path) < 2:
+            return 1.0 if len(path) == 1 else 0.0
+
+        quality_factors = {"length_score": 0.0, "importance_score": 0.0, "connectivity_score": 0.0, "diversity_score": 0.0}
+
+        # Length score (shorter is better, but not too short)
+        optimal_length = min(5, len(path))
+        length_penalty = abs(len(path) - optimal_length) * 0.1
+        quality_factors["length_score"] = max(0.0, 1.0 - length_penalty)
+
+        # Importance score (average importance of nodes in path)
+        importance_scores = []
+        for node_id in path:
+            metadata = self.memory_index.nodes.get(node_id)
+            if metadata:
+                importance_scores.append(metadata.importance_score)
+
+        if importance_scores:
+            quality_factors["importance_score"] = sum(importance_scores) / len(importance_scores) / 3.0
+
+        # Connectivity score (how well connected the path nodes are)
+        connectivity_scores = []
+        for node_id in path:
+            metadata = self.memory_index.nodes.get(node_id)
+            if metadata:
+                total_connections = len(metadata.children_ids | metadata.parent_ids | metadata.dependency_ids)
+                connectivity_scores.append(min(1.0, total_connections / 10.0))
+
+        if connectivity_scores:
+            quality_factors["connectivity_score"] = sum(connectivity_scores) / len(connectivity_scores)
+
+        # Diversity score (variety of node types in path)
+        node_types = set()
+        for node_id in path:
+            metadata = self.memory_index.nodes.get(node_id)
+            if metadata:
+                node_types.add(metadata.chunk_type)
+
+        quality_factors["diversity_score"] = min(1.0, len(node_types) / 4.0)
+
+        # Weighted combination
+        total_score = (
+            quality_factors["length_score"] * 0.3
+            + quality_factors["importance_score"] * 0.3
+            + quality_factors["connectivity_score"] * 0.2
+            + quality_factors["diversity_score"] * 0.2
+        )
+
+        return min(1.0, total_score)
+
+    def _is_better_path(self, new_result: dict[str, Any], current_best: dict[str, Any]) -> bool:
+        """Determine if a new path result is better than the current best."""
+
+        # Prefer successful paths
+        if new_result["success"] and not current_best["success"]:
+            return True
+        if not new_result["success"]:
+            return False
+
+        # Compare quality and length
+        new_quality = new_result["quality_score"]
+        current_quality = current_best["quality_score"]
+        new_length = new_result["path_length"]
+        current_length = current_best["path_length"]
+
+        # Quality difference threshold
+        quality_diff = new_quality - current_quality
+
+        # Prefer significantly higher quality
+        if quality_diff > 0.1:
+            return True
+
+        # If quality is similar, prefer shorter paths
+        if abs(quality_diff) <= 0.1 and new_length < current_length:
+            return True
+
+        # If quality and length are similar, prefer faster execution
+        if (
+            abs(quality_diff) <= 0.05
+            and abs(new_length - current_length) <= 1
+            and new_result["execution_time_ms"] < current_best["execution_time_ms"]
+        ):
+            return True
+
+        return False
