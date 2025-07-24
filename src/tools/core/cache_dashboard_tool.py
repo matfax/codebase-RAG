@@ -8,7 +8,7 @@ cache performance dashboards and visualizations.
 import json
 import logging
 import time
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from src.tools.core.cache_dashboard import (
     generate_cache_detailed_dashboard,

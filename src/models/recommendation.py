@@ -8,7 +8,7 @@ that provides contextual suggestions and next-step guidance.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 from .prompt_context import DifficultyLevel, PromptType, TaskType, UserRole
 

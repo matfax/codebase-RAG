@@ -10,7 +10,7 @@ relationship metadata.
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 try:
     from tree_sitter import Node

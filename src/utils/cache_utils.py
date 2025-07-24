@@ -315,7 +315,7 @@ def estimate_size(obj: Any) -> int:
             items_size = sum(estimate_size(k) + estimate_size(v) for k, v in obj.items())
             return base_size + items_size
 
-        elif isinstance(obj, list | tuple | set):
+        elif isinstance(obj, Union[list, tuple] | set):
             # Add size of elements
             items_size = sum(estimate_size(item) for item in obj)
             return base_size + items_size
@@ -469,7 +469,7 @@ def debug_cache_entry(key: str, value: Any, metadata: dict[str, Any] | None = No
     # Add value summary based on type
     if isinstance(value, str):
         debug_info["value_preview"] = value[:100] + "..." if len(value) > 100 else value
-    elif isinstance(value, list | tuple):
+    elif isinstance(value, Union[list, tuple]):
         debug_info["value_length"] = len(value)
         debug_info["value_preview"] = f"[{type(value).__name__} with {len(value)} items]"
     elif isinstance(value, dict):
@@ -583,9 +583,9 @@ def _make_json_serializable(obj: Any) -> Any:
     Returns:
         Any: JSON-serializable object
     """
-    if obj is None or isinstance(obj, bool | int | float | str):
+    if obj is None or isinstance(obj, Union[bool, int] | Union[float, str]):
         return obj
-    elif isinstance(obj, list | tuple):
+    elif isinstance(obj, Union[list, tuple]):
         return [_make_json_serializable(item) for item in obj]
     elif isinstance(obj, dict):
         return {str(k): _make_json_serializable(v) for k, v in obj.items()}

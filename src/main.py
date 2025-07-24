@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from tools import register_tools
+
+from src.tools import register_tools
 
 load_dotenv()  # Load environment variables from .env file
 

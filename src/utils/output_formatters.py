@@ -7,7 +7,7 @@ and chains into various output formats including arrow format and Mermaid diagra
 
 import logging
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 

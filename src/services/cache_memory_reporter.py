@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from io import StringIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..utils.memory_utils import (
     CacheMemoryEvent,

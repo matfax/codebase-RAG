@@ -7,11 +7,12 @@ that uses Tree-sitter AST parsing for syntax-aware code analysis.
 import logging
 import traceback
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 from mcp.server.fastmcp import FastMCP
-from tools.core.error_utils import handle_tool_error, log_tool_usage
-from tools.core.errors import ChunkingError
+
+from src.tools.core.error_utils import handle_tool_error, log_tool_usage
+from src.tools.core.errors import ChunkingError
 
 # Configure logging
 logger = logging.getLogger(__name__)

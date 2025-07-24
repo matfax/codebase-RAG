@@ -8,7 +8,7 @@ execution paths, data flows, and dependencies between functions.
 import asyncio
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.services.breadcrumb_resolver_service import BreadcrumbResolver
 from src.services.implementation_chain_service import (
@@ -303,7 +303,7 @@ def _validate_input_parameters(
             "suggestions": [f"Valid chain types: {', '.join(valid_chain_types)}"],
         }
 
-    if not isinstance(min_link_strength, int | float) or min_link_strength < 0.0 or min_link_strength > 1.0:
+    if not isinstance(min_link_strength, Union[int, float]) or min_link_strength < 0.0 or min_link_strength > 1.0:
         return {
             "valid": False,
             "error": f"Invalid min_link_strength: {min_link_strength}. Must be between 0.0 and 1.0",

@@ -5,7 +5,7 @@ Data models for code chunks and intelligent chunking functionality.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
 
 class ChunkType(Enum):

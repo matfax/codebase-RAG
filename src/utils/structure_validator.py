@@ -9,7 +9,7 @@ codebase indexing and retrieval pipeline.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import ChunkType, CodeChunk
 

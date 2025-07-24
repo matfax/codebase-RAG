@@ -6,7 +6,7 @@ dependency relationships, and analyze cascade invalidation performance.
 """
 
 import logging
-from typing import Any
+from typing import Any, Union
 
 from src.services.cache_invalidation_service import get_cache_invalidation_service
 from src.services.cascade_invalidation_service import CascadeStrategy, DependencyType

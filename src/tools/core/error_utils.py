@@ -8,7 +8,7 @@ import logging
 import traceback
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union
 
 from src.tools.core.errors import MCPToolError, ServiceError, ValidationError
 
@@ -386,7 +386,7 @@ class log_tool_usage:
             # Create a safe parameter string (avoid logging sensitive data)
             safe_params = {}
             for key, value in self.params.items():
-                if isinstance(value, str | int | float | bool) and len(str(value)) < 100:
+                if isinstance(value, Union[str, int] | Union[float, bool]) and len(str(value)) < 100:
                     safe_params[key] = value
                 else:
                     safe_params[key] = f"<{type(value).__name__}>"

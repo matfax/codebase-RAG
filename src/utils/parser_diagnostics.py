@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Union
 
 try:
     import tree_sitter

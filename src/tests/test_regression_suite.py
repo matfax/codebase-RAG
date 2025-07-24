@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from src.tools.graph_rag.pattern_identification import graph_identify_patterns
 from src.tools.graph_rag.similar_implementations import graph_find_similar_implementations

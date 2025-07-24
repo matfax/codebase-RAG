@@ -3,6 +3,8 @@
 This module defines custom exceptions for better error handling.
 """
 
+from typing import Union
+
 
 class MCPToolError(Exception):
     """Base exception for all MCP tool errors."""

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..models.file_metadata import FileMetadata
 from ..services.cache_invalidation_service import InvalidationEvent, InvalidationReason

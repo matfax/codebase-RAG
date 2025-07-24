@@ -1,7 +1,7 @@
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import pathspec
 from dotenv import load_dotenv

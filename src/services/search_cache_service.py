@@ -20,17 +20,17 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Optional, Union
 
-from config.cache_config import CacheConfig, get_global_cache_config
-from models.cache_models import (
+from src.config.cache_config import CacheConfig, get_global_cache_config
+from src.models.cache_models import (
     CacheEntry,
     CacheEntryMetadata,
     CacheEntryType,
     CacheStatistics,
     create_cache_entry,
 )
-from services.cache_service import BaseCacheService, get_cache_service
-from utils.cache_key_generator import CacheKeyGenerator, KeyType
-from utils.cache_utils import CompressionFormat, SerializationFormat
+from src.services.cache_service import BaseCacheService, get_cache_service
+from src.utils.cache_key_generator import CacheKeyGenerator, KeyType
+from src.utils.cache_utils import CompressionFormat, SerializationFormat
 
 
 class SearchMode(Enum):
@@ -454,7 +454,7 @@ class SearchCacheService:
             # Create cache entry data
             entry_data = {
                 "compressed_data": compressed_data.hex(),
-                "search_params": asdict(search_params),
+                "search_params": search_params.to_cache_dict(),  # Use method that properly converts enums
                 "total_results": total_results,
                 "result_types": result_types,
                 "score_range": score_range,

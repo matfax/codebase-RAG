@@ -3,12 +3,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import PointStruct
-from utils.cache_key_generator import KeyType, get_cache_key_generator
-from utils.cache_utils import deserialize_from_cache, serialize_for_cache
+
+from src.utils.cache_key_generator import KeyType, get_cache_key_generator
+from src.utils.cache_utils import deserialize_from_cache, serialize_for_cache
 
 from .cache_service import CacheError, CacheOperationError, get_cache_service
 

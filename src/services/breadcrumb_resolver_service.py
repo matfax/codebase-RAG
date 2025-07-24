@@ -7,14 +7,19 @@ precise breadcrumb paths in codebases. It integrates with the existing
 search infrastructure to provide semantic conversion with confidence scoring.
 """
 
+import hashlib
 import logging
 import re
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
+from src.models.breadcrumb_cache_models import BreadcrumbCacheConfig
 from src.models.code_chunk import CodeChunk
+from src.models.function_call import FunctionCall
+from src.services.breadcrumb_cache_service import BreadcrumbCacheService
 from src.tools.indexing.search_tools import search_async_cached
 
 
@@ -98,15 +103,24 @@ class BreadcrumbResolver:
     using descriptive text rather than exact names.
     """
 
-    def __init__(self, cache_enabled: bool = True):
+    def __init__(self, cache_enabled: bool = True, cache_config: BreadcrumbCacheConfig | None = None):
         """
         Initialize the BreadcrumbResolver service.
 
         Args:
             cache_enabled: Whether to enable caching of resolution results
+            cache_config: Cache configuration, defaults to environment-based config
         """
         self.logger = logging.getLogger(__name__)
         self.cache_enabled = cache_enabled
+
+        # Initialize enhanced TTL-based cache service
+        if cache_enabled:
+            self.cache_service = BreadcrumbCacheService(cache_config)
+        else:
+            self.cache_service = None
+
+        # Legacy simple cache (kept for fallback)
         self._resolution_cache: dict[str, BreadcrumbResolutionResult] = {}
 
         # Configuration
@@ -123,6 +137,18 @@ class BreadcrumbResolver:
         }
 
         self.logger.info("BreadcrumbResolver initialized with cache_enabled=%s", cache_enabled)
+
+    async def start(self):
+        """Start the breadcrumb resolver service and its cache."""
+        if self.cache_service:
+            await self.cache_service.start()
+            self.logger.info("BreadcrumbResolver cache service started")
+
+    async def stop(self):
+        """Stop the breadcrumb resolver service and its cache."""
+        if self.cache_service:
+            await self.cache_service.stop()
+            self.logger.info("BreadcrumbResolver cache service stopped")
 
     async def resolve(self, query: str, target_projects: list[str] | None = None) -> BreadcrumbResolutionResult:
         """
@@ -156,10 +182,19 @@ class BreadcrumbResolver:
             # Check cache first
             if self.cache_enabled:
                 cache_key = self._create_cache_key(query, target_projects)
-                cached_result = self._get_from_cache(cache_key)
-                if cached_result:
-                    self.logger.debug("Cache hit for query: %s", query[:50])
-                    return cached_result
+
+                # Try enhanced TTL cache first
+                if self.cache_service:
+                    cached_result = await self.cache_service.get(cache_key)
+                    if cached_result:
+                        self.logger.debug("Enhanced cache hit for query: %s", query[:50])
+                        return cached_result
+                else:
+                    # Fallback to legacy cache
+                    cached_result = self._get_from_cache(cache_key)
+                    if cached_result:
+                        self.logger.debug("Legacy cache hit for query: %s", query[:50])
+                        return cached_result
 
             # Check if input is already a valid breadcrumb
             if self.is_valid_breadcrumb(query):
@@ -179,7 +214,7 @@ class BreadcrumbResolver:
 
                 # Cache the result
                 if self.cache_enabled:
-                    self._cache_result(cache_key, result)
+                    await self._cache_result_enhanced(cache_key, result, file_dependencies=[], confidence_score=1.0)
 
                 return result
 
@@ -189,7 +224,16 @@ class BreadcrumbResolver:
             # Cache the result
             if self.cache_enabled:
                 cache_key = self._create_cache_key(query, target_projects)
-                self._cache_result(cache_key, result)
+
+                # Extract file dependencies and confidence from result
+                file_dependencies = []
+                confidence_score = 0.0
+                if result.success and result.primary_candidate:
+                    confidence_score = result.primary_candidate.confidence_score
+                    if result.primary_candidate.file_path:
+                        file_dependencies.append(result.primary_candidate.file_path)
+
+                await self._cache_result_enhanced(cache_key, result, file_dependencies, confidence_score)
 
             return result
 
@@ -721,9 +765,38 @@ class BreadcrumbResolver:
         """
         return self._resolution_cache.get(cache_key)
 
+    async def _cache_result_enhanced(
+        self,
+        cache_key: str,
+        result: BreadcrumbResolutionResult,
+        file_dependencies: list[str] | None = None,
+        confidence_score: float = 0.0,
+    ):
+        """
+        Cache a resolution result using enhanced TTL-based cache.
+
+        Args:
+            cache_key: Cache key
+            result: Result to cache
+            file_dependencies: List of file paths this result depends on
+            confidence_score: Confidence score for TTL calculation
+        """
+        if self.cache_service:
+            success = await self.cache_service.put(
+                cache_key=cache_key, result=result, file_dependencies=file_dependencies or [], confidence_score=confidence_score
+            )
+            if success:
+                self.logger.debug(f"Cached result with enhanced service: {cache_key}")
+            else:
+                # Fallback to legacy cache
+                self._cache_result(cache_key, result)
+        else:
+            # Use legacy cache
+            self._cache_result(cache_key, result)
+
     def _cache_result(self, cache_key: str, result: BreadcrumbResolutionResult):
         """
-        Cache a resolution result.
+        Cache a resolution result (legacy method).
 
         Args:
             cache_key: Cache key
@@ -732,10 +805,33 @@ class BreadcrumbResolver:
         # Simple cache implementation - in production you'd want TTL, size limits, etc.
         self._resolution_cache[cache_key] = result
 
-    def clear_cache(self):
+    async def clear_cache(self):
         """Clear the resolution cache."""
+        if self.cache_service:
+            await self.cache_service.clear()
         self._resolution_cache.clear()
         self.logger.info("BreadcrumbResolver cache cleared")
+
+    async def invalidate_cache_by_file(self, file_path: str) -> int:
+        """
+        Invalidate cache entries that depend on a specific file.
+
+        Args:
+            file_path: Path to the file that was modified
+
+        Returns:
+            Number of cache entries invalidated
+        """
+        if self.cache_service:
+            return await self.cache_service.invalidate_by_file(file_path)
+        return 0
+
+    async def get_cache_info(self) -> dict[str, Any]:
+        """Get comprehensive cache information."""
+        if self.cache_service:
+            return await self.cache_service.get_cache_info()
+        else:
+            return {"legacy_cache_size": len(self._resolution_cache), "enhanced_cache_enabled": False}
 
     def get_cache_stats(self) -> dict[str, Any]:
         """
@@ -744,12 +840,672 @@ class BreadcrumbResolver:
         Returns:
             Dictionary with cache statistics
         """
-        return {
+        stats = {
             "enabled": self.cache_enabled,
-            "size": len(self._resolution_cache),
+            "legacy_cache_size": len(self._resolution_cache),
             "configuration": {
                 "max_candidates": self.max_candidates,
                 "min_confidence_threshold": self.min_confidence_threshold,
                 "semantic_search_results": self.semantic_search_results,
             },
         }
+
+        # Add enhanced cache stats if available
+        if self.cache_service:
+            enhanced_stats = self.cache_service.get_stats()
+            stats.update({"enhanced_cache_stats": enhanced_stats, "cache_type": "enhanced_ttl"})
+        else:
+            stats["cache_type"] = "legacy"
+
+        return stats
+
+    # =================== Function Call Resolution Methods ===================
+
+    async def resolve_function_call_target(
+        self, function_call: FunctionCall, target_projects: list[str] | None = None
+    ) -> BreadcrumbResolutionResult:
+        """
+        Resolve the target breadcrumb for a function call.
+
+        This method takes a FunctionCall object and attempts to resolve its
+        target_breadcrumb to a precise, validated breadcrumb path by searching
+        the codebase for matching function definitions.
+
+        Args:
+            function_call: FunctionCall object with target to resolve
+            target_projects: Optional list of specific projects to search in
+
+        Returns:
+            BreadcrumbResolutionResult with resolved target breadcrumb
+        """
+        start_time = time.time()
+
+        try:
+            # Extract the call target from the function call
+            raw_target = function_call.target_breadcrumb
+            call_expression = function_call.call_expression
+
+            # Create resolution query based on call type and expression
+            resolution_query = self._create_resolution_query(function_call)
+
+            # Check cache first
+            if self.cache_enabled:
+                cache_key = self._create_call_cache_key(function_call, target_projects)
+                cached_result = self._get_from_cache(cache_key)
+                if cached_result:
+                    self.logger.debug("Cache hit for function call resolution: %s", call_expression[:50])
+                    return cached_result
+
+            # If the target already looks like a valid breadcrumb, validate it
+            if self.is_valid_breadcrumb(raw_target):
+                validation_result = await self._validate_breadcrumb_exists(raw_target, target_projects)
+                if validation_result.success:
+                    result = BreadcrumbResolutionResult(
+                        query=resolution_query,
+                        success=True,
+                        primary_candidate=validation_result.primary_candidate,
+                        resolution_time_ms=(time.time() - start_time) * 1000,
+                    )
+                    if self.cache_enabled:
+                        await self._cache_result_enhanced(
+                            cache_key, result, file_dependencies=[], confidence_score=validation_result.primary_candidate.confidence_score
+                        )
+                    return result
+
+            # Perform semantic search to resolve the target
+            result = await self._resolve_call_target_with_search(function_call, resolution_query, target_projects)
+
+            # Cache the result
+            if self.cache_enabled:
+                cache_key = self._create_call_cache_key(function_call, target_projects)
+
+                # Extract file dependencies and confidence
+                file_dependencies = [function_call.file_path] if function_call.file_path else []
+                confidence_score = 0.0
+                if result.success and result.primary_candidate:
+                    confidence_score = result.primary_candidate.confidence_score
+                    if result.primary_candidate.file_path:
+                        file_dependencies.append(result.primary_candidate.file_path)
+
+                await self._cache_result_enhanced(cache_key, result, file_dependencies, confidence_score)
+
+            result.resolution_time_ms = (time.time() - start_time) * 1000
+            return result
+
+        except Exception as e:
+            self.logger.error("Error resolving function call target '%s': %s", function_call.call_expression, str(e))
+            return BreadcrumbResolutionResult(
+                query=resolution_query if "resolution_query" in locals() else function_call.call_expression,
+                success=False,
+                error_message=f"Internal error during call resolution: {str(e)}",
+                resolution_time_ms=(time.time() - start_time) * 1000,
+            )
+
+    async def resolve_multiple_function_calls(
+        self, function_calls: list[FunctionCall], target_projects: list[str] | None = None
+    ) -> dict[str, BreadcrumbResolutionResult]:
+        """
+        Resolve target breadcrumbs for multiple function calls efficiently.
+
+        Args:
+            function_calls: List of FunctionCall objects to resolve
+            target_projects: Optional list of specific projects to search in
+
+        Returns:
+            Dictionary mapping call expressions to resolution results
+        """
+        results = {}
+
+        for function_call in function_calls:
+            try:
+                result = await self.resolve_function_call_target(function_call, target_projects)
+                results[function_call.call_expression] = result
+            except Exception as e:
+                self.logger.error(f"Error resolving call {function_call.call_expression}: {e}")
+                results[function_call.call_expression] = BreadcrumbResolutionResult(
+                    query=function_call.call_expression, success=False, error_message=f"Resolution failed: {str(e)}"
+                )
+
+        return results
+
+    def _create_resolution_query(self, function_call: FunctionCall) -> str:
+        """
+        Create a search query for resolving a function call target.
+
+        This method analyzes the function call to create an effective search query
+        that will help find the target function definition.
+
+        Args:
+            function_call: FunctionCall object to create query for
+
+        Returns:
+            Search query string optimized for target resolution
+        """
+        call_expr = function_call.call_expression
+        call_type = function_call.call_type
+
+        # Extract the function/method name from the call
+        if "(" in call_expr:
+            func_part = call_expr.split("(")[0].strip()
+        else:
+            func_part = call_expr.strip()
+
+        # Create query based on call type
+        if call_type.value in ["method", "self_method", "attribute"]:
+            # For method calls, extract the method name
+            if "." in func_part:
+                method_name = func_part.split(".")[-1]
+                return f"def {method_name} OR function {method_name} OR method {method_name}"
+            else:
+                return f"def {func_part} OR function {func_part}"
+
+        elif call_type.value == "direct":
+            # For direct function calls
+            return f"def {func_part} OR function {func_part}"
+
+        elif call_type.value == "module_function":
+            # For module function calls like module.function()
+            if "." in func_part:
+                parts = func_part.split(".")
+                module_name = parts[0]
+                function_name = parts[-1]
+                return f"{module_name} {function_name} OR def {function_name}"
+            else:
+                return f"def {func_part} OR function {func_part}"
+
+        elif call_type.value in ["async", "async_method"]:
+            # For async calls, include async keyword
+            if "." in func_part:
+                method_name = func_part.split(".")[-1]
+                return f"async def {method_name} OR async {method_name}"
+            else:
+                return f"async def {func_part} OR async {func_part}"
+
+        elif call_type.value == "asyncio":
+            # For asyncio calls, focus on asyncio module
+            return f"asyncio {func_part} OR {func_part}"
+
+        else:
+            # Default query
+            if "." in func_part:
+                name = func_part.split(".")[-1]
+                return f"def {name} OR function {name}"
+            else:
+                return f"def {func_part} OR function {func_part}"
+
+    async def _resolve_call_target_with_search(
+        self, function_call: FunctionCall, query: str, target_projects: list[str] | None
+    ) -> BreadcrumbResolutionResult:
+        """
+        Resolve function call target using semantic search.
+
+        Args:
+            function_call: FunctionCall object to resolve
+            query: Search query for target resolution
+            target_projects: Optional list of projects to search in
+
+        Returns:
+            BreadcrumbResolutionResult with resolution details
+        """
+        try:
+            # Perform semantic search with higher result count for call resolution
+            search_results = await search_async_cached(
+                query=query,
+                n_results=15,  # Higher count for better call resolution
+                search_mode="hybrid",
+                include_context=True,
+                context_chunks=1,
+                target_projects=target_projects,
+            )
+
+            if not search_results.get("results"):
+                return BreadcrumbResolutionResult(
+                    query=query,
+                    success=False,
+                    error_message="No matching function definitions found",
+                    search_results_count=0,
+                )
+
+            # Extract and rank candidates specifically for function call resolution
+            candidates = self._extract_call_target_candidates(search_results["results"], function_call, query)
+
+            if not candidates:
+                return BreadcrumbResolutionResult(
+                    query=query,
+                    success=False,
+                    error_message="No valid function call target candidates found",
+                    search_results_count=len(search_results["results"]),
+                )
+
+            # Filter and rank candidates
+            filtered_candidates = self._filter_and_rank_call_candidates(candidates, function_call)
+
+            if not filtered_candidates:
+                return BreadcrumbResolutionResult(
+                    query=query,
+                    success=False,
+                    error_message="No call target candidates met the confidence threshold",
+                    search_results_count=len(search_results["results"]),
+                )
+
+            # Return results
+            primary_candidate = filtered_candidates[0]
+            alternative_candidates = filtered_candidates[1 : self.max_candidates]
+
+            return BreadcrumbResolutionResult(
+                query=query,
+                success=True,
+                primary_candidate=primary_candidate,
+                alternative_candidates=alternative_candidates,
+                search_results_count=len(search_results["results"]),
+            )
+
+        except Exception as e:
+            self.logger.error("Error during call target search resolution: %s", str(e))
+            return BreadcrumbResolutionResult(
+                query=query,
+                success=False,
+                error_message=f"Search resolution error: {str(e)}",
+            )
+
+    def _extract_call_target_candidates(
+        self, search_results: list[dict[str, Any]], function_call: FunctionCall, query: str
+    ) -> list[BreadcrumbCandidate]:
+        """
+        Extract function call target candidates from search results.
+
+        This method specializes in finding function definitions that match
+        the function call target, with enhanced scoring for call resolution.
+
+        Args:
+            search_results: List of search results
+            function_call: Original function call object
+            query: Search query used
+
+        Returns:
+            List of BreadcrumbCandidate objects for call targets
+        """
+        candidates = []
+        call_expr = function_call.call_expression
+
+        # Extract target function name for matching
+        target_name = self._extract_target_function_name(call_expr)
+
+        for result in search_results:
+            try:
+                # Only consider function/method definitions
+                chunk_type = result.get("chunk_type", "")
+                if chunk_type not in ["function", "method", "class"]:
+                    continue
+
+                # Extract breadcrumb from result
+                breadcrumb = self._extract_breadcrumb_from_result(result)
+                if not breadcrumb:
+                    continue
+
+                # Calculate enhanced confidence for call target matching
+                confidence_score = self._calculate_call_target_confidence(result, function_call, target_name, query)
+
+                # Create candidate with enhanced reasoning
+                candidate = BreadcrumbCandidate(
+                    breadcrumb=breadcrumb,
+                    confidence_score=confidence_score,
+                    source_chunk=self._create_code_chunk_from_result(result),
+                    reasoning=self._generate_call_target_reasoning(result, function_call, target_name),
+                    match_type=self._determine_call_target_match_type(result, function_call, target_name),
+                    file_path=result.get("file_path", ""),
+                    line_start=result.get("line_start", 0),
+                    line_end=result.get("line_end", 0),
+                    chunk_type=chunk_type,
+                    language=result.get("language", ""),
+                )
+
+                candidates.append(candidate)
+
+            except Exception as e:
+                self.logger.debug("Error processing call target search result: %s", str(e))
+                continue
+
+        return candidates
+
+    def _extract_target_function_name(self, call_expression: str) -> str:
+        """
+        Extract the target function name from a call expression.
+
+        Args:
+            call_expression: Full call expression (e.g., "self.helper.process_data()")
+
+        Returns:
+            Target function name (e.g., "process_data")
+        """
+        # Remove arguments first
+        if "(" in call_expression:
+            func_part = call_expression.split("(")[0].strip()
+        else:
+            func_part = call_expression.strip()
+
+        # Extract final component after last dot
+        if "." in func_part:
+            return func_part.split(".")[-1]
+        else:
+            return func_part
+
+    def _calculate_call_target_confidence(self, result: dict[str, Any], function_call: FunctionCall, target_name: str, query: str) -> float:
+        """
+        Calculate confidence score specifically for call target matching.
+
+        This is enhanced version of confidence calculation that considers
+        function call context and target matching specifics.
+
+        Args:
+            result: Search result dictionary
+            function_call: Original function call
+            target_name: Extracted target function name
+            query: Search query
+
+        Returns:
+            Confidence score between 0.0 and 1.0
+        """
+        score = 0.0
+
+        # Base score from search relevance
+        search_score = result.get("score", 0.0)
+        score += search_score * 0.3  # 30% weight for search relevance
+
+        # Function name matching (higher weight for call resolution)
+        result_name = result.get("name", "")
+        if result_name:
+            name_score = self._calculate_call_target_name_similarity(result_name, target_name)
+            score += name_score * 0.4  # 40% weight for name matching
+
+        # Chunk type relevance (prefer functions/methods for call targets)
+        chunk_type = result.get("chunk_type", "")
+        if chunk_type == "function":
+            score += 0.15  # 15% bonus for function definitions
+        elif chunk_type == "method":
+            score += 0.1  # 10% bonus for method definitions
+
+        # Signature and parameter matching
+        signature = result.get("signature", "")
+        if signature:
+            signature_score = self._calculate_signature_compatibility(signature, function_call.arguments_count)
+            score += signature_score * 0.1  # 10% weight for signature compatibility
+
+        # Language and file context matching
+        if result.get("language") == "python":  # Assuming Python for now
+            score += 0.05  # 5% bonus for language match
+
+        # Normalize to 0.0-1.0 range
+        return min(score, 1.0)
+
+    def _calculate_call_target_name_similarity(self, result_name: str, target_name: str) -> float:
+        """
+        Calculate name similarity specifically for call target matching.
+
+        Args:
+            result_name: Name from search result
+            target_name: Target function name from call
+
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        if not result_name or not target_name:
+            return 0.0
+
+        result_lower = result_name.lower()
+        target_lower = target_name.lower()
+
+        # Exact match gets highest score
+        if result_lower == target_lower:
+            return 1.0
+
+        # Check for exact substring match
+        if result_lower in target_lower or target_lower in result_lower:
+            return 0.9
+
+        # Check for word similarity in camelCase/snake_case
+        result_words = re.findall(r"[A-Z][a-z]*|[a-z]+|\d+", result_name)
+        target_words = re.findall(r"[A-Z][a-z]*|[a-z]+|\d+", target_name)
+
+        if result_words and target_words:
+            common_words = set(w.lower() for w in result_words) & set(w.lower() for w in target_words)
+            if common_words:
+                overlap_ratio = len(common_words) / max(len(result_words), len(target_words))
+                return overlap_ratio * 0.8
+
+        # Fuzzy similarity for remaining cases
+        return self._fuzzy_similarity(result_lower, target_lower) * 0.6
+
+    def _calculate_signature_compatibility(self, signature: str, call_arg_count: int) -> float:
+        """
+        Calculate compatibility between function signature and call arguments.
+
+        Args:
+            signature: Function signature from search result
+            call_arg_count: Number of arguments in the function call
+
+        Returns:
+            Compatibility score between 0.0 and 1.0
+        """
+        if not signature:
+            return 0.0
+
+        try:
+            # Count parameters in signature (simplified)
+            if "(" in signature and ")" in signature:
+                params_part = signature.split("(", 1)[1].split(")", 1)[0]
+
+                # Handle empty parameters
+                if not params_part.strip():
+                    param_count = 0
+                else:
+                    # Simple parameter counting (ignores complex cases)
+                    param_count = params_part.count(",") + 1
+
+                # Calculate compatibility based on argument count difference
+                if param_count == call_arg_count:
+                    return 1.0
+                elif abs(param_count - call_arg_count) <= 1:
+                    return 0.7  # Close match
+                elif abs(param_count - call_arg_count) <= 2:
+                    return 0.4  # Reasonable match
+                else:
+                    return 0.1  # Poor match
+
+        except Exception:
+            return 0.0
+
+        return 0.0
+
+    def _generate_call_target_reasoning(self, result: dict[str, Any], function_call: FunctionCall, target_name: str) -> str:
+        """
+        Generate reasoning for call target candidate selection.
+
+        Args:
+            result: Search result dictionary
+            function_call: Original function call
+            target_name: Target function name
+
+        Returns:
+            Human-readable reasoning string
+        """
+        reasons = []
+
+        # Name matching
+        result_name = result.get("name", "")
+        if result_name:
+            name_similarity = self._calculate_call_target_name_similarity(result_name, target_name)
+            if name_similarity >= 0.9:
+                reasons.append(f"function name '{result_name}' exactly matches call target '{target_name}'")
+            elif name_similarity >= 0.7:
+                reasons.append(f"function name '{result_name}' closely matches call target '{target_name}'")
+            elif name_similarity >= 0.5:
+                reasons.append(f"function name '{result_name}' partially matches call target '{target_name}'")
+
+        # Chunk type
+        chunk_type = result.get("chunk_type", "")
+        if chunk_type in ["function", "method"]:
+            reasons.append(f"is a {chunk_type} definition")
+
+        # Signature compatibility
+        signature = result.get("signature", "")
+        if signature:
+            compat_score = self._calculate_signature_compatibility(signature, function_call.arguments_count)
+            if compat_score >= 0.7:
+                reasons.append(f"signature {signature} is compatible with {function_call.arguments_count} arguments")
+
+        # File and location context
+        file_path = result.get("file_path", "")
+        if file_path:
+            reasons.append(f"found in {file_path}")
+
+        # Search relevance
+        score = result.get("score", 0.0)
+        if score > 0.8:
+            reasons.append("high semantic relevance to call expression")
+
+        if not reasons:
+            reasons.append("identified as potential call target")
+
+        return "Selected as call target because: " + ", ".join(reasons)
+
+    def _determine_call_target_match_type(self, result: dict[str, Any], function_call: FunctionCall, target_name: str) -> str:
+        """
+        Determine the type of match for call target resolution.
+
+        Args:
+            result: Search result dictionary
+            function_call: Original function call
+            target_name: Target function name
+
+        Returns:
+            Match type string
+        """
+        result_name = result.get("name", "")
+
+        if result_name:
+            name_similarity = self._calculate_call_target_name_similarity(result_name, target_name)
+            if name_similarity >= 0.9:
+                return "exact_name"
+            elif name_similarity >= 0.7:
+                return "close_name"
+            elif name_similarity >= 0.5:
+                return "partial_name"
+
+        # Check semantic score
+        score = result.get("score", 0.0)
+        if score > 0.8:
+            return "semantic"
+        elif score > 0.6:
+            return "contextual"
+        else:
+            return "fuzzy"
+
+    def _filter_and_rank_call_candidates(
+        self, candidates: list[BreadcrumbCandidate], function_call: FunctionCall
+    ) -> list[BreadcrumbCandidate]:
+        """
+        Filter and rank call target candidates with call-specific logic.
+
+        Args:
+            candidates: List of candidates to filter and rank
+            function_call: Original function call for context
+
+        Returns:
+            Filtered and sorted list of candidates
+        """
+        # Use slightly lower threshold for call resolution
+        call_min_threshold = max(0.2, self.min_confidence_threshold - 0.1)
+
+        # Filter by minimum confidence
+        filtered = [c for c in candidates if c.confidence_score >= call_min_threshold]
+
+        # Sort by confidence score (descending) with tiebreaking
+        filtered.sort(
+            key=lambda c: (
+                c.confidence_score,
+                1.0 if c.match_type == "exact_name" else 0.0,
+                -len(c.breadcrumb),  # Prefer shorter breadcrumbs for tiebreaking
+            ),
+            reverse=True,
+        )
+
+        # Remove duplicates (same breadcrumb)
+        seen_breadcrumbs = set()
+        unique_candidates = []
+        for candidate in filtered:
+            if candidate.breadcrumb not in seen_breadcrumbs:
+                seen_breadcrumbs.add(candidate.breadcrumb)
+                unique_candidates.append(candidate)
+
+        return unique_candidates
+
+    async def _validate_breadcrumb_exists(self, breadcrumb: str, target_projects: list[str] | None) -> BreadcrumbResolutionResult:
+        """
+        Validate that a breadcrumb actually exists in the codebase.
+
+        Args:
+            breadcrumb: Breadcrumb to validate
+            target_projects: Projects to search in
+
+        Returns:
+            BreadcrumbResolutionResult indicating if breadcrumb exists
+        """
+        try:
+            # Search for the breadcrumb directly
+            search_results = await search_async_cached(
+                query=breadcrumb,
+                n_results=5,
+                search_mode="keyword",  # Use keyword search for exact matching
+                include_context=False,
+                target_projects=target_projects,
+            )
+
+            if search_results.get("results"):
+                # Check if any result has matching breadcrumb
+                for result in search_results["results"]:
+                    result_breadcrumb = result.get("breadcrumb", "")
+                    if result_breadcrumb == breadcrumb:
+                        # Found exact match
+                        candidate = BreadcrumbCandidate(
+                            breadcrumb=breadcrumb,
+                            confidence_score=1.0,
+                            source_chunk=self._create_code_chunk_from_result(result),
+                            reasoning="Exact breadcrumb match found in codebase",
+                            match_type="exact",
+                            file_path=result.get("file_path", ""),
+                            line_start=result.get("line_start", 0),
+                            line_end=result.get("line_end", 0),
+                            chunk_type=result.get("chunk_type", ""),
+                            language=result.get("language", ""),
+                        )
+
+                        return BreadcrumbResolutionResult(
+                            query=breadcrumb, success=True, primary_candidate=candidate, search_results_count=len(search_results["results"])
+                        )
+
+            # No exact match found
+            return BreadcrumbResolutionResult(
+                query=breadcrumb,
+                success=False,
+                error_message="Breadcrumb not found in codebase",
+                search_results_count=len(search_results.get("results", [])),
+            )
+
+        except Exception as e:
+            return BreadcrumbResolutionResult(query=breadcrumb, success=False, error_message=f"Error validating breadcrumb: {str(e)}")
+
+    def _create_call_cache_key(self, function_call: FunctionCall, target_projects: list[str] | None) -> str:
+        """
+        Create a cache key for function call resolution.
+
+        Args:
+            function_call: FunctionCall object
+            target_projects: Optional list of target projects
+
+        Returns:
+            Cache key string
+        """
+        projects_str = ",".join(sorted(target_projects)) if target_projects else "all"
+        call_hash = hashlib.md5(function_call.call_expression.encode()).hexdigest()[:8]
+        return f"call:{call_hash}|{projects_str}"

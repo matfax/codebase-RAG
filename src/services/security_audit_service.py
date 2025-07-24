@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..utils.secure_cache_utils import SecurityAuditLog, SecurityContext, SecurityLevel
 

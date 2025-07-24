@@ -8,6 +8,7 @@ to support multiple languages with their unique characteristics.
 
 import logging
 from abc import ABC, abstractmethod
+from typing import Union
 
 from tree_sitter import Node
 

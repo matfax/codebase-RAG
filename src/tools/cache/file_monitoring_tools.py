@@ -7,7 +7,7 @@ cache invalidation, and monitor file system integration status.
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Union
 
 from src.services.file_monitoring_integration import get_file_monitoring_integration
 from src.services.file_monitoring_service import MonitoringMode

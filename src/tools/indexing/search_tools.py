@@ -10,7 +10,7 @@ import os
 import traceback
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -21,13 +21,12 @@ from qdrant_client.http.models import (
 )
 
 # Import cache services
-from services.search_cache_service import (
+from src.services.search_cache_service import (
     SearchMode,
     SearchParameters,
     SearchScope,
     get_search_cache_service,
 )
-
 from src.tools.core.errors import (
     EmbeddingError,
     QdrantConnectionError,
@@ -73,7 +72,7 @@ def get_embeddings_manager_instance():
     """Get or create embeddings manager instance."""
     global _embeddings_manager
     if _embeddings_manager is None:
-        from services.embedding_service import EmbeddingService
+        from src.services.embedding_service import EmbeddingService
 
         _embeddings_manager = EmbeddingService()
     return _embeddings_manager
@@ -219,7 +218,7 @@ def _expand_search_context(
                 # Try to create relative path filter as fallback
                 file_filter_rel = None
                 try:
-                    from tools.project.project_utils import get_current_project
+                    from src.tools.project.project_utils import get_current_project
 
                     current_project = get_current_project(str(abs_path.parent))
                     if current_project and current_project.get("root"):
@@ -1389,7 +1388,7 @@ async def analyze_repository_tool(directory: str = ".") -> dict[str, Any]:
         complexity assessment, and indexing recommendations.
     """
     try:
-        from services.project_analysis_service import ProjectAnalysisService
+        from src.services.project_analysis_service import ProjectAnalysisService
 
         logger.info(f"Analyzing repository: {directory}")
 
@@ -1432,7 +1431,7 @@ async def get_file_filtering_stats_tool(directory: str = ".") -> dict[str, Any]:
         configuration settings, and recommendations.
     """
     try:
-        from services.project_analysis_service import ProjectAnalysisService
+        from src.services.project_analysis_service import ProjectAnalysisService
 
         logger.info(f"Analyzing file filtering for: {directory}")
 
@@ -1509,7 +1508,7 @@ async def check_index_status_tool(directory: str = ".") -> dict[str, Any]:
 
         # Get file count estimation for recommendations
         try:
-            from services.project_analysis_service import ProjectAnalysisService
+            from src.services.project_analysis_service import ProjectAnalysisService
 
             analysis_service = ProjectAnalysisService()
             quick_analysis = analysis_service.analyze_repository(str(dir_path))

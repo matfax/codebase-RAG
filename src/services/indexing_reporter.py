@@ -12,7 +12,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 

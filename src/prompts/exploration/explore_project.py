@@ -42,7 +42,7 @@ class ExploreProjectPrompt(BasePromptImplementation):
             """
             try:
                 # Use enhanced project exploration service
-                from services.project_exploration_service import (
+                from src.services.project_exploration_service import (
                     ProjectExplorationService,
                 )
 

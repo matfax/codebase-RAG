@@ -1,4 +1,5 @@
 """
+from typing import Union
 Integration tests for intelligent code chunking functionality.
 
 These tests verify the end-to-end intelligent chunking workflow including:
@@ -18,10 +19,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from services.code_parser_service import CodeParserService
-from services.indexing_service import IndexingService
-
 from src.models.code_chunk import ChunkType, CodeChunk, ParseResult
+from src.services.code_parser_service import CodeParserService
+from src.services.indexing_service import IndexingService
 
 
 class TestIntelligentChunkingIntegration:
@@ -144,7 +144,7 @@ class UserManager {
         this.users.push(user);
     }
 
-    getUser(id: number): User | undefined {
+    getUser(id: number): Union[User, undefined] {
         return this.users.find(u => u.id === id);
     }
 }

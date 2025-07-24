@@ -6,13 +6,14 @@ using a dedicated metadata collection in Qdrant to track file states.
 """
 
 import logging
-from typing import Any
+from typing import Any, Union
 
-from models.file_metadata import FileMetadata
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
-from utils.point_id_generator import generate_deterministic_uuid
-from utils.point_id_validator import validate_point_id
+
+from src.models.file_metadata import FileMetadata
+from src.utils.point_id_generator import generate_deterministic_uuid
+from src.utils.point_id_validator import validate_point_id
 
 from .qdrant_service import QdrantService
 

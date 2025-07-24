@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Any, Optional, Union
 from uuid import uuid4
 
-from config.cache_config import CacheConfig, get_global_cache_config
+from src.config.cache_config import CacheConfig, get_global_cache_config
 
 
 class KeyType(Enum):

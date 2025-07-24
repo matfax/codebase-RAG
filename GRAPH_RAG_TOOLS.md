@@ -80,6 +80,92 @@ result = await graph_identify_patterns_tool(
 - Quality insights
 - Improvement suggestions (optional)
 
+## Function Chain Analysis Tools
+
+### 4. trace_function_chain_tool
+
+Traces complete function execution chains from an entry point with comprehensive analysis.
+
+**Usage:**
+```python
+result = await trace_function_chain_tool(
+    entry_point="MyClass.method_name",  # Function/class identifier
+    project_name="my_project",
+    direction="forward",  # "forward", "backward", "bidirectional"
+    max_depth=10,
+    output_format="arrow",  # "arrow", "mermaid", "both"
+    include_mermaid=False,
+    chain_type="execution_flow",  # "execution_flow", "data_flow", "dependency_chain"
+    min_link_strength=0.3,
+    identify_branch_points=True,
+    identify_terminal_points=True,
+    performance_monitoring=True
+)
+```
+
+**Returns:**
+- Function execution chains with formatted output
+- Branch points and terminal points identification
+- Performance metrics and timing
+- Chain complexity analysis
+- Optional Mermaid diagrams
+
+### 5. find_function_path_tool
+
+Finds the most efficient path between two functions in a codebase with quality metrics.
+
+**Usage:**
+```python
+result = await find_function_path_tool(
+    start_function="authenticate_user",  # Starting function identifier
+    end_function="validate_credentials",  # Target function identifier
+    project_name="my_project",
+    strategy="optimal",  # "shortest", "optimal", "all"
+    max_paths=3,
+    max_depth=15,
+    include_quality_metrics=True,
+    output_format="arrow",  # "arrow", "mermaid", "both"
+    include_mermaid=False,
+    min_link_strength=0.3,
+    optimize_for="reliability"  # "reliability", "directness", "simplicity"
+)
+```
+
+**Returns:**
+- Optimal paths between functions with quality metrics
+- Path reliability and complexity scores
+- Multiple path options with rankings
+- Visual path representations
+- Performance diagnostics
+
+### 6. analyze_project_chains_tool
+
+Analyzes function chains across an entire project with comprehensive insights.
+
+**Usage:**
+```python
+result = await analyze_project_chains_tool(
+    project_name="my_project",
+    analysis_scope="full_project",  # "full_project", "scoped_breadcrumbs", "specific_modules"
+    breadcrumb_patterns=["*.service.*", "*.controller.*"],  # Optional
+    analysis_types=["complexity_analysis", "hotspot_identification", "pattern_detection"],
+    max_functions_per_chain=50,
+    complexity_threshold=0.7,
+    output_format="comprehensive",  # "comprehensive", "summary", "detailed"
+    include_mermaid=True,
+    include_hotspot_analysis=True,
+    include_refactoring_suggestions=False,
+    enable_complexity_weighting=True
+)
+```
+
+**Returns:**
+- Project-wide function chain analysis
+- Complexity hotspot identification
+- Architectural pattern detection
+- Refactoring recommendations (optional)
+- Comprehensive reporting with visualizations
+
 ## Integration with Existing Tools
 
 ### Compatibility with Search Tools
@@ -90,6 +176,9 @@ The Graph RAG tools are designed to complement the existing search functionality
 - **Graph Analysis**: Use `graph_analyze_structure_tool` for structural relationships
 - **Pattern Search**: Use `graph_find_similar_implementations_tool` for cross-project patterns
 - **Architecture Analysis**: Use `graph_identify_patterns_tool` for design patterns
+- **Function Chain Analysis**: Use `trace_function_chain_tool` for execution flow tracing
+- **Function Path Finding**: Use `find_function_path_tool` for optimal path discovery
+- **Project-wide Analysis**: Use `analyze_project_chains_tool` for comprehensive insights
 
 ### Service Dependencies
 
@@ -109,6 +198,13 @@ Graph RAG tools rely on services from previous waves:
 - `PatternRecognitionService` - Pattern identification
 - `ImplementationChainService` - Implementation tracing
 - `PatternComparisonService` - Pattern analysis
+
+**Enhanced Function Call Detection Dependencies:**
+- `FunctionCallExtractor` - Function call detection from AST
+- `CallConfidenceScorer` - Function call confidence analysis
+- `CallWeightCalculator` - Function call weight calculation
+- `BreadcrumbResolver` - Natural language to breadcrumb conversion
+- `IntegratedFunctionCallResolver` - Integrated call resolution pipeline
 
 ### Error Handling
 

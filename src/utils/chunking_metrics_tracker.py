@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Union
 
 from src.models.code_chunk import ParseResult
 

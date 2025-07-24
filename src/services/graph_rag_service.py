@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import ChunkType, CodeChunk
 from src.models.file_metadata import FileMetadata
@@ -140,6 +140,21 @@ class GraphRAGService:
             if not chunks:
                 self.logger.warning(f"No chunks found for project: {project_name}")
                 return StructureGraph(nodes={}, edges=[], project_name=project_name)
+
+            # AGGRESSIVE performance protection - severely limit chunks for MCP tools
+            max_chunks_for_mcp = 5  # Extremely aggressive limit for MCP tools - prioritize speed over completeness
+            if len(chunks) > max_chunks_for_mcp:
+                self.logger.warning(
+                    f"Large project detected ({len(chunks)} chunks), aggressively limiting to {max_chunks_for_mcp} for MCP tool performance"
+                )
+                # Only use function chunks - skip everything else for speed
+                function_chunks = [c for c in chunks if c.chunk_type.value == "function"][:max_chunks_for_mcp]
+                if len(function_chunks) < max_chunks_for_mcp:
+                    # Add some method chunks if we don't have enough functions
+                    method_chunks = [c for c in chunks if c.chunk_type.value == "method"][: (max_chunks_for_mcp - len(function_chunks))]
+                    function_chunks.extend(method_chunks)
+                chunks = function_chunks
+                self.logger.info(f"MCP performance mode: processing only {len(chunks)} most relevant chunks (functions/methods only)")
 
             # Build the graph structure
             graph = await self.relationship_builder.build_relationship_graph(chunks, project_name)
@@ -317,6 +332,47 @@ class GraphRAGService:
             # Individual project caches should be cleared as needed
 
             self.logger.info("Invalidated all graph caches")
+
+    def configure_function_call_detection(self, enable: bool = True, confidence_threshold: float = 0.5, invalidate_cache: bool = True):
+        """
+        Configure function call detection settings for the Graph RAG service.
+
+        Args:
+            enable: Whether to enable function call detection in graph building
+            confidence_threshold: Minimum confidence threshold for function call edges
+            invalidate_cache: Whether to invalidate existing graph caches after configuration change
+        """
+        # Initialize relationship builder if not already done
+        if self.relationship_builder is None:
+            self.relationship_builder = StructureRelationshipBuilder(self.qdrant_service, self.structure_analyzer)
+
+        # Configure the relationship builder
+        self.relationship_builder.configure_function_call_detection(enable, confidence_threshold)
+
+        # Invalidate caches if requested (since changing configuration affects graph building)
+        if invalidate_cache:
+            self._graph_cache.clear()
+            self._cache_timestamps.clear()
+            self.logger.info("Graph caches invalidated due to function call detection configuration change")
+
+        self.logger.info(f"Function call detection configured: enabled={enable}, " f"confidence_threshold={confidence_threshold}")
+
+    def get_function_call_detection_config(self) -> dict[str, any]:
+        """
+        Get current function call detection configuration.
+
+        Returns:
+            Dictionary with current configuration settings
+        """
+        if self.relationship_builder is None:
+            # Return default configuration
+            return {"enabled": True, "confidence_threshold": 0.5, "status": "not_initialized"}
+
+        return {
+            "enabled": self.relationship_builder.enable_function_call_detection,
+            "confidence_threshold": self.relationship_builder.function_call_confidence_threshold,
+            "status": "configured",
+        }
 
     async def advanced_component_search(
         self,

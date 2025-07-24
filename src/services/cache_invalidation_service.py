@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..config.cache_config import CacheConfig, get_global_cache_config
 from ..models.code_chunk import CodeChunk

@@ -10,15 +10,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any
+from typing import Any, Union
 
 import psutil
 from git import GitCommandError, Repo
-from services.code_parser_service import CodeParserService
-from services.project_analysis_service import ProjectAnalysisService
 
 from src.models.code_chunk import ChunkType
 from src.models.code_chunk import CodeChunk as ParsedCodeChunk
+from src.services.code_parser_service import CodeParserService
+from src.services.project_analysis_service import ProjectAnalysisService
 from src.utils.performance_monitor import MemoryMonitor, ProgressTracker
 from src.utils.stage_logger import (
     get_file_discovery_logger,
@@ -685,12 +685,12 @@ class IndexingService:
             List of files that need to be reindexed
         """
         try:
-            from services.change_detector_service import ChangeDetectorService
-            from services.file_metadata_service import FileMetadataService
+            from src.services.change_detector_service import ChangeDetectorService
+            from src.services.file_metadata_service import FileMetadataService
 
             # Initialize services if not already done
             if not hasattr(self, "_metadata_service"):
-                from services.qdrant_service import QdrantService
+                from src.services.qdrant_service import QdrantService
 
                 self._metadata_service = FileMetadataService(QdrantService())
                 self._change_detector = ChangeDetectorService(self._metadata_service)
@@ -739,7 +739,7 @@ class IndexingService:
             if not file_paths:
                 return True
 
-            from services.qdrant_service import QdrantService
+            from src.services.qdrant_service import QdrantService
 
             # Initialize Qdrant service if not already done
             if not hasattr(self, "_qdrant_service"):

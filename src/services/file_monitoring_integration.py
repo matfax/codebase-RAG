@@ -9,7 +9,7 @@ with real-time responsiveness and optimized performance.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 from ..services.cache_invalidation_service import CacheInvalidationService, get_cache_invalidation_service
 from ..services.file_monitoring_service import (

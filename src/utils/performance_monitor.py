@@ -12,7 +12,7 @@ import weakref
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import psutil
 
@@ -595,7 +595,12 @@ class CachePerformanceMonitor:
                 self._cache_type_aggregated_metrics[cache_type] = CacheMetrics()
 
     def record_operation(
-        self, cache_name: str, operation: CacheOperation, response_time: float = 0.0, hit: bool = False, cache_level: str | None = None
+        self,
+        cache_name: str,
+        operation: CacheOperation,
+        response_time: float = 0.0,
+        hit: bool = False,
+        cache_level: str | None = None,
     ) -> None:
         """Record a cache operation with timing and hit/miss information."""
         if not self._monitoring_enabled:

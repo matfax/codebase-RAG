@@ -9,6 +9,7 @@ Enhanced with file processing cache integration for improved performance.
 import logging
 import time
 from datetime import datetime
+from typing import Union
 
 try:
     from tree_sitter import Parser

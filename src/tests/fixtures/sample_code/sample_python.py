@@ -1,4 +1,5 @@
 """
+from typing import Union
 Sample Python code for testing intelligent chunking.
 
 This file contains various Python constructs to test the parsing
@@ -24,7 +25,7 @@ class User:
 
     id: int
     name: str
-    email: str | None = None
+    email: Union[str, None] = None
 
     def to_dict(self) -> dict[str, any]:
         """Convert user to dictionary."""
@@ -72,7 +73,7 @@ class UserManager:
         self._save_users()
         return True
 
-    def get_user(self, user_id: int) -> User | None:
+    def get_user(self, user_id: int) -> Union[User, None]:
         """Retrieve a user by ID.
 
         Args:

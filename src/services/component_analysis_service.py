@@ -13,11 +13,11 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 try:
-    from services.code_parser_service import CodeParserService
-    from services.embedding_service import EmbeddingService
+    from src.services.code_parser_service import CodeParserService
+    from src.services.embedding_service import EmbeddingService
 except ImportError:
     # For testing without full service dependencies
     EmbeddingService = None

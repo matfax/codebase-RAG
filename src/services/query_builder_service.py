@@ -107,8 +107,8 @@ class QueryBuilderService:
             "python_only": QueryFilter("language", FilterOperator.EQUALS, "python"),
             "javascript_only": QueryFilter("language", FilterOperator.EQUALS, "javascript"),
             "typescript_only": QueryFilter("language", FilterOperator.EQUALS, "typescript"),
-            "main_files": QueryFilter("file_path", FilterOperator.REGEX, r".*(main|index|app)\.(py|js|ts)$"),
-            "test_files": QueryFilter("file_path", FilterOperator.REGEX, r".*(test|spec).*\.(py|js|ts)$"),
+            "main_files": QueryFilter("file_path", FilterOperator.REGEX, r".*(Union[main, index]|app)\.(Union[py, js]|ts)$"),
+            "test_files": QueryFilter("file_path", FilterOperator.REGEX, r".*(Union[test, spec]).*\.(Union[py, js]|ts)$"),
             "high_importance": QueryFilter("importance_score", FilterOperator.GREATER_EQUAL, 0.7),
         }
 
@@ -549,7 +549,7 @@ class QueryBuilderService:
                 return qdrant_models.FieldCondition(key=field_key, range=qdrant_models.Range(lte=value))
 
             elif operator == FilterOperator.RANGE:
-                if isinstance(value, list | tuple) and len(value) == 2:
+                if isinstance(value, Union[list, tuple]) and len(value) == 2:
                     return qdrant_models.FieldCondition(key=field_key, range=qdrant_models.Range(gte=value[0], lte=value[1]))
 
             elif operator == FilterOperator.MATCH:

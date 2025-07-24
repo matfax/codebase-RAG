@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from ..config.cache_config import get_global_cache_config
 from ..utils.memory_utils import (

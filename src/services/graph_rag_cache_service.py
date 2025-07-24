@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from .cache_service import get_cache_service
 from .graph_traversal_algorithms import (

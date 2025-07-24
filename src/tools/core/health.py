@@ -22,7 +22,7 @@ except ImportError:
 
 # Import cache alert service (with fallback if not available)
 try:
-    from services.cache_alert_service import get_cache_alert_service
+    from src.services.cache_alert_service import get_cache_alert_service
 
     CACHE_ALERT_SERVICE_AVAILABLE = True
 except ImportError:

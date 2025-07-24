@@ -13,7 +13,7 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from ..models.code_chunk import ChunkType, CodeChunk
 from .cross_project_search_service import CrossProjectMatch, CrossProjectSearchFilter

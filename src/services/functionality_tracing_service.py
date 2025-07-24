@@ -13,10 +13,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 try:
-    from services.component_analysis_service import ComponentAnalysisService
+    from src.services.component_analysis_service import ComponentAnalysisService
 except ImportError:
     ComponentAnalysisService = None
 

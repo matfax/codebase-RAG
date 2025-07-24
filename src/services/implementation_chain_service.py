@@ -14,7 +14,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.models.code_chunk import ChunkType, CodeChunk
 
@@ -695,12 +695,12 @@ class ImplementationChainService:
     def _is_relevant_relationship(self, relationship_type: str, chain_type: ChainType) -> bool:
         """Check if a relationship type is relevant for the chain type."""
         relevance_map = {
-            ChainType.EXECUTION_FLOW: ["parent_child", "dependency", "calls"],
+            ChainType.EXECUTION_FLOW: ["parent_child", "dependency", "calls", "function_call", "sibling"],
             ChainType.DATA_FLOW: ["dependency", "data_flow", "transforms"],
             ChainType.DEPENDENCY_CHAIN: ["dependency", "uses", "imports"],
             ChainType.INHERITANCE_CHAIN: ["parent_child", "inherits", "extends"],
             ChainType.INTERFACE_IMPLEMENTATION: ["implementation", "implements", "realizes"],
-            ChainType.SERVICE_LAYER_CHAIN: ["dependency", "uses", "calls"],
+            ChainType.SERVICE_LAYER_CHAIN: ["dependency", "uses", "calls", "function_call"],
             ChainType.API_ENDPOINT_CHAIN: ["parent_child", "dependency", "handles"],
             ChainType.EVENT_HANDLING_CHAIN: ["dependency", "listens", "handles"],
             ChainType.CONFIGURATION_CHAIN: ["dependency", "configures", "uses"],
@@ -1046,7 +1046,7 @@ class ImplementationChainService:
                     components2 = chain_components[j]
 
                     overlap = len(components1 & components2)
-                    union = len(components1 | components2)
+                    union = len(Union[components1, components2])
 
                     if union > 0:
                         overlap_score = overlap / union
@@ -1077,7 +1077,7 @@ class ImplementationChainService:
             # Factor 2: Component type similarity
             types1 = set(chain1.components_by_type.keys())
             types2 = set(chain2.components_by_type.keys())
-            type_overlap = len(types1 & types2) / len(types1 | types2) if (types1 | types2) else 0.0
+            type_overlap = len(types1 & types2) / len(Union[types1, types2]) if (Union[types1, types2]) else 0.0
             similarity_factors.append(type_overlap)
 
             # Factor 3: Quality similarity

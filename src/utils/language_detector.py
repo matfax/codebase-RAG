@@ -1,12 +1,13 @@
 """Language detection utility.
 
+from typing import Union
 This module provides language detection functionality for source code files.
 """
 
 from .language_registry import LanguageRegistry
 
 
-def detect_language(file_path: str) -> str | None:
+def detect_language(file_path: str) -> Union[str, None]:
     """Detect the programming language of a source file.
 
     Args:

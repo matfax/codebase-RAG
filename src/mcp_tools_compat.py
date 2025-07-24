@@ -7,7 +7,7 @@ All functions are now imported from the new modular structure.
 
 import warnings
 
-from tools import register_tools
+from src.tools import register_tools
 
 # Error classes are exported through __all__ without importing them directly
 # to maintain backward compatibility without unused imports

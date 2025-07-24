@@ -6,7 +6,7 @@ managing project configuration, and handling collection naming.
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 # Configure logging
 logger = logging.getLogger(__name__)

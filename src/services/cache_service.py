@@ -20,11 +20,12 @@ from threading import Lock
 from typing import Any, Optional, Union
 
 import redis.asyncio as redis
-from config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
 from redis.asyncio.connection import ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
-from utils.cache_eviction_policies import EvictionOptimizer, EvictionPolicy, EvictionPolicyFactory
-from utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
+
+from src.config.cache_config import CacheConfig, CacheLevel, CacheWriteStrategy, get_global_cache_config
+from src.utils.cache_eviction_policies import EvictionOptimizer, EvictionPolicy, EvictionPolicyFactory
+from src.utils.telemetry import get_telemetry_manager, trace_cache_method, trace_cache_operation
 
 
 class CacheError(Exception):
@@ -443,7 +444,7 @@ class RedisCacheService(BaseCacheService):
                         operation="get",
                         cache_name=self.config.key_prefix,
                         hit=True,
-                        cache_size=len(value) if isinstance(value, str | bytes) else None,
+                        cache_size=len(value) if isinstance(value, Union[str, bytes]) else None,
                     )
                     return deserialized_value
                 else:
@@ -479,11 +480,11 @@ class RedisCacheService(BaseCacheService):
                 cache_ttl = ttl or self.config.default_ttl
 
                 # Serialize value for Redis storage
-                if isinstance(value, dict | list):
+                if isinstance(value, Union[dict, list]):
                     import json
 
                     serialized_value = json.dumps(value)
-                elif isinstance(value, str | bytes | int | float):
+                elif isinstance(value, Union[str, bytes] | Union[int, float]):
                     serialized_value = value
                 else:
                     import json
@@ -499,7 +500,7 @@ class RedisCacheService(BaseCacheService):
                 telemetry.record_cache_operation(
                     operation="set",
                     cache_name=self.config.key_prefix,
-                    cache_size=len(value) if isinstance(value, str | bytes) else None,
+                    cache_size=len(value) if isinstance(value, Union[str, bytes]) else None,
                     additional_attributes={"cache.ttl": cache_ttl},
                 )
 
@@ -604,11 +605,11 @@ class RedisCacheService(BaseCacheService):
                     prefixed_key = f"{self.config.key_prefix}:{key}"
 
                     # Serialize value for Redis storage
-                    if isinstance(value, dict | list):
+                    if isinstance(value, Union[dict, list]):
                         import json
 
                         serialized_value = json.dumps(value)
-                    elif isinstance(value, str | bytes | int | float):
+                    elif isinstance(value, Union[str, bytes] | Union[int, float]):
                         serialized_value = value
                     else:
                         import json
@@ -928,9 +929,9 @@ class LRUMemoryCache:
             # Fallback estimation
             if isinstance(value, str):
                 return len(value.encode("utf-8"))
-            elif isinstance(value, int | float):
+            elif isinstance(value, Union[int, float]):
                 return 8
-            elif isinstance(value, list | tuple):
+            elif isinstance(value, Union[list, tuple]):
                 return sum(self._estimate_size(item) for item in value)
             elif isinstance(value, dict):
                 return sum(self._estimate_size(k) + self._estimate_size(v) for k, v in value.items())

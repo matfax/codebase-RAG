@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Optional, Union
 
-from services.cache_alert_service import (
+from src.services.cache_alert_service import (
     AlertSeverity,
     AlertThreshold,
     AlertType,
@@ -547,7 +547,7 @@ async def test_notification_channels() -> dict[str, Any]:
             }
 
         # Create a test alert
-        from services.cache_alert_service import Alert, AlertSeverity, AlertThreshold, AlertType
+        from src.services.cache_alert_service import Alert, AlertSeverity, AlertThreshold, AlertType
 
         test_threshold = AlertThreshold(
             alert_type=AlertType.CUSTOM,

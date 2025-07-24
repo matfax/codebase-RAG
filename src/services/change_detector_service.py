@@ -10,8 +10,9 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Union
 
-from models.file_metadata import FileMetadata
+from src.models.file_metadata import FileMetadata
 
 from .file_metadata_service import FileMetadataService
 

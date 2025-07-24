@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from services.indexing_reporter import IndexingError, IndexingReport, IndexingReporter
+from src.services.indexing_reporter import IndexingError, IndexingReport, IndexingReporter
 
 
 class TestIndexingError(unittest.TestCase):

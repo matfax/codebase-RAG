@@ -11,7 +11,7 @@ import math
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from src.services.breadcrumb_resolver_service import BreadcrumbResolver
 from src.services.implementation_chain_service import (
@@ -493,7 +493,7 @@ def _validate_path_finding_parameters(
             "suggestions": ["Use a reasonable depth value between 1 and 50"],
         }
 
-    if not isinstance(min_quality_threshold, int | float) or min_quality_threshold < 0.0 or min_quality_threshold > 1.0:
+    if not isinstance(min_quality_threshold, Union[int, float]) or min_quality_threshold < 0.0 or min_quality_threshold > 1.0:
         return {
             "valid": False,
             "error": f"Invalid min_quality_threshold: {min_quality_threshold}. Must be between 0.0 and 1.0",
