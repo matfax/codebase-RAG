@@ -173,6 +173,7 @@ async def find_function_path(
         from src.services.graph_rag_service import get_graph_rag_service
         from src.services.hybrid_search_service import get_hybrid_search_service
         from src.services.implementation_chain_service import get_implementation_chain_service
+        from src.services.lightweight_graph_service import LightweightGraphService
         from src.services.qdrant_service import QdrantService
 
         breadcrumb_resolver = BreadcrumbResolver()
@@ -186,6 +187,19 @@ async def find_function_path(
         implementation_chain_service = get_implementation_chain_service(
             graph_rag_service=graph_rag_service, hybrid_search_service=hybrid_search_service
         )
+
+        # Initialize LightweightGraphService for intelligent path finding (Task 1.4)
+        lightweight_graph_service = LightweightGraphService(
+            graph_rag_service=graph_rag_service,
+            hybrid_search_service=hybrid_search_service,
+            enable_timeout=True,
+            default_timeout=15,
+            enable_progressive_results=True,
+            confidence_threshold=0.7,
+        )
+
+        # Initialize memory index if not already done
+        await lightweight_graph_service.initialize_memory_index(project_name, force_rebuild=False)
 
         # Step 1: Resolve breadcrumbs for both functions
         breadcrumb_start_time = time.time()
@@ -252,7 +266,7 @@ async def find_function_path(
         if performance_monitoring:
             results["performance"]["breadcrumb_resolution_time"] = (time.time() - breadcrumb_start_time) * 1000
 
-        # Step 2: Find paths between the functions
+        # Step 2: Find paths using intelligent path finding (Task 1.4)
         path_finding_start_time = time.time()
 
         # Check if start and end are the same
@@ -265,26 +279,106 @@ async def find_function_path(
             ]
             return results
 
-        # Find multiple paths using bidirectional search
+        # Use intelligent path finding with cache optimization
         try:
-            paths = await _find_multiple_paths(
-                start_breadcrumb=start_breadcrumb,
-                end_breadcrumb=end_breadcrumb,
-                project_name=project_name,
-                strategy=path_strategy,
-                max_paths=max_paths,
+            # Map strategy to path strategies
+            strategy_mapping = {
+                PathStrategy.SHORTEST: ["bfs", "bidirectional"],
+                PathStrategy.OPTIMAL: ["astar", "dijkstra", "bfs"],
+                PathStrategy.ALL: ["bfs", "dijkstra", "astar", "bidirectional"],
+            }
+
+            path_strategies = strategy_mapping.get(path_strategy, ["bfs", "dijkstra"])
+
+            # Use intelligent path finding with caching
+            intelligent_result = await lightweight_graph_service.find_intelligent_path(
+                start_node=start_breadcrumb,
+                end_node=end_breadcrumb,
                 max_depth=max_depth,
-                implementation_chain_service=implementation_chain_service,
+                path_strategies=path_strategies,
+                use_precomputed_routes=True,
             )
+
+            # Convert intelligent result to legacy format for compatibility
+            if intelligent_result["success"] and intelligent_result.get("path"):
+                path_nodes = intelligent_result["path"]
+
+                # Create FunctionPath object for compatibility
+                quality = PathQuality(
+                    reliability_score=min(1.0, intelligent_result.get("quality_score", 0.8) * 1.2),
+                    complexity_score=max(0.1, 1.0 - intelligent_result.get("quality_score", 0.8)),
+                    directness_score=max(0.1, 1.0 - (len(path_nodes) - 2) * 0.1),
+                    overall_score=intelligent_result.get("quality_score", 0.8),
+                    path_length=len(path_nodes),
+                    confidence=intelligent_result.get("quality_score", 0.8),
+                    relationship_diversity=0.7,  # Default value
+                )
+
+                function_path = FunctionPath(
+                    start_breadcrumb=start_breadcrumb,
+                    end_breadcrumb=end_breadcrumb,
+                    path_steps=path_nodes,
+                    quality=quality,
+                    path_id=f"intelligent_{intelligent_result.get('strategy_used', 'unknown')}_{len(path_nodes)}",
+                    path_type=intelligent_result.get("strategy_used", "intelligent"),
+                    relationships=["intelligent_connection"] * (len(path_nodes) - 1),
+                    evidence=[f"Step {i + 1}: {node}" for i, node in enumerate(path_nodes)],
+                )
+
+                paths = [function_path]
+
+                # Add performance metrics
+                results["intelligent_path_finding"] = {
+                    "cache_hit": intelligent_result.get("cache_hit"),
+                    "strategy_used": intelligent_result.get("strategy_used"),
+                    "quality_score": intelligent_result.get("quality_score"),
+                    "alternative_strategies": intelligent_result.get("alternative_strategies", []),
+                    "execution_time_ms": intelligent_result.get("execution_time_ms", 0.0),
+                }
+
+            else:
+                # Fallback to traditional method if intelligent path finding fails
+                logger.warning(
+                    f"Intelligent path finding failed: {intelligent_result.get('error', 'Unknown error')}, falling back to traditional method"
+                )
+
+                paths = await _find_multiple_paths(
+                    start_breadcrumb=start_breadcrumb,
+                    end_breadcrumb=end_breadcrumb,
+                    project_name=project_name,
+                    strategy=path_strategy,
+                    max_paths=max_paths,
+                    max_depth=max_depth,
+                    implementation_chain_service=implementation_chain_service,
+                )
+
+                results["fallback_used"] = True
+                results["intelligent_path_error"] = intelligent_result.get("error", "Unknown error")
+
         except Exception as e:
             import traceback
 
-            logger.error(f"Detailed error in _find_multiple_paths: {e}")
+            logger.error(f"Detailed error in intelligent path finding: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-            results["success"] = False
-            results["error"] = f"Error finding paths from '{start_function}' to '{end_function}': {str(e)}"
-            results["detailed_error"] = traceback.format_exc()
-            return results
+
+            # Fallback to traditional method
+            try:
+                paths = await _find_multiple_paths(
+                    start_breadcrumb=start_breadcrumb,
+                    end_breadcrumb=end_breadcrumb,
+                    project_name=project_name,
+                    strategy=path_strategy,
+                    max_paths=max_paths,
+                    max_depth=max_depth,
+                    implementation_chain_service=implementation_chain_service,
+                )
+                results["fallback_used"] = True
+                results["intelligent_path_error"] = str(e)
+            except Exception as fallback_error:
+                results["success"] = False
+                results["error"] = f"Both intelligent and traditional path finding failed: {str(e)} | {str(fallback_error)}"
+                results["detailed_error"] = traceback.format_exc()
+                return results
 
         if performance_monitoring:
             results["performance"]["path_finding_time"] = (time.time() - path_finding_start_time) * 1000
