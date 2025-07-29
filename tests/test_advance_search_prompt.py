@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+
 from prompts.advanced_search.advance_search import AdvanceSearchPrompt
 
 

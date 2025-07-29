@@ -23,7 +23,7 @@ async def graph_identify_patterns(
     min_confidence: float = 0.6,
     include_comparisons: bool = True,
     include_improvements: bool = False,
-    max_patterns: int = 20,
+    max_patterns: int = 50,  # Increased for comprehensive pattern detection
     analysis_depth: str = "comprehensive",
 ) -> dict[str, Any]:
     """

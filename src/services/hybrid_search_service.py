@@ -46,7 +46,7 @@ class HybridSearchParameters:
     context_weight: float = 0.2  # Weight for contextual factors (0.0-1.0)
 
     # Similarity thresholds
-    min_semantic_similarity: float = 0.3  # Minimum semantic similarity threshold
+    min_semantic_similarity: float = 0.1  # Minimum semantic similarity threshold (lowered for testing)
     min_structural_similarity: float = 0.4  # Minimum structural similarity threshold
 
     # Graph traversal parameters
@@ -436,13 +436,32 @@ class HybridSearchService:
         """Perform semantic search across projects."""
         try:
             # Generate query embedding
-            embeddings_gen = self.embedding_service.generate_embeddings([query])
-            embeddings = [embedding async for embedding in embeddings_gen]
-            query_embedding = embeddings[0] if embeddings else []
-
-            if not query_embedding:
+            query_embedding_tensor = await self.embedding_service.generate_embeddings("nomic-embed-text", query)
+            if query_embedding_tensor is None:
                 self.logger.error("Failed to generate query embedding")
                 return []
+
+            # Convert tensor to list - ensure proper conversion
+            if hasattr(query_embedding_tensor, "tolist"):
+                query_embedding = query_embedding_tensor.tolist()
+            elif hasattr(query_embedding_tensor, "numpy"):
+                query_embedding = query_embedding_tensor.numpy().tolist()
+            else:
+                self.logger.error(f"Unexpected embedding type: {type(query_embedding_tensor)}")
+                return []
+
+            # Validate embedding format and dimensions
+            if not isinstance(query_embedding, list) or len(query_embedding) == 0:
+                self.logger.error(
+                    f"Generated query embedding is invalid: type={type(query_embedding)}, len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
+                )
+                return []
+
+            if len(query_embedding) != 768:
+                self.logger.error(f"Query embedding dimension mismatch: expected 768, got {len(query_embedding)}")
+                return []
+
+            self.logger.info(f"Successfully generated query embedding: {len(query_embedding)} dimensions")
 
             # Search across all target projects
             semantic_candidates = []
@@ -454,19 +473,67 @@ class HybridSearchService:
                     # Build filter for this project
                     qdrant_filter = self._build_qdrant_filter(filters) if filters else None
 
-                    # Perform vector search
-                    search_results = await self.qdrant_service.search(
+                    # Log search parameters
+                    self.logger.info(
+                        f"Qdrant search params - collection: {collection_name}, "
+                        f"vector_dim: {len(query_embedding)}, "
+                        f"limit: {params.max_results * 2}, "
+                        f"filter: {qdrant_filter is not None}, "
+                        f"threshold: {params.min_semantic_similarity}"
+                    )
+
+                    # Perform vector search - only pass supported parameters
+                    search_kwargs = {}
+                    if qdrant_filter is not None:
+                        search_kwargs["query_filter"] = qdrant_filter
+
+                    search_response = await self.qdrant_service.search_vectors(
                         collection_name=collection_name,
                         query_vector=query_embedding,
                         limit=params.max_results * 2,  # Get more candidates for reranking
-                        filter=qdrant_filter,
+                        score_threshold=0.0,  # Override threshold for debugging
+                        **search_kwargs,
                     )
+
+                    # Log raw response details
+                    self.logger.info(f"Raw Qdrant response type: {type(search_response)}, " f"is_dict: {isinstance(search_response, dict)}")
+                    if isinstance(search_response, dict):
+                        self.logger.info(f"Response keys: {list(search_response.keys())}")
+
+                        # Check for errors first
+                        if "error" in search_response:
+                            self.logger.error(f"Qdrant search error for {collection_name}: {search_response['error']}")
+                            continue
+
+                        results_count = len(search_response.get("results", []))
+                        self.logger.info(f"Results in response: {results_count}")
+                        if results_count > 0:
+                            first_result = search_response["results"][0]
+                            self.logger.info(
+                                f"First result keys: {list(first_result.keys()) if isinstance(first_result, dict) else 'not dict'}"
+                            )
+                            if isinstance(first_result, dict) and "score" in first_result:
+                                self.logger.info(f"First result score: {first_result['score']}")
+                    else:
+                        self.logger.warning(f"Unexpected response format: {search_response}")
+
+                    # Extract results from response
+                    search_results = search_response.get("results", []) if isinstance(search_response, dict) else []
+
+                    # Debug logging
+                    self.logger.info(f"Search response for {collection_name}: {len(search_results)} results")
+                    if search_results:
+                        scores = [r.get("score", 0) for r in search_results if isinstance(r, dict)]
+                        if scores:
+                            self.logger.info(
+                                f"Score range: {min(scores):.4f} - {max(scores):.4f}, threshold: {params.min_semantic_similarity}"
+                            )
 
                     # Convert to CodeChunk objects
                     for result in search_results:
-                        if result.score >= params.min_semantic_similarity:
-                            chunk = self._create_code_chunk_from_payload(result.payload)
-                            semantic_candidates.append((chunk, project_name, result.score))
+                        if isinstance(result, dict) and result.get("score", 0) >= params.min_semantic_similarity:
+                            chunk = self._create_code_chunk_from_payload(result.get("payload", {}))
+                            semantic_candidates.append((chunk, project_name, result.get("score", 0)))
 
                 except Exception as e:
                     self.logger.error(f"Error searching project {project_name}: {e}")

@@ -729,9 +729,28 @@ class GraphRAGService:
         """
         try:
             # Generate embedding for query
-            query_embedding = await self.embedding_service.generate_embeddings([query_text])
-            if not query_embedding:
+            query_embedding_tensor = await self.embedding_service.generate_embeddings("nomic-embed-text", query_text)
+            if query_embedding_tensor is None:
                 return {"error": "Failed to generate query embedding"}
+
+            # Convert tensor to list - ensure proper conversion
+            if hasattr(query_embedding_tensor, "tolist"):
+                query_embedding = query_embedding_tensor.tolist()
+            elif hasattr(query_embedding_tensor, "numpy"):
+                query_embedding = query_embedding_tensor.numpy().tolist()
+            else:
+                return {"error": f"Unexpected embedding type: {type(query_embedding_tensor)}"}
+
+            # Validate embedding format and dimensions
+            if not isinstance(query_embedding, list) or len(query_embedding) == 0:
+                return {
+                    "error": f"Generated query embedding is invalid: type={type(query_embedding)}, len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
+                }
+
+            if len(query_embedding) != 768:
+                return {"error": f"Query embedding dimension mismatch: expected 768, got {len(query_embedding)}"}
+
+            self.logger.info(f"Successfully generated query embedding: {len(query_embedding)} dimensions")
 
             # Search in Qdrant collections
             search_results = []
@@ -1105,8 +1124,11 @@ def get_graph_rag_service(
     global _graph_rag_service_instance
 
     if _graph_rag_service_instance is None:
-        if qdrant_service is None or embedding_service is None:
-            raise ValueError("qdrant_service and embedding_service are required for first initialization")
+        # Create services if not provided
+        if qdrant_service is None:
+            qdrant_service = QdrantService()
+        if embedding_service is None:
+            embedding_service = EmbeddingService()
         _graph_rag_service_instance = GraphRAGService(qdrant_service, embedding_service)
 
     return _graph_rag_service_instance

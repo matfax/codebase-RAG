@@ -52,6 +52,75 @@ def register_tools(mcp_app: FastMCP) -> None:
         """
         return await health_check()
 
+    # Register auto-configuration tool
+    from .core.auto_configuration import get_recommended_configuration
+
+    @mcp_app.tool()
+    async def get_auto_configuration(
+        directory: str = ".",
+        usage_pattern: str = "balanced",
+    ):
+        """Get automatic configuration recommendations for MCP tools.
+
+        This tool analyzes system capabilities and project characteristics
+        to provide optimal configuration settings that reduce user configuration
+        burden and improve performance.
+
+        Args:
+            directory: Path to the directory to analyze (default: current directory)
+            usage_pattern: Usage pattern preference - "conservative", "balanced", or "performance"
+
+        Returns:
+            Dictionary containing recommended configurations for search, indexing,
+            caching, and performance settings, along with system recommendations
+        """
+        return await get_recommended_configuration(directory, usage_pattern)
+
+    # Register compatibility check tool
+    from .core.compatibility_check import run_compatibility_check
+
+    @mcp_app.tool()
+    async def check_tool_compatibility():
+        """Check backward compatibility of all MCP tools after Wave 7.0 enhancements.
+
+        This tool verifies that existing tool interfaces continue to work correctly
+        and that new features don't break existing workflows.
+
+        Returns:
+            Dictionary containing comprehensive compatibility report with test results
+        """
+        return await run_compatibility_check()
+
+    # Register performance monitoring tools
+    from .core.performance_monitor import get_performance_dashboard
+
+    @mcp_app.tool()
+    async def get_performance_dashboard_tool():
+        """Get comprehensive performance dashboard for all MCP tools.
+
+        This tool provides real-time performance monitoring, timeout tracking,
+        and system metrics to ensure optimal performance and <15 second responses.
+
+        Returns:
+            Dictionary containing performance metrics, active operations, and system status
+        """
+        return await get_performance_dashboard()
+
+    # Register service health monitoring tools
+    from .core.graceful_degradation import get_service_health_status
+
+    @mcp_app.tool()
+    async def get_service_health_status_tool():
+        """Get comprehensive service health status and error tracking.
+
+        This tool provides information about service degradation levels,
+        error patterns, and recovery status for all MCP tools.
+
+        Returns:
+            Dictionary containing service health metrics and error summaries
+        """
+        return await get_service_health_status()
+
     # Register indexing tools
     from .indexing.index_tools import index_directory as index_directory_impl
 
@@ -108,12 +177,18 @@ def register_tools(mcp_app: FastMCP) -> None:
         include_context: bool = True,
         context_chunks: int = 1,
         target_projects: list[str] | None = None,
+        # Multi-modal parameters
+        multi_modal_mode: str | None = None,
+        enable_multi_modal: bool = False,
+        enable_manual_mode_selection: bool = False,
+        include_query_analysis: bool = False,
+        performance_timeout_seconds: int = 15,
     ):
-        """Search indexed content using natural language queries.
+        """Search indexed content using natural language queries with multi-modal retrieval support.
 
-        This tool provides function-level precision search with intelligent
-        chunking, supporting multiple search modes and context expansion for
-        better code understanding.
+        This tool provides function-level precision search with intelligent chunking,
+        supporting multiple search modes, context expansion, and advanced multi-modal
+        retrieval strategies (Local, Global, Hybrid, Mix) for enhanced search performance.
 
         Args:
             query: Natural language search query
@@ -128,10 +203,20 @@ def register_tools(mcp_app: FastMCP) -> None:
                             results (0-5, default: 1)
             target_projects: List of specific project names to search in
                              (optional)
+            multi_modal_mode: Multi-modal retrieval mode - "local", "global",
+                             "hybrid", "mix" (optional, auto-detected if enabled)
+            enable_multi_modal: Enable enhanced multi-modal retrieval for better results
+                               (default: False - uses standard search)
+            enable_manual_mode_selection: Allow manual override of auto-detected mode
+                                         (default: False - uses AI recommendation)
+            include_query_analysis: Include detailed query analysis in response
+                                   (default: False)
+            performance_timeout_seconds: Timeout for search operations in seconds
+                                        (default: 15)
 
         Returns:
-            Dictionary containing search results with metadata, scores,
-            and context
+            Dictionary containing search results with metadata, scores, context,
+            and optional multi-modal analysis and performance metrics
         """
         return await search_impl(
             query,
@@ -141,6 +226,11 @@ def register_tools(mcp_app: FastMCP) -> None:
             include_context,
             context_chunks,
             target_projects,
+            multi_modal_mode,
+            enable_multi_modal,
+            enable_manual_mode_selection,
+            include_query_analysis,
+            performance_timeout_seconds,
         )
 
     @mcp_app.tool()
@@ -196,6 +286,114 @@ def register_tools(mcp_app: FastMCP) -> None:
             Status information and recommendations for the indexed data
         """
         return await check_index_status_impl(directory)
+
+    # Register multi-modal search tools
+    try:
+        from .indexing.multi_modal_search_tools import (
+            analyze_query_features as analyze_query_features_impl,
+        )
+        from .indexing.multi_modal_search_tools import (
+            get_retrieval_mode_performance as get_retrieval_mode_performance_impl,
+        )
+        from .indexing.multi_modal_search_tools import (
+            multi_modal_search as multi_modal_search_impl,
+        )
+
+        @mcp_app.tool()
+        async def multi_modal_search(
+            query: str,
+            n_results: int = 10,
+            mode: str | None = None,
+            target_projects: list[str] | None = None,
+            cross_project: bool = False,
+            enable_manual_mode_selection: bool = False,
+            include_analysis: bool = True,
+            include_performance_metrics: bool = False,
+        ):
+            """Perform advanced multi-modal search using LightRAG-inspired retrieval modes.
+
+            This tool implements four distinct retrieval modes for enhanced search:
+            - Local: Deep entity-focused retrieval using low-level keywords
+            - Global: Broad relationship-focused retrieval using high-level keywords
+            - Hybrid: Combined local+global with balanced context
+            - Mix: Intelligent automatic mode selection based on query analysis
+
+            Args:
+                query: Natural language search query
+                n_results: Number of results to return (1-50, default: 10)
+                mode: Manual mode selection ('local', 'global', 'hybrid', 'mix')
+                target_projects: List of specific project names to search in
+                cross_project: Whether to search across all projects (default: False)
+                enable_manual_mode_selection: Whether to allow manual mode override
+                include_analysis: Whether to include query analysis in response
+                include_performance_metrics: Whether to include performance metrics
+
+            Returns:
+                Dictionary containing search results with multi-modal metadata and analysis
+            """
+            return await multi_modal_search_impl(
+                query,
+                n_results,
+                mode,
+                target_projects,
+                cross_project,
+                enable_manual_mode_selection,
+                include_analysis,
+                include_performance_metrics,
+            )
+
+        @mcp_app.tool()
+        async def analyze_query_features(query: str):
+            """Analyze query features and recommend optimal retrieval mode.
+
+            This tool provides detailed analysis of a search query to understand
+            its characteristics and recommend the best retrieval strategy.
+
+            Args:
+                query: The search query to analyze
+
+            Returns:
+                Dictionary containing comprehensive query analysis with mode recommendations
+            """
+            return await analyze_query_features_impl(query)
+
+        @mcp_app.tool()
+        async def get_retrieval_mode_performance(
+            mode: str | None = None,
+            include_comparison: bool = True,
+            include_alerts: bool = True,
+            include_history: bool = False,
+            history_limit: int = 50,
+        ):
+            """Get performance metrics and analytics for retrieval modes.
+
+            This tool provides comprehensive performance monitoring data
+            for the multi-modal retrieval system.
+
+            Args:
+                mode: Specific mode to get metrics for ('local', 'global', 'hybrid', 'mix')
+                include_comparison: Whether to include mode comparison
+                include_alerts: Whether to include active alerts
+                include_history: Whether to include query history
+                history_limit: Limit for query history (default: 50)
+
+            Returns:
+                Dictionary containing performance metrics and analytics
+            """
+            return await get_retrieval_mode_performance_impl(
+                mode,
+                include_comparison,
+                include_alerts,
+                include_history,
+                history_limit,
+            )
+
+        logger.info("Multi-modal search tools registered successfully")
+
+    except ImportError as e:
+        logger.warning(f"Multi-modal search tools not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to register multi-modal search tools: {e}")
 
     # Register project tools (core)
     from .project.project_tools import register_project_tools
@@ -923,7 +1121,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         languages: list[str] = None,
         similarity_threshold: float = 0.7,
         structural_weight: float = 0.5,
-        max_results: int = 10,
+        max_results: int = 25,
         include_implementation_chains: bool = False,
         include_architectural_context: bool = True,
     ):
@@ -974,7 +1172,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         min_confidence: float = 0.6,
         include_comparisons: bool = True,
         include_improvements: bool = False,
-        max_patterns: int = 20,
+        max_patterns: int = 50,
         analysis_depth: str = "comprehensive",
     ):
         """Identify architectural patterns in a codebase using Graph RAG capabilities.
@@ -1014,7 +1212,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         entry_point: str,
         project_name: str,
         direction: str = "forward",
-        max_depth: int = 10,
+        max_depth: int = 20,
         output_format: str = "arrow",
         include_mermaid: bool = False,
         chain_type: str = "execution_flow",
@@ -1065,8 +1263,8 @@ def register_tools(mcp_app: FastMCP) -> None:
         end_function: str,
         project_name: str,
         strategy: str = "optimal",
-        max_paths: int = 3,
-        max_depth: int = 15,
+        max_paths: int = 10,
+        max_depth: int = 25,
         include_quality_metrics: bool = True,
         output_format: str = "arrow",
         include_mermaid: bool = False,

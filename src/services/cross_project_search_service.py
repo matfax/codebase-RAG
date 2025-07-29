@@ -339,9 +339,32 @@ class CrossProjectSearchService:
         """Generate embedding for the search query."""
         try:
             # Use embedding service to generate query embedding
-            embeddings_gen = self.embedding_service.generate_embeddings([query])
-            embeddings = [embedding async for embedding in embeddings_gen]
-            return embeddings[0] if embeddings else []
+            query_embedding_tensor = await self.embedding_service.generate_embeddings("nomic-embed-text", query)
+            if query_embedding_tensor is None:
+                return []
+
+            # Convert tensor to list - ensure proper conversion
+            if hasattr(query_embedding_tensor, "tolist"):
+                query_embedding = query_embedding_tensor.tolist()
+            elif hasattr(query_embedding_tensor, "numpy"):
+                query_embedding = query_embedding_tensor.numpy().tolist()
+            else:
+                self.logger.error(f"Unexpected embedding type: {type(query_embedding_tensor)}")
+                return []
+
+            # Validate embedding format and dimensions
+            if not isinstance(query_embedding, list) or len(query_embedding) == 0:
+                self.logger.error(
+                    f"Generated query embedding is invalid: type={type(query_embedding)}, len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
+                )
+                return []
+
+            if len(query_embedding) != 768:
+                self.logger.error(f"Query embedding dimension mismatch: expected 768, got {len(query_embedding)}")
+                return []
+
+            self.logger.info(f"Successfully generated query embedding: {len(query_embedding)} dimensions")
+            return query_embedding
 
         except Exception as e:
             self.logger.error(f"Error generating query embedding: {e}")
@@ -362,7 +385,7 @@ class CrossProjectSearchService:
             qdrant_filter = self._build_qdrant_filter(filters)
 
             # Perform vector search
-            search_results = await self.qdrant_service.search(
+            search_results = await self.qdrant_service.search_vectors(
                 collection_name=collection_name,
                 query_vector=query_embedding,
                 limit=max_results,

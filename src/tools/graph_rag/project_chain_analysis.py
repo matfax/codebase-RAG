@@ -142,7 +142,7 @@ async def analyze_project_chains(
     complexity_weights: dict[str, float] = None,
     chain_types: list[str] = None,
     min_complexity_threshold: float = 0.3,
-    max_functions_to_analyze: int = 1000,
+    max_functions_to_analyze: int = 5000,  # Increased for large projects
     include_refactoring_suggestions: bool = True,
     output_format: str = "comprehensive",
     performance_monitoring: bool = True,
@@ -901,7 +901,9 @@ async def _perform_complexity_analysis(
     # Identify top complex functions
     top_complex_functions = sorted(
         [f for f in complex_functions if f["complexity_score"] >= min_threshold], key=lambda x: x["complexity_score"], reverse=True
-    )[:10]  # Top 10 most complex functions
+    )[
+        :10
+    ]  # Top 10 most complex functions
 
     return {
         "total_functions_analyzed": len(functions),

@@ -25,7 +25,7 @@ async def trace_function_chain(
     entry_point: str,
     project_name: str,
     direction: str = "forward",
-    max_depth: int = 10,
+    max_depth: int = 20,  # Increased for deeper chain analysis
     output_format: str = "arrow",
     include_mermaid: bool = False,
     chain_type: str = "execution_flow",

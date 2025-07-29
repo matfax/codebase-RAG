@@ -732,8 +732,7 @@ class PerformanceMonitoringService:
 
         if include_trends and self.config.enable_trend_analysis:
             report["performance_trends"] = {
-                name: list(values)[-20:]
-                for name, values in self._performance_trends.items()  # Last 20 data points
+                name: list(values)[-20:] for name, values in self._performance_trends.items()  # Last 20 data points
             }
 
         return report

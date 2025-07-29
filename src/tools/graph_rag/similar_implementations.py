@@ -30,7 +30,7 @@ async def graph_find_similar_implementations(
     languages: list[str] = None,
     similarity_threshold: float = 0.7,
     structural_weight: float = 0.5,
-    max_results: int = 10,
+    max_results: int = 25,  # Increased for better similar implementation discovery
     include_implementation_chains: bool = False,
     include_architectural_context: bool = True,
 ) -> dict[str, Any]:
@@ -114,11 +114,20 @@ async def graph_find_similar_implementations(
         if source_breadcrumb and source_project:
             # Find the source chunk first
             query_embedding = await embedding_service.generate_embeddings([source_breadcrumb]).__anext__()
+            # Auto-configure search limit based on project size
+            try:
+                from ...core.auto_configuration import get_recommended_configuration
+
+                auto_config = await get_recommended_configuration()
+                search_limit = auto_config["search"]["default_n_results"] * 2  # Allow more candidates
+            except Exception:
+                search_limit = 20  # Enhanced default
+
             source_chunks = await qdrant_service.search_vectors(
                 collection_name=f"project_{source_project}_code",
                 query_vector=query_embedding,
-                limit=5,
-                score_threshold=0.8,
+                limit=search_limit,
+                score_threshold=0.6,  # Lower threshold for better recall
             )
 
             if not source_chunks:
