@@ -1,7 +1,7 @@
 # Comprehensive Testing Plan for Codebase RAG MCP Tools
 
 ## Overview
-This document provides a systematic testing plan for all 59 MCP tools in the codebase RAG system. This plan is designed to be executed by LLMs for automated regression testing and tool validation.
+This document provides a systematic testing plan for all 75+ MCP tools in the codebase RAG system. This plan is designed to be executed by LLMs for automated regression testing and tool validation.
 
 ## Testing Categories & Tool Inventory
 
@@ -20,8 +20,11 @@ This document provides a systematic testing plan for all 59 MCP tools in the cod
 - `reset_chunking_metrics_tool` - Reset performance metrics
 - `check_index_status` - Duplicate check for index status
 
-### 3. Search & Query Tools (1 tool)
-- `search` - Natural language search with multiple modes (semantic, keyword, hybrid)
+### 3. Search & Query Tools (5 tools)
+- `search` - Natural language search with multiple modes (semantic, keyword, hybrid, mix/multi-modal)
+- `multi_modal_search` - Advanced multi-modal retrieval with LightRAG-inspired strategies
+- `analyze_query_features` - Query analysis and mode recommendation tool
+- `get_retrieval_mode_performance` - Performance metrics for multi-modal retrieval modes
 
 ### 4. Project Management Tools (6 tools)
 - `get_project_info_tool` - Get current project information and collections
@@ -84,6 +87,22 @@ This document provides a systematic testing plan for all 59 MCP tools in the cod
 - `test_cascade_invalidation` - Test cascade invalidation for keys
 - `configure_cascade_settings` - Configure cascade settings
 
+### 8. Graph RAG Tools (3 tools)
+- `graph_analyze_structure_tool` - Enhanced code structure analysis with performance optimizations
+- `graph_find_similar_implementations_tool` - Cross-project similarity search with semantic analysis
+- `graph_identify_patterns_tool` - Architectural pattern recognition with increased capacity
+
+### 9. Function Chain Analysis Tools (3 tools)
+- `trace_function_chain_tool` - Trace complete function chains with multiple directions and output formats
+- `find_function_path_tool` - Find optimal paths between functions with quality metrics
+- `analyze_project_chains_tool` - Project-wide chain analysis with complexity insights
+
+### 10. Wave 7.0 Performance & Configuration Tools (5 tools)
+- `get_auto_configuration` - Generate optimal configuration based on system capabilities
+- `check_tool_compatibility` - Backward compatibility verification for all MCP tools
+- `get_performance_dashboard_tool` - Comprehensive performance monitoring dashboard
+- `get_service_health_status_tool` - Service health monitoring with error tracking
+
 ## Testing Strategy
 
 ### Phase 1: Read-Only System Verification
@@ -109,12 +128,27 @@ test_tools = [
 **Focus**: Test core search capabilities
 
 ```python
-# Test different search modes
+# Test different search modes including multi-modal
 search_tests = [
     {"query": "cache invalidation", "search_mode": "hybrid", "n_results": 3},
     {"query": "function definition", "search_mode": "semantic", "n_results": 5},
     {"query": "class CodeParser", "search_mode": "keyword", "n_results": 2},
-    {"query": "error handling", "search_mode": "hybrid", "include_context": True}
+    {"query": "error handling", "search_mode": "hybrid", "include_context": True},
+    {"query": "graph analysis", "enable_multi_modal": True, "multi_modal_mode": "mix", "n_results": 3}
+]
+
+# Test multi-modal search tools
+multi_modal_tests = [
+    {"query": "function chain analysis", "mode": "local", "n_results": 3},
+    {"query": "error patterns", "mode": "global", "n_results": 5},
+    {"query": "cache implementation", "mode": "hybrid", "include_analysis": True}
+]
+
+# Test query analysis
+query_analysis_tests = [
+    "error handling patterns in python",
+    "find database connection code",
+    "React components with hooks"
 ]
 ```
 
@@ -146,11 +180,42 @@ analysis_tests = [
 ]
 ```
 
-### Phase 5: Monitoring & Configuration
-**Priority**: Low
-**Focus**: Test monitoring setup without permanent changes
 
-### Phase 6: Destructive Operations Testing
+### Phase 5: Graph RAG & Function Chain Analysis
+**Priority**: Medium
+**Focus**: Advanced code analysis capabilities
+
+```python
+# Graph RAG tests
+graph_rag_tests = [
+    ("graph_analyze_structure_tool", {"breadcrumb": "cache.service", "project_name": "test_project", "analysis_type": "overview"}),
+    ("graph_find_similar_implementations_tool", {"query": "cache implementation", "max_results": 3}),
+    ("graph_identify_patterns_tool", {"project_name": "test_project", "max_patterns": 5})
+]
+
+# Function Chain tests
+function_chain_tests = [
+    ("trace_function_chain_tool", {"entry_point": "search", "project_name": "test_project", "max_depth": 3}),
+    ("find_function_path_tool", {"start_function": "search", "end_function": "cache", "project_name": "test_project", "max_paths": 2}),
+    ("analyze_project_chains_tool", {"project_name": "test_project", "max_functions_per_chain": 5})
+]
+```
+
+### Phase 6: Wave 7.0 Performance & Configuration Tools
+**Priority**: Medium
+**Focus**: New performance monitoring and auto-configuration
+
+```python
+# Performance and configuration tests
+performance_tests = [
+    ("get_auto_configuration", {"directory": ".", "usage_pattern": "balanced"}),
+    ("check_tool_compatibility", {}),
+    ("get_performance_dashboard_tool", {}),
+    ("get_service_health_status_tool", {})
+]
+```
+
+### Phase 7: Destructive Operations Testing
 **Priority**: Low, Caution Required
 **Focus**: Test with dry-run or test data only
 
@@ -169,7 +234,7 @@ async def run_mcp_tools_regression_test():
     """
 
     test_results = {
-        "total_tools": 59,
+        "total_tools": 75,
         "tested_tools": 0,
         "successful_tools": 0,
         "failed_tools": 0,
@@ -255,7 +320,7 @@ async def run_mcp_tools_regression_test():
 ## Expected Baseline Results
 
 ### Pre-Fix Baseline (Reference)
-- **Total Tools**: 59
+- **Total Tools**: 75+
 - **Success Rate**: 30-35%
 - **Common Errors**:
   - `attempted relative import beyond top-level package`
