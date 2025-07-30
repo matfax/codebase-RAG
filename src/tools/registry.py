@@ -177,12 +177,16 @@ def register_tools(mcp_app: FastMCP) -> None:
         include_context: bool = True,
         context_chunks: int = 1,
         target_projects: list[str] | None = None,
+        # Collection filtering parameter
+        collection_types: list[str] | None = None,
         # Multi-modal parameters
         multi_modal_mode: str | None = None,
         enable_multi_modal: bool = False,
         enable_manual_mode_selection: bool = False,
         include_query_analysis: bool = False,
         performance_timeout_seconds: int = 15,
+        # Output control parameter
+        minimal_output: bool = False,
     ):
         """Search indexed content using natural language queries with multi-modal retrieval support.
 
@@ -203,6 +207,12 @@ def register_tools(mcp_app: FastMCP) -> None:
                             results (0-5, default: 1)
             target_projects: List of specific project names to search in
                              (optional)
+            collection_types: List of collection types to search in (optional)
+                             - ["code"] - Only search source code files
+                             - ["config"] - Only search configuration files
+                             - ["documentation"] - Only search documentation files
+                             - ["code", "config"] - Search both code and config files
+                             - None - Search all collection types (default)
             multi_modal_mode: Multi-modal retrieval mode - "local", "global",
                              "hybrid", "mix" (optional, auto-detected if enabled)
             enable_multi_modal: Enable enhanced multi-modal retrieval for better results
@@ -213,10 +223,16 @@ def register_tools(mcp_app: FastMCP) -> None:
                                    (default: False)
             performance_timeout_seconds: Timeout for search operations in seconds
                                         (default: 15)
+            minimal_output: Return simplified output suitable for Agent use
+                          (default: False - controlled by MCP_ENV and MCP_DEBUG_LEVEL)
 
         Returns:
             Dictionary containing search results with metadata, scores, context,
-            and optional multi-modal analysis and performance metrics
+            and optional multi-modal analysis and performance metrics.
+            Output detail level is automatically controlled by environment variables:
+            - MCP_ENV=production: Minimal output by default
+            - MCP_ENV=development: Full technical details
+            - MCP_DEBUG_LEVEL=DEBUG: Includes performance metrics
         """
         return await search_impl(
             query,
@@ -226,11 +242,13 @@ def register_tools(mcp_app: FastMCP) -> None:
             include_context,
             context_chunks,
             target_projects,
+            collection_types,
             multi_modal_mode,
             enable_multi_modal,
             enable_manual_mode_selection,
             include_query_analysis,
             performance_timeout_seconds,
+            minimal_output,
         )
 
     @mcp_app.tool()

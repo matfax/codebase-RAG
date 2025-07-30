@@ -677,8 +677,8 @@ class GraphRAGService:
                 content=content,
                 chunk_type=chunk_type,
                 language=payload.get("language", "unknown"),
-                start_line=payload.get("start_line", 0),
-                end_line=payload.get("end_line", 0),
+                start_line=payload.get("line_start", 0),
+                end_line=payload.get("line_end", 0),
                 start_byte=payload.get("start_byte", 0),
                 end_byte=payload.get("end_byte", 0),
                 name=payload.get("name"),
@@ -744,7 +744,8 @@ class GraphRAGService:
             # Validate embedding format and dimensions
             if not isinstance(query_embedding, list) or len(query_embedding) == 0:
                 return {
-                    "error": f"Generated query embedding is invalid: type={type(query_embedding)}, len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
+                    "error": f"Generated query embedding is invalid: type={type(query_embedding)}, "
+                    f"len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
                 }
 
             if len(query_embedding) != 768:

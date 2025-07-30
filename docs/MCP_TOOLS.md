@@ -2,6 +2,41 @@
 
 Comprehensive documentation for all MCP tools provided by the Codebase RAG MCP Server.
 
+## 🔧 Output Control & Environment Configuration
+
+The MCP server automatically adjusts output detail levels based on environment variables to optimize performance for different use cases:
+
+### Environment Variables
+- **`MCP_ENV`**: Controls overall tool behavior and output detail
+  - `production`: Minimal output optimized for AI agents (faster, concise)
+  - `development`: Full technical details and metadata (debugging-friendly)
+
+- **`MCP_DEBUG_LEVEL`**: Fine-grained control over diagnostic information
+  - `DEBUG`: Includes performance metrics, internal metadata, detailed diagnostics
+  - `INFO`: Standard technical details (default)
+  - `WARNING`/`ERROR`: Minimal output for production use
+
+- **`CACHE_DEBUG_MODE`**: When `true`, includes cache performance data in outputs
+
+### Manual Override with `minimal_output`
+
+Many tools support a `minimal_output` parameter to explicitly request simplified output regardless of environment settings:
+
+**When `minimal_output=true`:**
+- Returns only essential fields: `file_path`, `content`, `breadcrumb`, `chunk_type`, `language`, `line_start`, `line_end`
+- Removes performance metrics, technical scoring details, and internal metadata
+- Optimized for AI agents that need focused, actionable results
+- Reduces response size by ~60-80% for faster processing
+
+**Example:**
+```python
+# Standard output (full details)
+await search("error handling functions")
+
+# Minimal output (agent-optimized)
+await search("error handling functions", minimal_output=true)
+```
+
 ## Core Search Tools
 
 ### `search` - Enhanced Semantic Code Search
@@ -16,6 +51,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `include_context` (optional, default: true): Include surrounding code context
 - `context_chunks` (optional, default: 1): Number of context chunks before/after (0-5)
 - `target_projects` (optional): List of specific project names to search in
+- 🆕 `collection_types` (optional): List of collection types to search in (["code"], ["config"], ["documentation"], or ["code", "config"])
 
 **🆕 Wave 7.0 Enhanced Parameters:**
 - `multi_modal_mode` (optional): Manual mode selection ("local", "global", "hybrid", "mix")
@@ -23,6 +59,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `enable_manual_mode_selection` (optional, default: false): Allow manual override of automatic mode selection
 - `include_query_analysis` (optional, default: false): Include detailed query analysis in response
 - `performance_timeout_seconds` (optional, default: 15): Maximum execution time in seconds
+- `minimal_output` (optional, default: false): Return simplified output optimized for AI agents
 
 **Multi-Modal Retrieval Modes:**
 - **Local Mode**: Deep entity-focused retrieval using low-level keywords
@@ -35,6 +72,12 @@ Search indexed codebases using natural language queries with function-level prec
 - "Show me React components that use useState hook"
 - "Find error handling patterns in Python"
 - "Locate database connection initialization code"
+
+**Collection Filtering Examples:**
+- Search only code files: `collection_types=["code"]`
+- Search only config files: `collection_types=["config"]` for cache configurations
+- Search only documentation: `collection_types=["documentation"]` for architecture docs
+- Search multiple types: `collection_types=["code", "config"]` for implementation + configuration
 
 ### `multi_modal_search` - Advanced Multi-Modal Retrieval
 
