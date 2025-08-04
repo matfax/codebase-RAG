@@ -240,6 +240,41 @@ class IndexingService:
 
         return chunks
 
+    def process_single_file(
+        self,
+        file_path: str,
+        project_name: str | None = None,
+        base_directory: str | None = None,
+    ) -> list[Chunk]:
+        """
+        Synchronous wrapper for processing a single file.
+
+        Args:
+            file_path: Path to the file to process
+            project_name: Optional project name for metadata
+            base_directory: Optional base directory for path sanitization
+
+        Returns:
+            List of Chunk objects
+        """
+        import asyncio
+        import concurrent.futures
+
+        try:
+            # Check if there's already a running event loop
+            try:
+                asyncio.get_running_loop()
+                # If we have a running loop, we need to run in a thread
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self._process_single_file(file_path, project_name, base_directory))
+                    return future.result()
+            except RuntimeError:
+                # No running loop, safe to use asyncio.run()
+                return asyncio.run(self._process_single_file(file_path, project_name, base_directory))
+        except Exception as e:
+            self.logger.error(f"Error in process_single_file: {e}")
+            raise
+
     def get_progress_summary(self) -> dict[str, Any] | None:
         """Get current progress summary for external monitoring."""
         if self.progress_tracker is None:

@@ -752,8 +752,37 @@ async def index_directory(
     Returns:
         Dictionary with indexing results, time estimates, or recommendations for existing data
     """
-    # Use the synchronous implementation
-    return index_directory_sync(directory, patterns, recursive, clear_existing, incremental, project_name)
+    # Create async version that properly handles async generators
+    return await index_directory_async_impl(directory, patterns, recursive, clear_existing, incremental, project_name)
+
+
+async def index_directory_async_impl(
+    directory: str = ".",
+    patterns: list[str] = None,
+    recursive: bool = True,
+    clear_existing: bool = False,
+    incremental: bool = False,
+    project_name: str = None,
+) -> dict[str, Any]:
+    """
+    Async implementation of index_directory that properly handles async generators.
+    For now, just wrap the sync version to fix the immediate issue.
+    """
+    import asyncio
+    import concurrent.futures
+    from functools import partial
+
+    # Run the sync version in a thread pool to avoid blocking
+    sync_func = partial(index_directory_sync, directory, patterns, recursive, clear_existing, incremental, project_name)
+
+    try:
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            result = await loop.run_in_executor(executor, sync_func)
+            return result
+    except RuntimeError:
+        # No event loop running
+        return sync_func()
 
 
 def index_directory_sync(
@@ -948,14 +977,39 @@ def index_directory_sync(
         logger.info(f"Pre-indexing memory: {pre_index_memory['memory_mb']} MB")
 
         # Pass incremental mode and project name to indexing service
-        processed_chunks = indexing_service.process_codebase_for_indexing(
-            str(dir_path),
-            incremental_mode=incremental,
-            project_name=current_project["name"] if current_project else None,
-        )
+        # process_codebase_for_indexing is async, need to run it synchronously
+        import asyncio
+        import concurrent.futures
+
+        try:
+            loop = asyncio.get_running_loop()
+            # Running in async context, use thread pool
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    indexing_service.process_codebase_for_indexing(
+                        str(dir_path),
+                        incremental_mode=incremental,
+                        project_name=current_project["name"] if current_project else None,
+                    ),
+                )
+                processed_chunks = future.result()
+        except RuntimeError:
+            # No event loop running, use asyncio.run directly
+            processed_chunks = asyncio.run(
+                indexing_service.process_codebase_for_indexing(
+                    str(dir_path),
+                    incremental_mode=incremental,
+                    project_name=current_project["name"] if current_project else None,
+                )
+            )
 
         # Get progress summary after processing
-        progress_summary = indexing_service.get_progress_summary()
+        try:
+            progress_summary = indexing_service.get_progress_summary()
+        except AttributeError as e:
+            logger.warning(f"Progress summary unavailable: {e}")
+            progress_summary = {"status": "completed", "error": str(e)}
 
         # Memory check after processing
         post_index_memory = memory_monitor.check_memory_usage(logger)
@@ -990,7 +1044,48 @@ def index_directory_sync(
         embeddings_manager = get_embeddings_manager_instance()
 
         # Create streaming pipeline: chunks -> embeddings -> database
-        collection_points_generator = _process_chunk_batch_for_streaming(processed_chunks, embeddings_manager, batch_size=chunk_batch_size)
+        # Since _process_chunk_batch_for_streaming is async, we need to run it synchronously
+        import asyncio
+
+        def _sync_streaming_generator():
+            """Convert async generator to sync generator."""
+            try:
+                asyncio.get_running_loop()
+                # If we're in an async context, use a different approach
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    # Create a new event loop in a separate thread
+                    def run_async_generator():
+                        async def collect_all():
+                            result = []
+                            async for collection_name, points in _process_chunk_batch_for_streaming(
+                                processed_chunks, embeddings_manager, batch_size=chunk_batch_size
+                            ):
+                                result.append((collection_name, points))
+                            return result
+
+                        return asyncio.run(collect_all())
+
+                    future = executor.submit(run_async_generator)
+                    results = future.result()
+                    for item in results:
+                        yield item
+            except RuntimeError:
+                # No event loop running, we can use asyncio.run directly
+                async def collect_all():
+                    result = []
+                    async for collection_name, points in _process_chunk_batch_for_streaming(
+                        processed_chunks, embeddings_manager, batch_size=chunk_batch_size
+                    ):
+                        result.append((collection_name, points))
+                    return result
+
+                results = asyncio.run(collect_all())
+                for item in results:
+                    yield item
+
+        collection_points_generator = _sync_streaming_generator()
 
         # Stream points to Qdrant and collect statistics
         streaming_stats = _stream_points_to_qdrant(collection_points_generator, qdrant_batch_size=qdrant_batch_size)
