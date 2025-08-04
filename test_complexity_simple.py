@@ -136,7 +136,7 @@ def test_complexity_calculator():
         branches = 0
         complexity = 1
         for node in ast.walk(tree):
-            if isinstance(node, (ast.If, ast.For, ast.While)):
+            if isinstance(node, ast.If | ast.For | ast.While):
                 branches += 1
                 complexity += 1
 
@@ -182,14 +182,6 @@ def test_complexity_calculator():
 
     # Test 5: Complexity calculation workflow
     print("\nTesting complete complexity calculation workflow...")
-
-    function_data = {
-        "name": "test_function",
-        "content": test_code,
-        "language": "python",
-        "file_path": "test.py",
-        "breadcrumb": "test.test_function",
-    }
 
     # Simulate the complexity calculation process
     weights = ComplexityWeights().normalize()

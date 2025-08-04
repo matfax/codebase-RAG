@@ -86,7 +86,27 @@ async def graph_analyze_structure(
         if not project_name or not project_name.strip():
             return {"success": False, "error": "Project name is required and cannot be empty", "analysis_type": analysis_type}
 
-        max_depth = max(1, min(max_depth, 10))  # Clamp between 1 and 10
+        # Auto-configure max_depth based on system capabilities
+        try:
+            from ..core.auto_configuration import get_auto_configuration_service
+
+            auto_config_service = get_auto_configuration_service()
+            system_caps = await auto_config_service.analyze_system_capabilities()
+
+            # Scale max_depth based on available memory and CPU
+            if system_caps.available_memory_gb >= 8.0:
+                max_allowed_depth = 20  # High-performance systems
+            elif system_caps.available_memory_gb >= 4.0:
+                max_allowed_depth = 15  # Standard systems
+            else:
+                max_allowed_depth = 10  # Resource-constrained systems
+
+            max_depth = max(1, min(max_depth, max_allowed_depth))
+            logger.info(f"Auto-configured max_depth: {max_depth} (system allows up to {max_allowed_depth})")
+
+        except Exception as e:
+            logger.debug(f"Auto-configuration failed, using default limits: {e}")
+            max_depth = max(1, min(max_depth, 10))  # Fallback to original limit
 
         # Build/get structure graph with optimization
         if performance_optimizer:

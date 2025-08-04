@@ -303,7 +303,7 @@ class PerformanceBenchmark:
             initial_memory = process.memory_info().rss / 1024 / 1024  # MB
             start_time = time.time()
 
-            result = await trace_function_chain(entry_point="main", project_name=self.project_name, direction="bidirectional", max_depth=15)
+            await trace_function_chain(entry_point="main", project_name=self.project_name, direction="bidirectional", max_depth=15)
 
             duration = time.time() - start_time
             peak_memory = process.memory_info().rss / 1024 / 1024  # MB
@@ -325,7 +325,7 @@ class PerformanceBenchmark:
             initial_memory = process.memory_info().rss / 1024 / 1024  # MB
             start_time = time.time()
 
-            result = await find_function_path(
+            await find_function_path(
                 start_function="main", end_function="search", project_name=self.project_name, strategy="all", max_paths=5
             )
 
@@ -373,7 +373,7 @@ class PerformanceBenchmark:
         for i in range(10):  # 10 rapid calls
             call_start = time.time()
             try:
-                result = await trace_function_chain(entry_point="main", project_name=self.project_name, direction="forward", max_depth=5)
+                await trace_function_chain(entry_point="main", project_name=self.project_name, direction="forward", max_depth=5)
                 call_duration = time.time() - call_start
                 durations.append(call_duration)
             except Exception:
@@ -409,7 +409,7 @@ class PerformanceBenchmark:
             tool_func, params = tools_and_params[i % len(tools_and_params)]
             call_start = time.time()
             try:
-                result = await tool_func(**params)
+                await tool_func(**params)
                 call_duration = time.time() - call_start
                 mixed_durations.append(call_duration)
             except Exception:

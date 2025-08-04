@@ -648,7 +648,7 @@ class TestGraphAnalysisReportService:
                 "total_relationships": 999,
                 "breakdown": {
                     "by_type": {"function": 1000},
-                    "by_depth": {i: 200 for i in range(5)},
+                    "by_depth": dict.fromkeys(range(5), 200),
                 },
                 "structure_health": {
                     "orphaned_nodes": 0,

@@ -694,7 +694,6 @@ class TestCacheScalability:
 
             async def clear(self):
                 cache_data.clear()
-                operation_count = 0
                 self.stats = CacheStats()
                 return True
 

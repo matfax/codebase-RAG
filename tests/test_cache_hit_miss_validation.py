@@ -405,7 +405,7 @@ class CacheHitMissValidator:
         avg_miss_response_time = statistics.mean(miss_times) if miss_times else 0
 
         # Working set analysis
-        unique_keys = set(m.key for m in metrics)
+        unique_keys = {m.key for m in metrics}
         working_set_size = len(unique_keys)
 
         # Temporal locality analysis

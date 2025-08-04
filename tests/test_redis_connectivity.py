@@ -299,7 +299,7 @@ class TestRedisClusterSupport:
 
             # Test cluster operations
             await cluster_manager.set("test:key", "value")
-            value = await cluster_manager.get("test:key")
+            await cluster_manager.get("test:key")
 
             mock_cluster.set.assert_called_once_with("test:key", "value")
             mock_cluster.get.assert_called_once_with("test:key")
@@ -338,7 +338,7 @@ class TestRedisClusterSupport:
             await cluster_manager.initialize()
 
             # Should handle MOVED error and retry
-            value = await cluster_manager.get("test:key")
+            await cluster_manager.get("test:key")
             assert mock_cluster.get.call_count == 2  # Initial + retry
 
     @pytest.mark.asyncio

@@ -130,7 +130,6 @@ class IntegratedFunctionCallResolver:
         Returns:
             FunctionCall with resolved target breadcrumb
         """
-        original_target = function_call.target_breadcrumb
 
         for attempt in range(self.max_resolution_attempts):
             try:
@@ -406,7 +405,7 @@ class IntegratedFunctionCallResolver:
 
     def reset_statistics(self):
         """Reset all resolution statistics."""
-        self.resolution_stats = {key: 0 for key in self.resolution_stats}
+        self.resolution_stats = dict.fromkeys(self.resolution_stats, 0)
         self.error_handler.reset_error_statistics()
         self.logger.info("Resolution statistics reset")
 

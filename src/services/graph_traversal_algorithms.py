@@ -595,8 +595,8 @@ class GraphTraversalAlgorithms:
 
             # Overall statistics
             total_calls = len(function_call_edges)
-            unique_callers = len(set(e.source_breadcrumb for e in function_call_edges))
-            unique_callees = len(set(e.target_breadcrumb for e in function_call_edges))
+            unique_callers = len({e.source_breadcrumb for e in function_call_edges})
+            unique_callees = len({e.target_breadcrumb for e in function_call_edges})
 
             # Call type analysis
             call_type_breakdown = defaultdict(int)

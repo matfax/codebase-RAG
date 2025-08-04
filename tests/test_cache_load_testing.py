@@ -220,11 +220,10 @@ class CacheLoadTester:
         timestamp = time.time()
 
         try:
-            result = await operation_func(*args, **kwargs)
+            await operation_func(*args, **kwargs)
             success = True
             error_message = ""
         except Exception as e:
-            result = None
             success = False
             error_message = str(e)
 

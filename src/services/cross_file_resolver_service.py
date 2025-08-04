@@ -154,7 +154,7 @@ class CrossFileResolver:
         results = {}
 
         # Pre-load import information once for all calls
-        imports = await self._extract_imports_from_file(resolution_context.source_file_path)
+        await self._extract_imports_from_file(resolution_context.source_file_path)
 
         for function_call in function_calls:
             try:

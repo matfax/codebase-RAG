@@ -618,7 +618,7 @@ class CacheFallbackManager:
             Tuple of (value, tier_used)
         """
         excluded_tiers = excluded_tiers or set()
-        start_time = time.time()
+        time.time()
 
         # Determine fallback order
         fallback_order = self._get_fallback_order(excluded_tiers)

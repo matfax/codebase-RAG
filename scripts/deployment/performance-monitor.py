@@ -386,46 +386,27 @@ class PerformanceMonitor:
     def print_realtime_status(self, metrics: PerformanceMetrics):
         """Print real-time status information."""
         # Clear screen and print header
-        print("\033[2J\033[H")  # Clear screen and move cursor to top
-        print("=" * 80)
-        print(f"Cache Performance Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 80)
 
         # Current metrics
-        print("\n📊 Current Metrics:")
-        print(f"   Hit Rate:         {metrics.cache_hit_rate:.1%} (L1: {metrics.l1_hit_rate:.1%}, L2: {metrics.l2_hit_rate:.1%})")
-        print(f"   Memory Usage:     {metrics.memory_usage_mb:.1f}MB ({metrics.memory_usage_percent:.1%})")
-        print(f"   Response Time:    {metrics.avg_response_time_ms:.1f}ms (P95: {metrics.p95_response_time_ms:.1f}ms)")
-        print(f"   Operations/sec:   {metrics.operations_per_second:.1f}")
-        print(f"   Error Rate:       {metrics.error_rate:.2%}")
-        print(f"   CPU Usage:        {metrics.cpu_usage_percent:.1f}%")
 
         # Recent alerts
         recent_alerts = [a for a in self.alerts if a.timestamp > time.time() - 300]  # Last 5 minutes
         if recent_alerts:
-            print(f"\n🚨 Recent Alerts ({len(recent_alerts)}):")
             for alert in recent_alerts[-5:]:  # Show last 5 alerts
-                age = time.time() - alert.timestamp
-                print(f"   [{alert.level}] {alert.message} ({age:.0f}s ago)")
+                time.time() - alert.timestamp
         else:
-            print("\n✅ No recent alerts")
+            pass
 
         # Trend indicators
         if len(self.metrics_history) > 10:
             trend = self.get_trend_analysis(5)
             if trend:
-                print("\n📈 5-minute Trends:")
                 trends = trend["trends"]
                 for metric, change in trends.items():
-                    indicator = "📈" if change > 0 else "📉" if change < 0 else "➡️"
-                    print(f"   {metric:20}: {indicator} {change:+.3f}")
-
-        print("\nPress Ctrl+C to stop monitoring...")
+                    pass
 
     async def run_monitoring(self, interval: int = 1, dashboard_export: str | None = None):
         """Run continuous performance monitoring."""
-        print("Starting cache performance monitoring...")
-        print(f"Collection interval: {interval} seconds")
 
         try:
             while True:
@@ -453,9 +434,8 @@ class PerformanceMonitor:
                 await asyncio.sleep(interval)
 
         except KeyboardInterrupt:
-            print("\nMonitoring stopped by user")
-        except Exception as e:
-            print(f"\nMonitoring error: {e}")
+            pass
+        except Exception:
             raise
 
     def export_historical_data(self, output_file: str, hours: int = 1):
@@ -474,9 +454,6 @@ class PerformanceMonitor:
 
         with open(output_file, "w") as f:
             json.dump(export_data, f, indent=2, default=str)
-
-        print(f"Historical data exported to: {output_file}")
-        print(f"Exported {len(historical_data)} metrics samples")
 
 
 async def main():
@@ -501,11 +478,8 @@ async def main():
         if args.once:
             # Single metrics collection
             metrics = await monitor.collect_metrics()
-            print("Current Performance Metrics:")
-            print(json.dumps(asdict(metrics), indent=2, default=str))
         elif args.export:
             # Export mode (collect some data first)
-            print("Collecting performance data...")
             for _ in range(60):  # Collect for 1 minute
                 metrics = await monitor.collect_metrics()
                 monitor.metrics_history.append(metrics)
@@ -518,8 +492,7 @@ async def main():
             # Continuous monitoring
             await monitor.run_monitoring(args.interval, args.dashboard)
 
-    except Exception as e:
-        print(f"Monitoring failed: {e}")
+    except Exception:
         sys.exit(1)
 
 

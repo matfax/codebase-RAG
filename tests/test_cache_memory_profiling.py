@@ -365,7 +365,7 @@ class CacheMemoryProfiler:
 
                 # Cache operations
                 await cache_service.set(key, value)
-                retrieved = await cache_service.get(key)
+                await cache_service.get(key)
 
                 # Force GC at intervals
                 if i % force_gc_interval == 0 and i > 0:
@@ -426,8 +426,8 @@ class CacheMemoryProfiler:
 
         # Basic memory statistics
         rss_values = [s.rss_mb for s in snapshots]
-        heap_values = [s.heap_size_mb for s in snapshots]
-        object_counts = [s.heap_objects for s in snapshots]
+        [s.heap_size_mb for s in snapshots]
+        [s.heap_objects for s in snapshots]
 
         initial_memory = rss_values[0]
         final_memory = rss_values[-1]

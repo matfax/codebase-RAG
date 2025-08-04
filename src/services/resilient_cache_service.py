@@ -302,7 +302,7 @@ class ResilientCacheService(BaseCacheService):
                 items,
                 ttl,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
-                fallback_value={key: False for key in items.keys()},
+                fallback_value=dict.fromkeys(items.keys(), False),
                 retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 
@@ -339,7 +339,7 @@ class ResilientCacheService(BaseCacheService):
                 self._cache_service.delete_batch,
                 keys,
                 fallback_strategy=FallbackStrategy.GRACEFUL_DEGRADATION,
-                fallback_value={key: False for key in keys},
+                fallback_value=dict.fromkeys(keys, False),
                 retryable_exceptions=(ConnectionError, TimeoutError, CacheConnectionError),
             )
 

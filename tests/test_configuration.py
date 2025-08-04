@@ -199,15 +199,15 @@ class TestConfigurationValidation:
         """Test validation of configuration value ranges."""
         # Test TTL range
         with pytest.raises(ConfigValidationError):
-            config = CacheConfig(default_ttl=-1)  # Negative TTL
+            CacheConfig(default_ttl=-1)  # Negative TTL
 
         # Test memory limit
         with pytest.raises(ConfigValidationError):
-            config = CacheConfig(max_memory_mb=0)  # Zero memory
+            CacheConfig(max_memory_mb=0)  # Zero memory
 
         # Test connection pool size
         with pytest.raises(ConfigValidationError):
-            config = PerformanceConfig(connection_pool_size=1001)  # Too large
+            PerformanceConfig(connection_pool_size=1001)  # Too large
 
     def test_validate_dependencies(self):
         """Test validation of configuration dependencies."""

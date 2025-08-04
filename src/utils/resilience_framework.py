@@ -433,7 +433,7 @@ class DegradationManager:
 
     def update_health_status(self, success: bool, error_rate: float = 0.0) -> None:
         """Update health status and adjust degradation level."""
-        current_time = time.time()
+        time.time()
 
         if success:
             self._consecutive_successes += 1

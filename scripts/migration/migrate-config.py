@@ -516,78 +516,56 @@ def main():
     migrator = ConfigurationMigrator()
 
     if args.action == "migrate":
-        print("🚀 Starting configuration migration...")
-
         # Migrate environment file
         env_path = Path(args.env_file) if args.env_file else None
         env_result = migrator.migrate_env_file(env_path)
 
-        print("\n📄 Environment File Migration:")
-        print(f"   File: {env_result.file_path}")
-        print(f"   Success: {'✅' if env_result.success else '❌'}")
-
         if env_result.changes_made:
-            print("   Changes:")
             for change in env_result.changes_made:
-                print(f"     - {change}")
+                pass
 
         if env_result.warnings:
-            print("   Warnings:")
             for warning in env_result.warnings:
-                print(f"     ⚠️ {warning}")
+                pass
 
         if env_result.errors:
-            print("   Errors:")
             for error in env_result.errors:
-                print(f"     ❌ {error}")
+                pass
 
         # Migrate Docker Compose file
         compose_path = Path(args.compose_file) if args.compose_file else None
         compose_result = migrator.migrate_docker_compose(compose_path)
 
-        print("\n🐳 Docker Compose Migration:")
-        print(f"   File: {compose_result.file_path}")
-        print(f"   Success: {'✅' if compose_result.success else '❌'}")
-
         if compose_result.changes_made:
-            print("   Changes:")
             for change in compose_result.changes_made:
-                print(f"     - {change}")
+                pass
 
         if compose_result.warnings:
-            print("   Warnings:")
             for warning in compose_result.warnings:
-                print(f"     ⚠️ {warning}")
+                pass
 
         if compose_result.errors:
-            print("   Errors:")
             for error in compose_result.errors:
-                print(f"     ❌ {error}")
+                pass
 
         # Overall result
         overall_success = env_result.success and compose_result.success
-        print(f"\n🎯 Overall Migration: {'✅ Success' if overall_success else '❌ Failed'}")
 
         if not overall_success:
             sys.exit(1)
 
     elif args.action == "validate":
-        print("🔍 Validating configuration...")
-
         env_path = Path(args.env_file) if args.env_file else None
         issues = migrator.validate_configuration(env_path)
 
         if issues:
-            print("❌ Configuration issues found:")
             for issue in issues:
-                print(f"   - {issue}")
+                pass
             sys.exit(1)
         else:
-            print("✅ Configuration is valid")
+            pass
 
     elif args.action == "backup":
-        print("💾 Creating configuration backup...")
-
         backup_files = []
 
         # Backup .env file
@@ -595,19 +573,17 @@ def main():
         if env_path.exists():
             backup_path = migrator.create_backup(env_path)
             backup_files.append(backup_path)
-            print(f"   Created: {backup_path}")
 
         # Backup Docker Compose file
         compose_path = Path(args.compose_file) if args.compose_file else migrator.project_root / "docker-compose.cache.yml"
         if compose_path.exists():
             backup_path = migrator.create_backup(compose_path)
             backup_files.append(backup_path)
-            print(f"   Created: {backup_path}")
 
         if backup_files:
-            print(f"✅ Created {len(backup_files)} backup files")
+            pass
         else:
-            print("⚠️ No configuration files found to backup")
+            pass
 
 
 if __name__ == "__main__":

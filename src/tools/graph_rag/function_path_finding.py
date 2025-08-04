@@ -89,8 +89,8 @@ async def find_function_path(
     end_function: str,
     project_name: str,
     strategy: str = "optimal",
-    max_paths: int = 5,
-    max_depth: int = 15,
+    max_paths: int = 10,  # Increased default for better results
+    max_depth: int = 25,  # Increased default for deeper analysis
     min_quality_threshold: float = 0.3,
     include_path_diversity: bool = True,
     output_format: str = "arrow",
@@ -2439,7 +2439,7 @@ def _validate_path_finding_parameters(
             "suggestions": ["Use a reasonable max_depth value between 1 and 100"],
         }
 
-    if not isinstance(min_quality_threshold, (int, float)) or min_quality_threshold < 0.0 or min_quality_threshold > 1.0:
+    if not isinstance(min_quality_threshold, int | float) or min_quality_threshold < 0.0 or min_quality_threshold > 1.0:
         return {
             "valid": False,
             "error": f"Invalid min_quality_threshold: {min_quality_threshold}. Must be between 0.0 and 1.0",

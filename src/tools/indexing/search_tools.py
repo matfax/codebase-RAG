@@ -33,6 +33,8 @@ from src.tools.core.errors import (
     SearchError,
     ValidationError,
 )
+from src.tools.core.graceful_degradation import simple_search_fallback, with_graceful_degradation
+from src.tools.core.performance_monitor import with_performance_monitoring
 from src.tools.core.retry_utils import retry_operation
 
 from ..project.project_utils import get_available_project_names
@@ -660,6 +662,8 @@ def _create_general_metadata_extractor() -> Callable[[dict[str, Any]], dict[str,
     return extractor
 
 
+@with_performance_monitoring(timeout_seconds=15, tool_name="search")
+@with_graceful_degradation(service_name="search", fallback_function=simple_search_fallback)
 async def search(
     query: str,
     n_results: int = 5,
@@ -668,13 +672,19 @@ async def search(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    # New multi-modal parameters
+    multi_modal_mode: str | None = None,
+    enable_multi_modal: bool = False,
+    enable_manual_mode_selection: bool = False,
+    include_query_analysis: bool = False,
+    performance_timeout_seconds: int = 15,
 ) -> dict[str, Any]:
     """
-    Search indexed content using natural language queries with cache support.
+    Search indexed content using natural language queries with cache support and multi-modal retrieval.
 
     This tool provides function-level precision search with intelligent chunking,
-    supporting multiple search modes, context expansion, and result caching for
-    better performance on repeated queries.
+    supporting multiple search modes, context expansion, result caching, and
+    advanced multi-modal retrieval strategies (Local, Global, Hybrid, Mix).
 
     Args:
         query: Natural language search query
@@ -684,9 +694,14 @@ async def search(
         include_context: Whether to include surrounding code context (default: True)
         context_chunks: Number of context chunks to include before/after results (default: 1)
         target_projects: List of specific project names to search in (optional)
+        multi_modal_mode: Multi-modal retrieval mode - "local", "global", "hybrid", "mix" (optional)
+        enable_multi_modal: Enable multi-modal retrieval for enhanced search (default: False)
+        enable_manual_mode_selection: Allow manual mode override for multi-modal (default: False)
+        include_query_analysis: Include detailed query analysis in response (default: False)
+        performance_timeout_seconds: Timeout for search operations (default: 15)
 
     Returns:
-        Dictionary containing search results with metadata, scores, and context
+        Dictionary containing search results with metadata, scores, context, and optional multi-modal analysis
     """
     # Delegate to the proper cached search implementation
     return await search_async_cached(
@@ -697,6 +712,11 @@ async def search(
         include_context=include_context,
         context_chunks=context_chunks,
         target_projects=target_projects,
+        multi_modal_mode=multi_modal_mode,
+        enable_multi_modal=enable_multi_modal,
+        enable_manual_mode_selection=enable_manual_mode_selection,
+        include_query_analysis=include_query_analysis,
+        performance_timeout_seconds=performance_timeout_seconds,
     )
 
 
@@ -708,6 +728,12 @@ async def search_async_cached(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    # New multi-modal parameters
+    multi_modal_mode: str | None = None,
+    enable_multi_modal: bool = False,
+    enable_manual_mode_selection: bool = False,
+    include_query_analysis: bool = False,
+    performance_timeout_seconds: int = 15,
 ) -> dict[str, Any]:
     """
     Asynchronous cached implementation of search functionality.
@@ -715,9 +741,82 @@ async def search_async_cached(
     This function integrates with the search cache service to provide
     high-performance search with result caching and cache invalidation.
     """
+    import asyncio
     import time
 
     try:
+        # Auto-configuration: Determine if multi-modal should be enabled automatically
+        if not enable_multi_modal:
+            try:
+                from ..core.auto_configuration import get_recommended_configuration
+
+                auto_config = await get_recommended_configuration()
+
+                # Auto-enable multi-modal if recommended and not explicitly disabled
+                if auto_config["search"]["enable_multi_modal_by_default"]:
+                    enable_multi_modal = True
+                    if not multi_modal_mode:
+                        multi_modal_mode = auto_config["search"]["default_multi_modal_mode"]
+                    logger.info("Auto-enabled multi-modal search based on system analysis")
+
+                # Auto-adjust timeout if not specified
+                if performance_timeout_seconds == 15:  # Default value
+                    performance_timeout_seconds = auto_config["search"]["performance_timeout_seconds"]
+
+            except Exception as e:
+                logger.debug(f"Auto-configuration failed, using defaults: {e}")
+
+        # Check if multi-modal search is enabled and delegate to multi-modal search
+        if enable_multi_modal:
+            try:
+                # Import multi-modal search tool
+                from ..indexing.multi_modal_search_tools import multi_modal_search
+
+                # Prepare project names for multi-modal search
+                if target_projects:
+                    project_names = target_projects
+                elif cross_project:
+                    project_names = None  # Will be handled by multi_modal_search
+                else:
+                    current_project = get_current_project()
+                    project_names = [current_project["name"]] if current_project else None
+
+                logger.info(f"Delegating to multi-modal search with mode: {multi_modal_mode or 'auto'}")
+
+                # Call multi-modal search with timeout
+                try:
+                    multi_modal_result = await asyncio.wait_for(
+                        multi_modal_search(
+                            query=query,
+                            n_results=n_results,
+                            mode=multi_modal_mode,
+                            target_projects=project_names,
+                            cross_project=cross_project,
+                            enable_manual_mode_selection=enable_manual_mode_selection,
+                            include_analysis=include_query_analysis,
+                            include_performance_metrics=True,
+                        ),
+                        timeout=performance_timeout_seconds,
+                    )
+
+                    # Return multi-modal result with enhanced metadata
+                    if not multi_modal_result.get("error"):
+                        multi_modal_result["search_method"] = "multi_modal"
+                        multi_modal_result["fallback_available"] = True
+                        multi_modal_result["execution_time_within_limit"] = True
+                        return multi_modal_result
+                    else:
+                        logger.warning(f"Multi-modal search failed: {multi_modal_result.get('error')}, falling back to standard search")
+                        # Continue to standard search as fallback
+
+                except asyncio.TimeoutError:
+                    logger.warning(f"Multi-modal search timed out after {performance_timeout_seconds}s, falling back to standard search")
+                    # Continue to standard search as fallback
+
+            except Exception as e:
+                logger.warning(f"Multi-modal search error: {e}, falling back to standard search")
+                # Continue to standard search as fallback
+
         # Input validation (same as sync version)
         if not query or not isinstance(query, str):
             raise ValidationError("Query must be a non-empty string", field_name="query", value=str(query))
@@ -741,6 +840,44 @@ async def search_async_cached(
                 "context_chunks must be between 0 and 5",
                 field_name="context_chunks",
                 value=str(context_chunks),
+            )
+
+        # Validate multi-modal parameters (if applicable)
+        if "multi_modal_mode" in locals() and multi_modal_mode and multi_modal_mode not in ["local", "global", "hybrid", "mix"]:
+            raise ValidationError(
+                "multi_modal_mode must be one of: 'local', 'global', 'hybrid', 'mix'",
+                field_name="multi_modal_mode",
+                value=multi_modal_mode,
+            )
+
+        if "enable_multi_modal" in locals() and not isinstance(enable_multi_modal, bool):
+            raise ValidationError(
+                "enable_multi_modal must be a boolean",
+                field_name="enable_multi_modal",
+                value=str(enable_multi_modal),
+            )
+
+        if "enable_manual_mode_selection" in locals() and not isinstance(enable_manual_mode_selection, bool):
+            raise ValidationError(
+                "enable_manual_mode_selection must be a boolean",
+                field_name="enable_manual_mode_selection",
+                value=str(enable_manual_mode_selection),
+            )
+
+        if "include_query_analysis" in locals() and not isinstance(include_query_analysis, bool):
+            raise ValidationError(
+                "include_query_analysis must be a boolean",
+                field_name="include_query_analysis",
+                value=str(include_query_analysis),
+            )
+
+        if "performance_timeout_seconds" in locals() and (
+            not isinstance(performance_timeout_seconds, int) or performance_timeout_seconds < 1 or performance_timeout_seconds > 60
+        ):
+            raise ValidationError(
+                "performance_timeout_seconds must be between 1 and 60",
+                field_name="performance_timeout_seconds",
+                value=str(performance_timeout_seconds),
             )
 
         # Validate target_projects parameter
@@ -899,6 +1036,14 @@ async def search_async_cached(
                 "context_chunks": context_chunks if include_context else 0,
                 "cache_enabled": True,  # Indicate cache is enabled
             },
+            # Multi-modal metadata
+            "multi_modal": {
+                "enabled": enable_multi_modal,
+                "mode_requested": multi_modal_mode,
+                "manual_mode_selection": enable_manual_mode_selection,
+                "search_method": "standard",  # Since multi-modal didn't trigger
+                "fallback_from_multi_modal": False,
+            },
         }
 
         # Add search tips for empty results
@@ -936,6 +1081,11 @@ async def search_async_cached(
                 include_context,
                 context_chunks,
                 target_projects,
+                multi_modal_mode,
+                enable_multi_modal,
+                enable_manual_mode_selection,
+                include_query_analysis,
+                performance_timeout_seconds,
             )
         except Exception as sync_error:
             error_msg = f"Both cached and sync search failed: {str(sync_error)}"
@@ -967,6 +1117,12 @@ async def search_sync(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    # New multi-modal parameters (for fallback compatibility)
+    multi_modal_mode: str | None = None,
+    enable_multi_modal: bool = False,
+    enable_manual_mode_selection: bool = False,
+    include_query_analysis: bool = False,
+    performance_timeout_seconds: int = 15,
 ) -> dict[str, Any]:
     """
     Synchronous implementation of search functionality.
@@ -1007,6 +1163,44 @@ async def search_sync(
                 "context_chunks must be between 0 and 5",
                 field_name="context_chunks",
                 value=str(context_chunks),
+            )
+
+        # Validate multi-modal parameters (if applicable)
+        if "multi_modal_mode" in locals() and multi_modal_mode and multi_modal_mode not in ["local", "global", "hybrid", "mix"]:
+            raise ValidationError(
+                "multi_modal_mode must be one of: 'local', 'global', 'hybrid', 'mix'",
+                field_name="multi_modal_mode",
+                value=multi_modal_mode,
+            )
+
+        if "enable_multi_modal" in locals() and not isinstance(enable_multi_modal, bool):
+            raise ValidationError(
+                "enable_multi_modal must be a boolean",
+                field_name="enable_multi_modal",
+                value=str(enable_multi_modal),
+            )
+
+        if "enable_manual_mode_selection" in locals() and not isinstance(enable_manual_mode_selection, bool):
+            raise ValidationError(
+                "enable_manual_mode_selection must be a boolean",
+                field_name="enable_manual_mode_selection",
+                value=str(enable_manual_mode_selection),
+            )
+
+        if "include_query_analysis" in locals() and not isinstance(include_query_analysis, bool):
+            raise ValidationError(
+                "include_query_analysis must be a boolean",
+                field_name="include_query_analysis",
+                value=str(include_query_analysis),
+            )
+
+        if "performance_timeout_seconds" in locals() and (
+            not isinstance(performance_timeout_seconds, int) or performance_timeout_seconds < 1 or performance_timeout_seconds > 60
+        ):
+            raise ValidationError(
+                "performance_timeout_seconds must be between 1 and 60",
+                field_name="performance_timeout_seconds",
+                value=str(performance_timeout_seconds),
             )
 
         # Validate target_projects parameter

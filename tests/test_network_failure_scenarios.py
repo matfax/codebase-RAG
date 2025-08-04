@@ -103,7 +103,7 @@ class NetworkFailureTester:
             error_types.append(type(e).__name__)
 
         recovery_time = time.time() - recovery_start if recovery_successful else None
-        total_duration = time.time() - start_time
+        time.time() - start_time
 
         return NetworkFailureResult(
             scenario_name=scenario_name,

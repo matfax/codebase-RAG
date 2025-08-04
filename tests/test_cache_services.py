@@ -270,7 +270,7 @@ class TestSpecializedCacheServices:
             "search_time": 0.123,
         }
 
-        query_hash = service._hash_query("test query", {"n_results": 10})
+        service._hash_query("test query", {"n_results": 10})
         await service.cache_search_results("test query", search_results, {"n_results": 10})
 
         # Verify caching with appropriate TTL for search results

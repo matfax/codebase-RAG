@@ -101,7 +101,9 @@ class TestCacheInvalidationService:
         invalidation_service._cache_client = mock_cache
 
         # Invalidate entries older than 1 hour
-        condition = lambda metadata: time.time() - metadata.get("created", 0) > 3600
+        def condition(metadata):
+            return time.time() - metadata.get("created", 0) > 3600
+
         result = await invalidation_service.invalidate_conditional(pattern="cache:*", condition=condition)
 
         assert result["evaluated_count"] == 3

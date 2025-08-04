@@ -149,12 +149,9 @@ class CacheMigrationManager:
 
     async def execute_migration(self, plan: MigrationPlan, dry_run: bool = False) -> bool:
         """Execute migration plan."""
-        print(f"🚀 Starting cache system migration: {self.migration_id}")
-        print(f"📊 Estimated duration: {plan.estimated_duration_minutes} minutes")
-        print(f"🎯 Target version: {plan.target_version}")
 
         if dry_run:
-            print("🧪 DRY RUN MODE - No changes will be made")
+            pass
 
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -178,7 +175,6 @@ class CacheMigrationManager:
         all_success = True
         for step in plan.steps:
             try:
-                print(f"\n📋 Executing step: {step.value}")
                 self.current_step = step
 
                 start_time = time.time()
@@ -189,9 +185,8 @@ class CacheMigrationManager:
                 self.results.append(result)
 
                 if success:
-                    print(f"✅ {step.value}: {message} ({duration:.1f}s)")
+                    pass
                 else:
-                    print(f"❌ {step.value}: {message}")
                     all_success = False
                     break
 
@@ -204,7 +199,6 @@ class CacheMigrationManager:
                     duration_seconds=time.time() - start_time,
                 )
                 self.results.append(error_result)
-                print(f"💥 {step.value}: Failed with exception: {e}")
                 all_success = False
                 break
 
@@ -212,11 +206,8 @@ class CacheMigrationManager:
         self._save_migration_results()
 
         if all_success:
-            print("\n🎉 Migration completed successfully!")
             return True
         else:
-            print("\n💥 Migration failed. Check logs for details.")
-            print(f"📁 Migration data saved to: {self.backup_dir}")
             return False
 
     async def _execute_step(self, step: MigrationStep, dry_run: bool) -> tuple[bool, str, dict]:
@@ -493,7 +484,7 @@ networks:
                 sys.path.insert(0, str(self.project_root))
                 from src.config.cache_config import get_cache_config
 
-                config = get_cache_config()
+                get_cache_config()
                 validation_results["cache_config_loadable"] = True
             except:
                 validation_results["cache_config_loadable"] = False
@@ -552,18 +543,14 @@ networks:
 
     async def rollback_migration(self) -> bool:
         """Rollback a failed migration."""
-        print(f"🔄 Starting migration rollback: {self.migration_id}")
 
         # Load migration metadata
         metadata_file = self.backup_dir / "migration_metadata.json"
         if not metadata_file.exists():
-            print("❌ Migration metadata not found")
             return False
 
         with open(metadata_file) as f:
-            metadata = json.load(f)
-
-        print(f"📅 Original migration: {metadata['timestamp']}")
+            json.load(f)
 
         try:
             # Restore configuration files
@@ -573,7 +560,6 @@ networks:
                     original_name = backup_file.name.replace(".backup", "")
                     target_file = self.project_root / original_name
                     shutil.copy2(backup_file, target_file)
-                    print(f"✅ Restored {original_name}")
 
             # Restore Redis data if backup exists
             redis_backup_script = self.project_root / "scripts" / "deployment" / "backup-restore.sh"
@@ -587,15 +573,13 @@ networks:
                         [str(redis_backup_script), "restore", str(backup_dirs[0])], capture_output=True, text=True, timeout=300
                     )
                     if result.returncode == 0:
-                        print("✅ Redis data restored")
+                        pass
                     else:
-                        print(f"⚠️ Redis restore warning: {result.stderr}")
+                        pass
 
-            print("🎉 Migration rollback completed")
             return True
 
-        except Exception as e:
-            print(f"💥 Rollback failed: {e}")
+        except Exception:
             return False
 
 
@@ -615,46 +599,33 @@ async def main():
         manager = CacheMigrationManager()
 
         # Detect current installation
-        print("🔍 Detecting current installation...")
         detection_result = manager.detect_current_installation()
 
-        print("\n📊 Current Installation:")
         for key, value in detection_result.items():
-            print(f"   {key}: {value}")
+            pass
 
         # Create migration plan
         plan = manager.create_migration_plan(detection_result)
-
-        print("\n📋 Migration Plan:")
-        print(f"   Source version: {plan.source_version}")
-        print(f"   Target version: {plan.target_version}")
-        print(f"   Steps: {[s.value for s in plan.steps]}")
-        print(f"   Estimated duration: {plan.estimated_duration_minutes} minutes")
 
         # Confirm migration
         if not args.force and not args.dry_run:
             confirm = input("\nProceed with migration? (yes/no): ")
             if confirm.lower() != "yes":
-                print("Migration cancelled")
                 return
 
         # Execute migration
         success = await manager.execute_migration(plan, dry_run=args.dry_run)
 
         if success:
-            print("\n🎉 Migration completed successfully!")
             if not args.dry_run:
-                print(f"📁 Migration data: {manager.backup_dir}")
+                pass
         else:
-            print("\n💥 Migration failed!")
             if not args.dry_run:
-                print(f"📁 Backup preserved at: {manager.backup_dir}")
-                print("Use 'rollback' command to restore previous state")
+                pass
             sys.exit(1)
 
     elif args.action == "rollback":
         if not args.migration_id:
-            print("❌ Migration ID required for rollback")
             sys.exit(1)
 
         manager = CacheMigrationManager(migration_id=args.migration_id)
@@ -662,15 +633,13 @@ async def main():
         if not args.force:
             confirm = input(f"Rollback migration {args.migration_id}? (yes/no): ")
             if confirm.lower() != "yes":
-                print("Rollback cancelled")
                 return
 
         success = await manager.rollback_migration()
 
         if success:
-            print("✅ Rollback completed successfully")
+            pass
         else:
-            print("❌ Rollback failed")
             sys.exit(1)
 
 

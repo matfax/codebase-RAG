@@ -124,11 +124,10 @@ class CachePerformanceBenchmarkSuite:
         # Execute operation with timing
         start_time = time.perf_counter()
         try:
-            result = await operation_func(*args, **kwargs)
+            await operation_func(*args, **kwargs)
             success_count = 1
             error_count = 0
         except Exception as e:
-            result = None
             success_count = 0
             error_count = 1
             print(f"Operation {operation_name} failed: {e}")
@@ -153,7 +152,7 @@ class CachePerformanceBenchmarkSuite:
             for arg in args:
                 if isinstance(arg, str):
                     data_size += len(arg.encode("utf-8"))
-                elif isinstance(arg, (dict, list)):
+                elif isinstance(arg, dict | list):
                     data_size += len(json.dumps(arg).encode("utf-8"))
 
         # Calculate throughput

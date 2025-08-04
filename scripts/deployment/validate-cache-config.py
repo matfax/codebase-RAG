@@ -394,43 +394,24 @@ class CacheConfigValidator:
         infos = [r for r in results if r.level == ValidationLevel.INFO]
 
         # Print summary
-        print("\n" + "=" * 60)
-        print("Cache Configuration Validation Report")
-        print("=" * 60)
-        print(f"Errors:   {len(errors)}")
-        print(f"Warnings: {len(warnings)}")
-        print(f"Info:     {len(infos)}")
-        print("=" * 60 + "\n")
 
         # Print errors
         if errors:
-            print("ERRORS (must be fixed):")
-            print("-" * 60)
             for r in errors:
-                print(f"[{r.category}] {r.message}")
                 if r.suggestion:
-                    print(f"  → {r.suggestion}")
-                print()
+                    pass
 
         # Print warnings
         if warnings:
-            print("WARNINGS (should be addressed):")
-            print("-" * 60)
             for r in warnings:
-                print(f"[{r.category}] {r.message}")
                 if r.suggestion:
-                    print(f"  → {r.suggestion}")
-                print()
+                    pass
 
         # Print info
         if infos:
-            print("INFO (recommendations):")
-            print("-" * 60)
             for r in infos:
-                print(f"[{r.category}] {r.message}")
                 if r.suggestion:
-                    print(f"  → {r.suggestion}")
-                print()
+                    pass
 
     def export_results(self, results: list[ValidationResult], output_file: str):
         """Export results to JSON file."""
@@ -450,8 +431,6 @@ class CacheConfigValidator:
         with open(output_file, "w") as f:
             json.dump(data, f, indent=2)
 
-        print(f"\nResults exported to: {output_file}")
-
 
 def main():
     """Main validation function."""
@@ -468,7 +447,6 @@ def main():
     validator = CacheConfigValidator(env_file=args.env_file)
 
     # Run validation
-    print("Validating cache configuration...")
     is_valid, results = validator.validate()
 
     # Filter results if quiet mode
@@ -484,10 +462,8 @@ def main():
 
     # Exit with appropriate code
     if is_valid:
-        print("\n✅ Configuration is valid")
         sys.exit(0)
     else:
-        print("\n❌ Configuration has errors")
         sys.exit(1)
 
 

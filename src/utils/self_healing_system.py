@@ -779,7 +779,7 @@ class SelfHealingSystem:
         self.logger.info(f"Starting healing operation: {operation.id} ({operation.name})")
 
         # Create task for the operation
-        task = asyncio.create_task(self._execute_healing_operation(operation))
+        asyncio.create_task(self._execute_healing_operation(operation))
 
         # We don't await here to allow concurrent operations
         # The task will update the operation when complete

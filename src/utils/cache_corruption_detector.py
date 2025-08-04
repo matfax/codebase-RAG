@@ -231,7 +231,7 @@ class ChecksumCorruptionDetector(CorruptionDetector):
                     corruption_type=CorruptionType.CHECKSUM_MISMATCH,
                     severity=CorruptionSeverity.HIGH,
                     description=f"Checksum mismatch for key '{key}'",
-                    data_size=len(data) if isinstance(data, (str, bytes)) else 0,
+                    data_size=len(data) if isinstance(data, str | bytes) else 0,
                     checksum_expected=expected_checksum,
                     checksum_actual=current_checksum,
                 )
@@ -262,7 +262,7 @@ class SerializationCorruptionDetector(CorruptionDetector):
 
         try:
             # Test serialization round-trip
-            if isinstance(data, (str, int, float, bool, list, dict)):
+            if isinstance(data, str | int | float | bool | list | dict):
                 # JSON serializable types
                 json_str = json.dumps(data)
                 deserialized = json.loads(json_str)
@@ -277,7 +277,7 @@ class SerializationCorruptionDetector(CorruptionDetector):
             else:
                 # Try pickle serialization
                 pickled = pickle.dumps(data)
-                unpickled = pickle.loads(pickled)
+                pickle.loads(pickled)
 
                 # For complex objects, we can't always compare directly
                 # Just check if we can serialize/deserialize without error
@@ -379,7 +379,7 @@ class StructureCorruptionDetector(CorruptionDetector):
             # Check for common structure issues
             if isinstance(data, dict):
                 return await self._check_dict_structure(key, data, metadata)
-            elif isinstance(data, (list, tuple)):
+            elif isinstance(data, list | tuple):
                 return await self._check_list_structure(key, data, metadata)
             elif isinstance(data, str):
                 return await self._check_string_structure(key, data, metadata)
@@ -487,7 +487,7 @@ class StructureCorruptionDetector(CorruptionDetector):
             if not obj:
                 return current_depth
             return max(self._get_nested_depth(value, current_depth + 1) for value in obj.values())
-        elif isinstance(obj, (list, tuple)):
+        elif isinstance(obj, list | tuple):
             if not obj:
                 return current_depth
             return max(self._get_nested_depth(item, current_depth + 1) for item in obj)
@@ -791,7 +791,7 @@ class CacheCorruptionDetectionSystem:
 
                     # Attempt automatic recovery if enabled
                     if self.config.auto_recovery_enabled:
-                        recovery_success = await self.recovery_engine.recover(report)
+                        await self.recovery_engine.recover(report)
                         self.metrics.record_recovery(report)
 
             except asyncio.TimeoutError:

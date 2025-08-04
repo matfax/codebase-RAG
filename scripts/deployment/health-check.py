@@ -405,48 +405,24 @@ class CacheHealthChecker:
 def print_health_report(report: HealthReport):
     """Print health report in a formatted way."""
     # Status colors
-    status_symbols = {HealthStatus.HEALTHY: "✅", HealthStatus.DEGRADED: "⚠️", HealthStatus.UNHEALTHY: "❌"}
-
-    print("\n" + "=" * 60)
-    print("Cache Health Check Report")
-    print("=" * 60)
-    print(f"Timestamp: {report.timestamp}")
-    print(f"Overall Status: {status_symbols[report.overall_status]} {report.overall_status.value}")
-    print("=" * 60 + "\n")
 
     # Individual checks
-    print("Health Checks:")
-    print("-" * 60)
     for check in report.checks:
-        print(f"{status_symbols[check.status]} {check.name}")
-        print(f"   Status: {check.status.value}")
-        print(f"   Message: {check.message}")
-        print(f"   Duration: {check.duration_ms:.1f}ms")
         if check.details and check.status != HealthStatus.HEALTHY:
-            print(f"   Details: {json.dumps(check.details, indent=6)}")
-        print()
+            pass
 
     # Metrics summary
     if report.metrics:
-        print("\nKey Metrics:")
-        print("-" * 60)
         if "memory" in report.metrics:
-            mem = report.metrics["memory"]
-            print(f"Memory Usage: {mem.get('l1_usage_percent', 0):.1f}%")
-            print(f"L1 Entries: {mem.get('l1_entry_count', 0)}")
+            report.metrics["memory"]
 
         if "performance" in report.metrics:
-            perf = report.metrics["performance"]
-            print(f"Hit Rate: {perf.get('hit_rate', 0):.1%}")
-            print(f"Total Operations: {perf.get('total_operations', 0)}")
-            print(f"Error Count: {perf.get('error_count', 0)}")
+            report.metrics["performance"]
 
     # Recommendations
     if report.recommendations:
-        print("\nRecommendations:")
-        print("-" * 60)
         for i, rec in enumerate(report.recommendations, 1):
-            print(f"{i}. {rec}")
+            pass
 
 
 async def main():
@@ -468,9 +444,6 @@ async def main():
 
         if args.continuous:
             # Continuous monitoring
-            print("Starting continuous health monitoring...")
-            print(f"Check interval: {args.interval} seconds")
-            print("Press Ctrl+C to stop\n")
 
             while True:
                 report = await checker.run_health_checks()
@@ -491,7 +464,6 @@ async def main():
             if args.export:
                 with open(args.export, "w") as f:
                     json.dump(asdict(report), f, indent=2, default=str)
-                print(f"\nReport exported to: {args.export}")
 
             # Exit with appropriate code
             if report.overall_status == HealthStatus.HEALTHY:
@@ -502,9 +474,8 @@ async def main():
                 sys.exit(2)
 
     except KeyboardInterrupt:
-        print("\nHealth monitoring stopped")
-    except Exception as e:
-        print(f"\nHealth check failed: {e}")
+        pass
+    except Exception:
         sys.exit(3)
 
 

@@ -31,17 +31,12 @@ class PerformanceTestRunner:
 
     def run_all_tests(self) -> dict[str, Any]:
         """Run all performance tests and collect results."""
-        print("Starting Graph RAG Performance Tests...")
-        print("=" * 60)
 
         # Run pytest with performance test file
         test_file = "src/tools/graph_rag/function_path_finding_performance.test.py"
 
         if not os.path.exists(test_file):
-            print(f"Error: Test file {test_file} not found!")
             return {"error": "Test file not found"}
-
-        print(f"Running performance tests from: {test_file}")
 
         # Run tests with pytest
         pytest_args = [test_file, "-v", "--tb=short", "--capture=no", "--durations=10"]
@@ -49,8 +44,6 @@ class PerformanceTestRunner:
         start_time = time.time()
         result = pytest.main(pytest_args)
         total_time = time.time() - start_time
-
-        print(f"\nTotal test execution time: {total_time:.2f} seconds")
 
         # Collect results
         self.test_results = {
@@ -162,43 +155,19 @@ class PerformanceTestRunner:
         with open(filename, "w") as f:
             json.dump(report, f, indent=2)
 
-        print(f"\nPerformance report saved to: {filename}")
         return filename
 
     def print_summary(self):
         """Print a summary of performance test results."""
-        print("\n" + "=" * 60)
-        print("GRAPH RAG PERFORMANCE TEST SUMMARY")
-        print("=" * 60)
 
         if self.test_results.get("test_status") == "PASSED":
-            print("✅ STATUS: ALL TESTS PASSED")
+            pass
         else:
-            print("❌ STATUS: SOME TESTS FAILED")
-
-        print(f"⏱️  Total execution time: {self.test_results.get('total_execution_time', 0):.2f} seconds")
-        print(f"🔧 Pytest exit code: {self.test_results.get('pytest_exit_code', 'unknown')}")
-
-        print("\n📋 PERFORMANCE REQUIREMENTS:")
-        print("   • Small codebase (< 1000 functions): < 1 second response time")
-        print("   • Medium codebase (1000-10000 functions): < 3 seconds response time")
-        print("   • Large codebase (> 10000 functions): < 5 seconds response time")
-        print("   • Concurrent requests: Support multiple simultaneous requests")
-        print("   • Memory usage: Efficient memory management")
-
-        print("\n🎯 TEST CATEGORIES:")
-        print("   • Function Chain Analysis Performance")
-        print("   • Function Path Finding Performance")
-        print("   • Scalability Benchmarks")
-        print("   • Concurrent Request Handling")
-        print("   • Memory Usage Testing")
+            pass
 
         recommendations = self._generate_recommendations()
-        print("\n💡 RECOMMENDATIONS:")
         for rec in recommendations:
-            print(f"   {rec}")
-
-        print("\n" + "=" * 60)
+            pass
 
 
 def main():
@@ -213,20 +182,19 @@ def main():
         runner.print_summary()
 
         # Save detailed report
-        report_file = runner.save_report()
+        runner.save_report()
 
         # Exit with appropriate code
         exit_code = results.get("pytest_exit_code", 1)
 
         if exit_code == 0:
-            print(f"\n🎉 All performance tests passed! Report saved to {report_file}")
+            pass
         else:
-            print(f"\n⚠️  Some performance tests failed. Check {report_file} for details.")
+            pass
 
         sys.exit(exit_code)
 
-    except Exception as e:
-        print(f"Error running performance tests: {e}")
+    except Exception:
         sys.exit(1)
 
 

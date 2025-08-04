@@ -501,7 +501,7 @@ class RedisFailureTestSuite:
         for i in range(5):
             try:
                 await cache_service.set(f"recovery_key_{i}", f"recovery_value_{i}")
-                result = await cache_service.get(f"recovery_key_{i}")
+                await cache_service.get(f"recovery_key_{i}")
                 recovery_successful = True
                 operations_attempted += 1
                 operations_succeeded += 1
@@ -590,8 +590,8 @@ class RedisFailureTestSuite:
         total_duration = time.time() - start_time
 
         # Analyze response times
-        slow_responses = [t for t in response_times[:5]]  # First 5 are slow
-        fast_responses = [t for t in response_times[5:]]  # Rest are normal
+        slow_responses = list(response_times[:5])  # First 5 are slow
+        fast_responses = list(response_times[5:])  # Rest are normal
 
         return FailureScenarioResult(
             scenario_name=scenario_name,
@@ -1189,10 +1189,10 @@ class TestRedisFailureIntegration:
             await service.initialize()
 
             # Operations should handle connection failures
-            result = await service.get("test_key")
+            await service.get("test_key")
             # Should return None or handle gracefully
 
-            health = await service.get_health()
+            await service.get_health()
             # Should indicate unhealthy state
 
         except Exception as e:

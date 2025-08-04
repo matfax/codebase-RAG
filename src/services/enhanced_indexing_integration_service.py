@@ -215,7 +215,6 @@ class EnhancedIndexingIntegrationService:
 
         # Additional heuristics
         avg_chunks_per_file = total_chunks / total_files if total_files > 0 else 0
-        has_complex_files = avg_chunks_per_file > 10
 
         # Language analysis
         languages = set()

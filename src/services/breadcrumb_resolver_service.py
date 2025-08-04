@@ -1268,7 +1268,7 @@ class BreadcrumbResolver:
         target_words = re.findall(r"[A-Z][a-z]*|[a-z]+|\d+", target_name)
 
         if result_words and target_words:
-            common_words = set(w.lower() for w in result_words) & set(w.lower() for w in target_words)
+            common_words = {w.lower() for w in result_words} & {w.lower() for w in target_words}
             if common_words:
                 overlap_ratio = len(common_words) / max(len(result_words), len(target_words))
                 return overlap_ratio * 0.8

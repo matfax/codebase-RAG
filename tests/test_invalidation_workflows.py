@@ -553,7 +553,7 @@ class TestComplexInvalidationWorkflows(TestInvalidationWorkflowBase):
             await cache_service.set("config:cache", {"version": 1})
 
             # Trigger file change
-            start_time = time.time()
+            time.time()
             config_file.write_text('{"version": 2}')
 
             # Simulate file event

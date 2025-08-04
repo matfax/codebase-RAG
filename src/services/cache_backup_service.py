@@ -631,7 +631,7 @@ class CacheBackupService:
         """Load backup data from file."""
         backup_dir = self.backup_config.backup_directory / backup_id
         backup_file = backup_dir / "cache_data.json"
-        metadata_file = backup_dir / "metadata.json"
+        backup_dir / "metadata.json"
 
         if not backup_file.exists():
             raise FileNotFoundError(f"Backup file not found: {backup_file}")

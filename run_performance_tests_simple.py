@@ -15,8 +15,6 @@ from pathlib import Path
 
 def run_command(command, description=""):
     """Run a command and capture output."""
-    print(f"Running: {description}")
-    print(f"Command: {' '.join(command)}")
 
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=300)  # 5 minute timeout
@@ -51,9 +49,6 @@ def run_command(command, description=""):
 
 def run_performance_benchmarks():
     """Run cache performance benchmark tests."""
-    print("\n" + "=" * 60)
-    print("RUNNING CACHE PERFORMANCE BENCHMARKS")
-    print("=" * 60)
 
     results = []
 
@@ -91,9 +86,6 @@ def run_performance_benchmarks():
 
 def run_failure_scenarios():
     """Run failure scenario tests."""
-    print("\n" + "=" * 60)
-    print("RUNNING FAILURE SCENARIO TESTS")
-    print("=" * 60)
 
     results = []
 
@@ -152,9 +144,6 @@ def run_failure_scenarios():
 
 def run_memory_pressure_tests():
     """Run memory pressure tests."""
-    print("\n" + "=" * 60)
-    print("RUNNING MEMORY PRESSURE TESTS")
-    print("=" * 60)
 
     results = []
 
@@ -180,9 +169,6 @@ def run_memory_pressure_tests():
 
 def run_cache_eviction_tests():
     """Run cache eviction scenario tests."""
-    print("\n" + "=" * 60)
-    print("RUNNING CACHE EVICTION TESTS")
-    print("=" * 60)
 
     results = []
 
@@ -270,31 +256,18 @@ def generate_comprehensive_report(performance_results, failure_results, memory_r
 
 def print_summary(report):
     """Print test execution summary."""
-    print("\n" + "=" * 80)
-    print("WAVE 16.0 PERFORMANCE TESTING SUMMARY")
-    print("=" * 80)
 
-    summary = report["summary"]
-    print(f"Total Tests: {summary['total_tests']}")
-    print(f"Successful: {summary['successful_tests']}")
-    print(f"Failed: {summary['failed_tests']}")
-    print(f"Success Rate: {summary['success_rate']:.1f}%")
+    report["summary"]
 
-    print("\nCategory Breakdown:")
     for category, data in report["categories"].items():
-        print(f"  {category.replace('_', ' ').title()}: {data['passed']}/{data['total']} passed")
+        pass
 
-    print("\nSubtasks Completed:")
     for subtask in report["subtasks_completed"]:
-        print(f"  ✅ {subtask}")
-
-    print("=" * 80)
+        pass
 
 
 def main():
     """Main function to run all Wave 16.0 tests."""
-    print("Query Caching Layer - Wave 16.0 Performance Testing")
-    print("=" * 60)
 
     # Ensure reports directory exists
     reports_dir = Path(__file__).parent / "reports"
@@ -302,17 +275,12 @@ def main():
 
     # Run all test categories
     try:
-        print("\nWAVE 16.0 SUBTASK EXECUTION:")
-        print("16.1 - Performance Tests")
         performance_results = run_performance_benchmarks()
 
-        print("\n16.2 - Failure Scenario Tests")
         failure_results = run_failure_scenarios()
 
-        print("\n16.2.3 - Memory Pressure Tests")
         memory_results = run_memory_pressure_tests()
 
-        print("\n16.2.5 - Cache Eviction Tests")
         eviction_results = run_cache_eviction_tests()
 
         # Generate comprehensive report
@@ -326,13 +294,9 @@ def main():
         # Print summary
         print_summary(report)
 
-        print(f"\n📊 Detailed report saved to: {report_path}")
-        print("✅ Wave 16.0 Performance Testing and Benchmarking COMPLETED!")
-
         return report
 
-    except Exception as e:
-        print(f"\n❌ Wave 16.0 testing failed: {e}")
+    except Exception:
         raise
 
 

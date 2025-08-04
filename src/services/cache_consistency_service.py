@@ -578,7 +578,7 @@ class CacheConsistencyService:
         """Check if two cache values are equal."""
         try:
             # Handle different data types
-            if isinstance(value1, (dict, list)) and isinstance(value2, (dict, list)):
+            if isinstance(value1, dict | list) and isinstance(value2, dict | list):
                 return json.dumps(value1, sort_keys=True) == json.dumps(value2, sort_keys=True)
             elif isinstance(value1, str) and isinstance(value2, bytes):
                 return value1 == value2.decode()
@@ -592,7 +592,7 @@ class CacheConsistencyService:
     def _calculate_checksum(self, data: Any) -> str:
         """Calculate checksum for data."""
         try:
-            if isinstance(data, (dict, list)):
+            if isinstance(data, dict | list):
                 data_str = json.dumps(data, sort_keys=True)
             else:
                 data_str = str(data)

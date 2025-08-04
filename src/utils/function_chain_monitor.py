@@ -663,8 +663,7 @@ if __name__ == "__main__":
         )
 
         # Generate report
-        report = monitor.generate_monitoring_report()
-        print(report)
+        monitor.generate_monitoring_report()
 
         monitor.close()
 

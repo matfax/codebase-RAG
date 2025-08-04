@@ -2,13 +2,13 @@
 
 Comprehensive documentation for all MCP tools provided by the Codebase RAG MCP Server.
 
-## Core Search Tool
+## Core Search Tools
 
-### `search` - Semantic Code Search
+### `search` - Enhanced Semantic Code Search
 
-Search indexed codebases using natural language queries with function-level precision.
+Search indexed codebases using natural language queries with function-level precision and advanced multi-modal retrieval capabilities.
 
-**Parameters:**
+**Standard Parameters:**
 - `query` (required): Natural language search query
 - `n_results` (optional, default: 5): Number of results to return (1-100)
 - `cross_project` (optional, default: false): Search across all indexed projects
@@ -17,11 +17,82 @@ Search indexed codebases using natural language queries with function-level prec
 - `context_chunks` (optional, default: 1): Number of context chunks before/after (0-5)
 - `target_projects` (optional): List of specific project names to search in
 
+**🆕 Wave 7.0 Enhanced Parameters:**
+- `multi_modal_mode` (optional): Manual mode selection ("local", "global", "hybrid", "mix")
+- `enable_multi_modal` (optional, default: false): Enable LightRAG-inspired multi-modal retrieval
+- `enable_manual_mode_selection` (optional, default: false): Allow manual override of automatic mode selection
+- `include_query_analysis` (optional, default: false): Include detailed query analysis in response
+- `performance_timeout_seconds` (optional, default: 15): Maximum execution time in seconds
+
+**Multi-Modal Retrieval Modes:**
+- **Local Mode**: Deep entity-focused retrieval using low-level keywords
+- **Global Mode**: Broad relationship-focused retrieval using high-level keywords
+- **Hybrid Mode**: Combined local+global with balanced context
+- **Mix Mode**: Intelligent automatic mode selection based on query analysis
+
 **Example Queries:**
 - "Find functions that handle file uploads"
 - "Show me React components that use useState hook"
 - "Find error handling patterns in Python"
 - "Locate database connection initialization code"
+
+### `multi_modal_search` - Advanced Multi-Modal Retrieval
+
+🆕 **NEW in Wave 7.0** - Dedicated multi-modal search tool with LightRAG-inspired retrieval strategies.
+
+**Parameters:**
+- `query` (required): Natural language search query
+- `n_results` (optional, default: 10): Number of results to return (1-50)
+- `mode` (optional): Manual mode selection ("local", "global", "hybrid", "mix")
+- `target_projects` (optional): List of specific project names to search in
+- `cross_project` (optional, default: false): Search across all projects
+- `enable_manual_mode_selection` (optional, default: false): Allow manual mode override
+- `include_analysis` (optional, default: true): Include query analysis in response
+- `include_performance_metrics` (optional, default: false): Include performance metrics
+
+**Mode Selection Strategy:**
+- **Automatic**: Uses query analysis to select optimal mode
+- **Manual**: Allows explicit mode specification
+- **Adaptive**: Learns from query patterns and performance
+
+**Performance Features:**
+- <20 second timeout with graceful degradation
+- Performance monitoring and metrics collection
+- Automatic fallback to simpler modes on timeout
+- Cache-aware execution for repeated queries
+
+### `analyze_query_features` - Query Analysis Tool
+
+🆕 **NEW in Wave 7.0** - Analyze query characteristics and recommend optimal retrieval strategies.
+
+**Parameters:**
+- `query` (required): The search query to analyze
+
+**Returns:**
+- Query type classification (entity_focused, relationship_focused, conceptual)
+- Complexity analysis (simple, complex, multi_faceted)
+- Keyword extraction (entity names, concept terms, technical terms)
+- Context hints (language, framework, domain)
+- Mode recommendation with confidence score
+- Detailed reasoning for recommendations
+
+### `get_retrieval_mode_performance` - Performance Analytics
+
+🆕 **NEW in Wave 7.0** - Get comprehensive performance metrics for multi-modal retrieval modes.
+
+**Parameters:**
+- `mode` (optional): Specific mode to analyze ("local", "global", "hybrid", "mix")
+- `include_comparison` (optional, default: true): Include cross-mode comparison
+- `include_alerts` (optional, default: true): Include performance alerts
+- `include_history` (optional, default: false): Include query history
+- `history_limit` (optional, default: 50): Limit for query history
+
+**Returns:**
+- Mode-specific performance statistics
+- Cross-mode comparison analysis
+- Active performance alerts
+- Query history and trends
+- Optimization recommendations
 
 ## Indexing Tools
 
@@ -51,6 +122,62 @@ Get information about the current indexing state of a directory.
 - `directory` (optional, default: "."): Directory to check
 
 **Returns:** Status information and recommendations for indexed data.
+
+## System Management & Configuration Tools
+
+### `generate_auto_configuration` - Auto-Configuration Service
+
+🆕 **NEW in Wave 7.0** - Automatically generate optimal configuration based on system capabilities and project characteristics.
+
+**Parameters:**
+- `directory` (optional, default: "."): Directory to analyze for configuration
+- `usage_pattern` (optional, default: "balanced"): Expected usage pattern ("development", "production", "research", "balanced")
+
+**Returns:**
+- System capability analysis (CPU, memory, storage)
+- Project characteristics assessment (size, complexity, languages)
+- Optimized parameter recommendations for all MCP tools
+- Performance optimization suggestions
+- Resource allocation recommendations
+
+**Configuration Areas:**
+- **Search Parameters**: Optimal n_results, timeout values, mode preferences
+- **Indexing Settings**: Batch sizes, chunking strategies, incremental settings
+- **Cache Configuration**: Memory allocation, TTL settings, eviction policies
+- **Performance Limits**: Timeout thresholds, max depth values, result limits
+
+### `run_compatibility_check` - Backward Compatibility Verification
+
+🆕 **NEW in Wave 7.0** - Verify that all existing MCP tool interfaces remain functional.
+
+**Returns:**
+- Compatibility test results for all core tools
+- Interface validation status
+- Breaking change detection
+- Migration recommendations if needed
+
+### `get_performance_dashboard` - Performance Dashboard
+
+🆕 **NEW in Wave 7.0** - Comprehensive performance monitoring dashboard for all MCP tools.
+
+**Returns:**
+- Overall system performance summary
+- Per-tool performance statistics
+- Active operations monitoring
+- System resource utilization
+- Performance target compliance (15-second response time)
+- Performance history and trends
+
+### `get_service_health_status` - Service Health Monitoring
+
+🆕 **NEW in Wave 7.0** - Get comprehensive health status across all services with error tracking.
+
+**Returns:**
+- Service degradation levels for all components
+- Error history and patterns
+- Recovery suggestions
+- Service health trends
+- Automatic degradation thresholds
 
 ## Analysis Tools
 
@@ -202,18 +329,27 @@ Reindex a specific file by clearing existing chunks and reprocessing.
 
 The Graph RAG tools provide advanced code relationship analysis by building and analyzing code dependency graphs. These tools work on-demand and require the project to be indexed first.
 
-### `graph_analyze_structure_tool` - Code Structure Analysis
+### `graph_analyze_structure_tool` - Enhanced Code Structure Analysis
 
-Analyze the hierarchical structure and relationships of code components using graph traversal algorithms.
+🔧 **ENHANCED in Wave 7.0** - Analyze the hierarchical structure and relationships of code components using graph traversal algorithms with performance optimizations.
 
 **Parameters:**
 - `breadcrumb` (required): The code component to analyze (e.g., "cache.service.RedisCacheService")
 - `project_name` (required): Name of the project to analyze
 - `analysis_type` (optional, default: "comprehensive"): Type of analysis ("comprehensive", "hierarchy", "connectivity", "overview")
-- `max_depth` (optional, default: 3): Maximum depth for relationship traversal (1-10)
+- `max_depth` (optional, default: auto-configured): Maximum depth for relationship traversal (1-15, auto-configured based on system capabilities)
 - `include_siblings` (optional, default: false): Whether to include sibling components
 - `include_connectivity` (optional, default: true): Whether to analyze connectivity patterns
 - `force_rebuild_graph` (optional, default: false): Force rebuild the structure graph
+- 🆕 `generate_report` (optional, default: false): Whether to generate comprehensive analysis report
+- 🆕 `include_recommendations` (optional, default: true): Whether to include optimization recommendations
+- 🆕 `enable_performance_optimization` (optional, default: true): Whether to enable performance optimizations
+
+**🆕 Wave 7.0 Enhancements:**
+- **Auto-Configuration**: max_depth automatically configured based on system capabilities
+- **Performance Monitoring**: <15 second response time guarantee
+- **Enhanced Reports**: Comprehensive analysis reports with statistics and recommendations
+- **Optimization Engine**: Intelligent performance optimization for large projects
 
 **Example Usage:**
 ```python
@@ -224,9 +360,9 @@ result = await graph_analyze_structure_tool(
 )
 ```
 
-### `graph_find_similar_implementations_tool` - Cross-Project Similarity Search
+### `graph_find_similar_implementations_tool` - Enhanced Cross-Project Similarity Search
 
-Find similar code implementations across projects using semantic and structural analysis.
+🔧 **ENHANCED in Wave 7.0** - Find similar code implementations across projects using semantic and structural analysis with improved performance limits.
 
 **Parameters:**
 - `query` (required): Natural language description of what to search for
@@ -238,9 +374,14 @@ Find similar code implementations across projects using semantic and structural 
 - `languages` (optional): List of programming languages to include
 - `similarity_threshold` (optional, default: 0.7): Minimum similarity score (0.0-1.0)
 - `structural_weight` (optional, default: 0.5): Weight for structural vs semantic similarity
-- `max_results` (optional, default: 10): Maximum number of results (1-50)
+- 🔧 `max_results` (optional, default: 25): Maximum number of results (1-100, increased from 50)
 - `include_implementation_chains` (optional, default: false): Include implementation chain analysis
 - `include_architectural_context` (optional, default: true): Include architectural context
+
+**🆕 Wave 7.0 Enhancements:**
+- **Increased Limits**: max_results increased to 100 for comprehensive analysis
+- **Auto-Configuration**: Parameters automatically optimized based on system capabilities
+- **Performance Monitoring**: <15 second response time with timeout handling
 
 **Example Usage:**
 ```python
@@ -251,9 +392,9 @@ result = await graph_find_similar_implementations_tool(
 )
 ```
 
-### `graph_identify_patterns_tool` - Architectural Pattern Recognition
+### `graph_identify_patterns_tool` - Enhanced Architectural Pattern Recognition
 
-Identify architectural patterns and design patterns in codebases using pattern recognition algorithms.
+🔧 **ENHANCED in Wave 7.0** - Identify architectural patterns and design patterns in codebases using pattern recognition algorithms with increased capacity.
 
 **Parameters:**
 - `project_name` (required): Name of the project to analyze
@@ -262,8 +403,13 @@ Identify architectural patterns and design patterns in codebases using pattern r
 - `min_confidence` (optional, default: 0.6): Minimum confidence threshold (0.0-1.0)
 - `include_comparisons` (optional, default: true): Include pattern comparison analysis
 - `include_improvements` (optional, default: false): Suggest pattern improvements
-- `max_patterns` (optional, default: 20): Maximum number of patterns to return (1-50)
+- 🔧 `max_patterns` (optional, default: 50): Maximum number of patterns to return (1-100, increased from 20)
 - `analysis_depth` (optional, default: "comprehensive"): Depth of analysis ("basic", "comprehensive", "detailed")
+
+**🆕 Wave 7.0 Enhancements:**
+- **Increased Capacity**: max_patterns increased to 100 for comprehensive pattern analysis
+- **Performance Monitoring**: <15 second response time guarantee
+- **Auto-Configuration**: Parameters optimized based on project size and complexity
 
 **Example Usage:**
 ```python
@@ -294,15 +440,15 @@ result = await graph_identify_patterns_tool(
 
 The Function Chain tools provide specialized analysis of function call chains, execution flows, and path finding within codebases. These tools complement Graph RAG capabilities with focused function-level analysis.
 
-### `trace_function_chain_tool` - Function Chain Tracing
+### `trace_function_chain_tool` - Enhanced Function Chain Tracing
 
-Trace complete function chains from an entry point with comprehensive analysis options.
+🔧 **ENHANCED in Wave 7.0** - Trace complete function chains from an entry point with comprehensive analysis options and improved capacity.
 
 **Parameters:**
 - `entry_point` (required): Function/class identifier (breadcrumb or natural language)
 - `project_name` (required): Name of the project to analyze
 - `direction` (optional, default: "forward"): Tracing direction ("forward", "backward", "bidirectional")
-- `max_depth` (optional, default: 10): Maximum depth for chain traversal
+- 🔧 `max_depth` (optional, default: 20): Maximum depth for chain traversal (increased from 10)
 - `output_format` (optional, default: "arrow"): Output format ("arrow", "mermaid", "both")
 - `include_mermaid` (optional, default: false): Whether to include Mermaid diagram output
 - `chain_type` (optional, default: "execution_flow"): Type of chain to trace ("execution_flow", "data_flow", "dependency_chain")
@@ -310,6 +456,11 @@ Trace complete function chains from an entry point with comprehensive analysis o
 - `identify_branch_points` (optional, default: true): Whether to identify branch points
 - `identify_terminal_points` (optional, default: true): Whether to identify terminal points
 - `performance_monitoring` (optional, default: true): Whether to include performance monitoring
+
+**🆕 Wave 7.0 Enhancements:**
+- **Increased Depth**: max_depth increased to 20 for deeper chain analysis
+- **Performance Monitoring**: <15 second response time guarantee
+- **Auto-Configuration**: Parameters optimized based on system capabilities
 
 **Example Usage:**
 ```python
@@ -321,22 +472,27 @@ result = await trace_function_chain_tool(
 )
 ```
 
-### `find_function_path_tool` - Function Path Finding
+### `find_function_path_tool` - Enhanced Function Path Finding
 
-Find the most efficient path between two functions in a codebase with quality metrics.
+🔧 **ENHANCED in Wave 7.0** - Find the most efficient path between two functions in a codebase with quality metrics and improved capacity.
 
 **Parameters:**
 - `start_function` (required): Starting function identifier (breadcrumb or natural language)
 - `end_function` (required): Target function identifier (breadcrumb or natural language)
 - `project_name` (required): Name of the project to search within
 - `strategy` (optional, default: "optimal"): Path finding strategy ("shortest", "optimal", "all")
-- `max_paths` (optional, default: 3): Maximum number of paths to return (1-10)
-- `max_depth` (optional, default: 15): Maximum search depth for path finding
+- 🔧 `max_paths` (optional, default: 10): Maximum number of paths to return (1-20, increased from 3)
+- 🔧 `max_depth` (optional, default: 25): Maximum search depth for path finding (increased from 15)
 - `include_quality_metrics` (optional, default: true): Whether to calculate path quality metrics
 - `output_format` (optional, default: "arrow"): Output format ("arrow", "mermaid", "both")
 - `include_mermaid` (optional, default: false): Whether to include Mermaid diagram output
 - `min_link_strength` (optional, default: 0.3): Minimum link strength for path inclusion
 - `optimize_for` (optional, default: "reliability"): Optimization criteria ("reliability", "directness", "simplicity")
+
+**🆕 Wave 7.0 Enhancements:**
+- **Increased Capacity**: max_paths increased to 20, max_depth increased to 25
+- **Performance Monitoring**: <15 second response time guarantee
+- **Auto-Configuration**: Parameters optimized based on project complexity
 
 **Example Usage:**
 ```python
@@ -349,16 +505,16 @@ result = await find_function_path_tool(
 )
 ```
 
-### `analyze_project_chains_tool` - Project-Wide Chain Analysis
+### `analyze_project_chains_tool` - Enhanced Project-Wide Chain Analysis
 
-Analyze function chains across an entire project with comprehensive insights and patterns.
+🔧 **ENHANCED in Wave 7.0** - Analyze function chains across an entire project with comprehensive insights, patterns, and increased capacity.
 
 **Parameters:**
 - `project_name` (required): Name of the project to analyze
 - `analysis_scope` (optional, default: "full_project"): Scope of analysis ("full_project", "scoped_breadcrumbs", "specific_modules", "function_patterns")
 - `breadcrumb_patterns` (optional): List of breadcrumb patterns to focus analysis on
 - `analysis_types` (optional): Types of analysis to perform ("complexity_analysis", "hotspot_identification", "pattern_detection", "architectural_analysis")
-- `max_functions_per_chain` (optional, default: 50): Maximum functions to include per chain
+- 🔧 `max_functions_per_chain` (optional, default: 100): Maximum functions to include per chain (increased from 50)
 - `complexity_threshold` (optional, default: 0.7): Complexity threshold for highlighting (0.0-1.0)
 - `output_format` (optional, default: "comprehensive"): Output format ("comprehensive", "summary", "detailed")
 - `include_mermaid` (optional, default: true): Whether to include Mermaid diagram outputs
@@ -366,6 +522,12 @@ Analyze function chains across an entire project with comprehensive insights and
 - `include_refactoring_suggestions` (optional, default: false): Whether to provide refactoring recommendations
 - `enable_complexity_weighting` (optional, default: true): Whether to use weighted complexity calculations
 - `complexity_weights` (optional): Custom complexity weights (branching_factor, cyclomatic_complexity, etc.)
+- 🆕 `max_functions_to_analyze` (optional, default: 5000): Maximum total functions to analyze across project
+
+**🆕 Wave 7.0 Enhancements:**
+- **Increased Capacity**: max_functions_per_chain increased to 100, added max_functions_to_analyze (5000)
+- **Performance Monitoring**: <15 second response time with progress tracking
+- **Auto-Configuration**: Parameters optimized based on project size and system capabilities
 
 **Example Usage:**
 ```python
@@ -401,6 +563,80 @@ result = await analyze_project_chains_tool(
 
 For detailed information about Graph RAG architecture, see [Graph RAG Architecture Guide](GRAPH_RAG_ARCHITECTURE.md).
 
+## 🆕 Wave 7.0 Performance & Error Handling Features
+
+### Performance Monitoring & Timeout Management
+
+All MCP tools in Wave 7.0 include enhanced performance features:
+
+**15-Second Response Time Guarantee:**
+- All tools automatically timeout at 15 seconds (configurable)
+- Performance monitoring tracks execution time and resource usage
+- Automatic timeout handling with graceful error responses
+- Progress preservation for long-running operations
+
+**Performance Decorators:**
+```python
+@with_performance_monitoring(timeout_seconds=15, tool_name="search")
+@with_graceful_degradation(service_name="search", fallback_function=simple_search_fallback)
+```
+
+**Performance Metrics Included in Responses:**
+```json
+{
+  "_performance": {
+    "execution_time_ms": 8432,
+    "within_timeout": true,
+    "memory_usage_mb": 245.6,
+    "cpu_usage_percent": 12.4
+  }
+}
+```
+
+### Graceful Degradation System
+
+**Service Health Tracking:**
+- Monitors all services (search, indexing, graph_rag, multi_modal, cache)
+- Automatic degradation levels: FULL_SERVICE → PARTIAL_DEGRADATION → MINIMAL_SERVICE → EMERGENCY_MODE
+- Error pattern recognition for proactive degradation
+
+**Fallback Mechanisms:**
+- Automatic fallback to simpler operations on failure
+- Preserved functionality during service degradation
+- User-friendly error messages with recovery suggestions
+
+**Error Recovery Features:**
+- Automatic service recovery when errors decrease
+- Comprehensive error logging and analysis
+- Performance alerts and recommendations
+
+### Auto-Configuration System
+
+**Intelligent Parameter Optimization:**
+- Analyzes system capabilities (CPU, memory, storage)
+- Assesses project characteristics (size, complexity, languages)
+- Automatically configures optimal parameters for all tools
+- Reduces user configuration burden
+
+**Configuration Areas:**
+- Search timeouts and result limits
+- Graph analysis depth and complexity thresholds
+- Cache settings and memory allocation
+- Performance monitoring thresholds
+
+### Backward Compatibility
+
+**Compatibility Guarantee:**
+- All existing MCP tool interfaces remain unchanged
+- New parameters are optional with sensible defaults
+- Comprehensive compatibility testing included
+- Zero breaking changes for existing implementations
+
+**Migration Support:**
+- Compatibility check tools for validation
+- Detailed migration guides for new features
+- Gradual adoption path for enhanced capabilities
+
 ## Error Handling
 
 All tools include comprehensive error handling with:
@@ -408,10 +644,182 @@ All tools include comprehensive error handling with:
 - Graceful degradation for partial failures
 - Automatic retry logic for transient failures
 - Progress preservation during interruptions
+- 🆕 **Service health monitoring and automatic recovery**
+- 🆕 **Performance-based fallback mechanisms**
+- 🆕 **Intelligent timeout handling with partial results**
+
+## 🆕 Wave 7.0 Usage Examples
+
+### Multi-Modal Search Examples
+
+**Basic Multi-Modal Search:**
+```python
+# Enable multi-modal search with automatic mode selection
+result = await search(
+    query="Find authentication middleware implementations",
+    enable_multi_modal=True,
+    include_query_analysis=True
+)
+```
+
+**Manual Mode Selection:**
+```python
+# Use specific mode for targeted search
+result = await multi_modal_search(
+    query="Show me all database connection patterns",
+    mode="global",  # Focus on relationships
+    include_analysis=True,
+    include_performance_metrics=True
+)
+```
+
+**Cross-Project Analysis:**
+```python
+# Search across multiple projects with performance monitoring
+result = await multi_modal_search(
+    query="Find similar API endpoint implementations",
+    cross_project=True,
+    target_projects=["api-service", "user-service"],
+    mode="hybrid",
+    performance_timeout_seconds=20
+)
+```
+
+### Auto-Configuration Workflow
+
+**System Setup:**
+```python
+# Generate optimal configuration for your system
+config = await generate_auto_configuration(
+    directory="/path/to/large/project",
+    usage_pattern="production"
+)
+
+# Apply auto-generated settings to search
+result = await search(
+    query="Find error handling patterns",
+    n_results=config["search"]["optimal_n_results"],
+    performance_timeout_seconds=config["performance"]["timeout_seconds"]
+)
+```
+
+### Performance Monitoring Examples
+
+**Dashboard Monitoring:**
+```python
+# Get comprehensive performance overview
+dashboard = await get_performance_dashboard()
+print(f"Overall success rate: {dashboard['overall_summary']['success_rate']}%")
+print(f"Average response time: {dashboard['overall_summary']['performance']['average_time_ms']}ms")
+
+# Check if performance targets are met
+compliance = dashboard['overall_summary']['compliance']['compliance_rate']
+if compliance < 95:
+    print("⚠️ Performance targets not met - consider optimization")
+```
+
+**Service Health Monitoring:**
+```python
+# Monitor service health and degradation
+health = await get_service_health_status()
+for service, level in health['service_health'].items():
+    if level != 'full_service':
+        print(f"⚠️ {service} is degraded: {level}")
+
+# Get recovery suggestions
+for service in health['degraded_services']:
+    print(f"Recovery suggestions for {service}:")
+    # Implement recovery actions
+```
+
+### Enhanced Graph RAG Examples
+
+**Comprehensive Structure Analysis:**
+```python
+# Analyze with auto-configured parameters
+result = await graph_analyze_structure_tool(
+    breadcrumb="auth.service.AuthenticationService",
+    project_name="my-app",
+    generate_report=True,
+    include_recommendations=True,
+    enable_performance_optimization=True
+)
+```
+
+**Large-Scale Pattern Analysis:**
+```python
+# Analyze patterns across entire project
+patterns = await graph_identify_patterns_tool(
+    project_name="large-codebase",
+    max_patterns=100,  # Enhanced capacity
+    analysis_depth="detailed",
+    include_improvements=True
+)
+```
+
+**Cross-Project Similarity with Enhanced Limits:**
+```python
+# Find similar implementations with increased capacity
+similar = await graph_find_similar_implementations_tool(
+    query="cache implementation patterns",
+    max_results=100,  # Enhanced from 50
+    target_projects=["service-a", "service-b", "service-c"],
+    include_implementation_chains=True
+)
+```
 
 ## Tool Integration
 
-Tools are designed to work together:
+**🆕 Wave 7.0 Recommended Workflow:**
+
+1. **System Configuration:**
+   ```python
+   # Auto-configure optimal settings
+   config = await generate_auto_configuration()
+
+   # Verify compatibility
+   compatibility = await run_compatibility_check()
+   ```
+
+2. **Project Analysis:**
+   ```python
+   # Analyze repository structure
+   analysis = await analyze_repository_tool()
+
+   # Check system health
+   health = await health_check()
+   ```
+
+3. **Indexing with Performance Monitoring:**
+   ```python
+   # Index with auto-configured settings
+   result = await index_directory(
+       incremental=config["indexing"]["use_incremental"],
+       batch_size=config["indexing"]["optimal_batch_size"]
+   )
+   ```
+
+4. **Multi-Modal Search:**
+   ```python
+   # Search with enhanced capabilities
+   results = await search(
+       query="Your search query",
+       enable_multi_modal=True,
+       include_query_analysis=True,
+       performance_timeout_seconds=config["performance"]["timeout"]
+   )
+   ```
+
+5. **Performance Monitoring:**
+   ```python
+   # Monitor and optimize
+   dashboard = await get_performance_dashboard()
+
+   # Get service health
+   health_status = await get_service_health_status()
+   ```
+
+**Traditional Workflow (Still Supported):**
 1. Use `analyze_repository_tool` before indexing to understand scope
 2. Run `health_check` to verify system readiness
 3. Index with `index_directory` using recommended settings

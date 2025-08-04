@@ -214,9 +214,6 @@ class ComplexityCalculator:
             tree = ast.parse(content)
 
             # Initialize metrics
-            branching_factor = 0
-            cyclomatic_complexity = 1  # Base complexity is 1
-            call_depth = 0
 
             # AST visitor to calculate metrics
             class ComplexityVisitor(ast.NodeVisitor):

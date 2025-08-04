@@ -580,7 +580,7 @@ class OptimizedCacheSerializer:
                         serialize_time = time.time() - start_time
 
                         start_time = time.time()
-                        deserialized = serializer.deserialize(serialized)
+                        serializer.deserialize(serialized)
                         deserialize_time = time.time() - start_time
 
                         serializer_results.append(
@@ -621,7 +621,7 @@ class OptimizedCacheSerializer:
                         compress_time = time.time() - start_time
 
                         start_time = time.time()
-                        decompressed = compressor.decompress(compressed)
+                        compressor.decompress(compressed)
                         decompress_time = time.time() - start_time
 
                         compressor_results.append(

@@ -106,7 +106,7 @@ class TestEnhancedBreadcrumbResolver:
 
         try:
             # Natural language query
-            result = await resolver.resolve("find test function")
+            await resolver.resolve("find test function")
 
             # Should use mock search and cache the result
             mock_search.assert_called_once()
@@ -117,7 +117,7 @@ class TestEnhancedBreadcrumbResolver:
 
             # Second call should hit cache (mock should not be called again)
             mock_search.reset_mock()
-            result2 = await resolver.resolve("find test function")
+            await resolver.resolve("find test function")
             mock_search.assert_not_called()
 
             # Cache stats should show hit
@@ -163,7 +163,7 @@ class TestEnhancedBreadcrumbResolver:
                 assert invalidated_count >= 0  # Should invalidate entries
 
                 # Cache should be cleared for that file
-                cache_info = await resolver.get_cache_info()
+                await resolver.get_cache_info()
                 # The specific entry may be gone, but this tests the invalidation mechanism
 
             finally:

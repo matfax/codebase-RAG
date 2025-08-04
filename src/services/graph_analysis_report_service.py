@@ -1272,7 +1272,7 @@ class GraphAnalysisReportService:
             return 0.0
 
         avg_confidence = statistics.mean([p["confidence"] for p in all_patterns])
-        pattern_diversity = len(set(p["pattern_type"] for p in all_patterns))
+        pattern_diversity = len({p["pattern_type"] for p in all_patterns})
         diversity_score = min(pattern_diversity / 3, 1.0)  # Max 3 pattern types
 
         return (avg_confidence + diversity_score) / 2

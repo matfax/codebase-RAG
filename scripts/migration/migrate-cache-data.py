@@ -184,8 +184,8 @@ class CacheDataMigrator:
                             )
                         )
 
-            except Exception as e:
-                print(f"Warning: Could not scan for migration needs: {e}")
+            except Exception:
+                pass
 
         # Add general optimization tasks
         if cache_info.get("total_keys", 0) > 1000:
@@ -204,9 +204,8 @@ class CacheDataMigrator:
 
     async def migrate_data(self, tasks: list[DataMigrationTask], dry_run: bool = False) -> MigrationStats:
         """Execute data migration tasks."""
-        print(f"🚀 Starting data migration ({len(tasks)} tasks)")
         if dry_run:
-            print("🧪 DRY RUN MODE - No changes will be made")
+            pass
 
         start_time = time.time()
         total_stats = MigrationStats()
@@ -215,11 +214,7 @@ class CacheDataMigrator:
         sorted_tasks = sorted(tasks, key=lambda t: t.priority)
 
         for i, task in enumerate(sorted_tasks, 1):
-            print(f"\n📋 Task {i}/{len(tasks)}: {task.name}")
-            print(f"   Description: {task.description}")
-
             if dry_run:
-                print(f"   Would migrate keys matching: {task.source_pattern}")
                 continue
 
             try:
@@ -232,23 +227,13 @@ class CacheDataMigrator:
                 total_stats.failed_keys += task_stats.failed_keys
                 total_stats.data_size_mb += task_stats.data_size_mb
 
-                print(f"   ✅ Completed: {task_stats.migrated_keys} keys migrated")
                 if task_stats.failed_keys > 0:
-                    print(f"   ⚠️ Failed: {task_stats.failed_keys} keys")
+                    pass
 
-            except Exception as e:
-                print(f"   ❌ Task failed: {e}")
+            except Exception:
                 total_stats.failed_keys += 1
 
         total_stats.duration_seconds = time.time() - start_time
-
-        print("\n📊 Migration Summary:")
-        print(f"   Total keys processed: {total_stats.total_keys}")
-        print(f"   Successfully migrated: {total_stats.migrated_keys}")
-        print(f"   Skipped: {total_stats.skipped_keys}")
-        print(f"   Failed: {total_stats.failed_keys}")
-        print(f"   Duration: {total_stats.duration_seconds:.1f}s")
-        print(f"   Data size: {total_stats.data_size_mb:.1f}MB")
 
         return total_stats
 
@@ -337,13 +322,12 @@ class CacheDataMigrator:
                 if new_key != key:
                     delete_result = self._run_redis_command(["DEL", key])
                     if delete_result.returncode != 0:
-                        print(f"Warning: Failed to delete old key {key}")
+                        pass
 
                 stats.migrated_keys += 1
                 stats.data_size_mb += len(value) / (1024 * 1024)
 
-            except Exception as e:
-                print(f"Error migrating key {key}: {e}")
+            except Exception:
                 stats.failed_keys += 1
 
         return stats
@@ -399,7 +383,7 @@ class CacheDataMigrator:
                 if isinstance(data, dict) and "timestamp" in data:
                     # Ensure timestamp is in ISO format
                     timestamp = data["timestamp"]
-                    if isinstance(timestamp, (int, float)):
+                    if isinstance(timestamp, int | float):
                         data["timestamp"] = datetime.fromtimestamp(timestamp).isoformat()
                         new_value = json.dumps(data, separators=(",", ":"))
 
@@ -411,7 +395,6 @@ class CacheDataMigrator:
 
     def export_keys(self, pattern: str, output_file: str) -> int:
         """Export keys matching pattern to file."""
-        print(f"📤 Exporting keys matching: {pattern}")
 
         if not self.check_redis_connectivity():
             raise Exception("Redis not accessible")
@@ -424,15 +407,12 @@ class CacheDataMigrator:
         keys = scan_result.stdout.strip().split("\n")
         keys = [k for k in keys if k]
 
-        print(f"📊 Found {len(keys)} keys to export")
-
         # Export data
         export_data = {"export_timestamp": datetime.utcnow().isoformat(), "pattern": pattern, "key_count": len(keys), "data": {}}
 
         batch_size = 100
         for i in range(0, len(keys), batch_size):
             batch = keys[i : i + batch_size]
-            print(f"   Exporting batch {i//batch_size + 1}/{(len(keys) + batch_size - 1)//batch_size}")
 
             for key in batch:
                 try:
@@ -447,19 +427,17 @@ class CacheDataMigrator:
 
                         export_data["data"][key] = {"value": value, "ttl": ttl}
 
-                except Exception as e:
-                    print(f"Warning: Failed to export key {key}: {e}")
+                except Exception:
+                    pass
 
         # Save to file
         with open(output_file, "w") as f:
             json.dump(export_data, f, indent=2)
 
-        print(f"✅ Exported {len(export_data['data'])} keys to {output_file}")
         return len(export_data["data"])
 
     def import_keys(self, input_file: str, overwrite: bool = False) -> int:
         """Import keys from file."""
-        print(f"📥 Importing keys from: {input_file}")
 
         if not self.check_redis_connectivity():
             raise Exception("Redis not accessible")
@@ -468,7 +446,6 @@ class CacheDataMigrator:
             import_data = json.load(f)
 
         keys_data = import_data.get("data", {})
-        print(f"📊 Found {len(keys_data)} keys to import")
 
         imported_count = 0
         skipped_count = 0
@@ -494,12 +471,11 @@ class CacheDataMigrator:
                 if set_result.returncode == 0:
                     imported_count += 1
 
-            except Exception as e:
-                print(f"Warning: Failed to import key {key}: {e}")
+            except Exception:
+                pass
 
-        print(f"✅ Imported {imported_count} keys")
         if skipped_count > 0:
-            print(f"⏭️ Skipped {skipped_count} existing keys")
+            pass
 
         return imported_count
 
@@ -519,92 +495,70 @@ async def main():
     migrator = CacheDataMigrator()
 
     if args.action == "analyze":
-        print("🔍 Analyzing current cache data...")
-
         # Check connectivity
         if not migrator.check_redis_connectivity():
-            print("❌ Redis not accessible")
             sys.exit(1)
 
         # Get cache info
         info = migrator.get_cache_info()
         if "error" in info:
-            print(f"❌ Error: {info['error']}")
             sys.exit(1)
 
-        print("\n📊 Cache Information:")
-        print(f"   Total keys: {info['total_keys']}")
-        print(f"   Cache keys: {info['cache_keys']}")
-
         if info.get("key_patterns"):
-            print("\n🔑 Key Patterns:")
             for pattern, count in info["key_patterns"].items():
-                print(f"   {pattern}: {count}")
+                pass
 
         # Detect migration needs
         tasks = migrator.detect_migration_needs()
         if tasks:
-            print("\n📋 Migration Tasks Needed:")
             for task in tasks:
-                print(f"   {task.name}: {task.description}")
+                pass
         else:
-            print("\n✅ No migrations needed")
+            pass
 
     elif args.action == "migrate":
-        print("🚀 Starting data migration...")
-
         # Check connectivity
         if not migrator.check_redis_connectivity():
-            print("❌ Redis not accessible")
             sys.exit(1)
 
         # Detect migration tasks
         tasks = migrator.detect_migration_needs()
 
         if not tasks:
-            print("✅ No migrations needed")
             return
 
-        print(f"📋 Found {len(tasks)} migration tasks:")
         for task in tasks:
-            print(f"   - {task.description}")
+            pass
 
         if not args.dry_run:
             confirm = input("\nProceed with migration? (yes/no): ")
             if confirm.lower() != "yes":
-                print("Migration cancelled")
                 return
 
         # Execute migration
         stats = await migrator.migrate_data(tasks, dry_run=args.dry_run)
 
         if stats.failed_keys == 0:
-            print("\n🎉 Migration completed successfully!")
+            pass
         else:
-            print(f"\n⚠️ Migration completed with {stats.failed_keys} failures")
+            pass
 
     elif args.action == "export":
         if not args.file:
-            print("❌ Output file required for export")
             sys.exit(1)
 
         try:
-            count = migrator.export_keys(args.pattern, args.file)
-            print(f"✅ Exported {count} keys")
-        except Exception as e:
-            print(f"❌ Export failed: {e}")
+            migrator.export_keys(args.pattern, args.file)
+        except Exception:
             sys.exit(1)
 
     elif args.action == "import":
         if not args.file:
-            print("❌ Input file required for import")
             sys.exit(1)
 
         try:
-            count = migrator.import_keys(args.file, overwrite=args.overwrite)
-            print(f"✅ Imported {count} keys")
-        except Exception as e:
-            print(f"❌ Import failed: {e}")
+            migrator.import_keys(args.file, overwrite=args.overwrite)
+        except Exception:
             sys.exit(1)
 
 

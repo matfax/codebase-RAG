@@ -576,7 +576,7 @@ class CacheSystemValidator:
             # Test 1: Memory pressure handling
             try:
                 large_data = "x" * 100000  # 100KB per entry
-                original_size = self.cache_service.l1_cache.get_info()["size"]
+                self.cache_service.l1_cache.get_info()["size"]
 
                 # Fill beyond capacity
                 for i in range(self.cache_service.l1_cache.max_size + 20):
@@ -627,7 +627,7 @@ class CacheSystemValidator:
                     try:
                         key = f"invalid_{desc}"
                         await self.cache_service.set(key, data)
-                        retrieved = await self.cache_service.get(key)
+                        await self.cache_service.get(key)
                         # As long as it doesn't crash, consider it handled
                         invalid_handled += 1
                     except Exception:
@@ -648,11 +648,11 @@ class CacheSystemValidator:
 
                 # Simulate corruption (if possible)
                 if test_key in self.cache_service.l1_cache._cache:
-                    original_value = self.cache_service.l1_cache._cache[test_key].value
+                    self.cache_service.l1_cache._cache[test_key].value
                     self.cache_service.l1_cache._cache[test_key].value = "corrupted"
 
                     # Try to retrieve (should not crash)
-                    retrieved = await self.cache_service.get(test_key)
+                    await self.cache_service.get(test_key)
                     failure_tests["corruption_recovery"] = True  # Didn't crash
                 else:
                     failure_tests["corruption_recovery"] = True  # Test key not in L1
@@ -823,32 +823,19 @@ async def main():
         validator.save_results(args.output)
 
         # Print summary
-        print("\n" + "=" * 60)
-        print("CACHE SYSTEM VALIDATION SUMMARY")
-        print("=" * 60)
-        print(f"Total Tests: {results['total_tests']}")
-        print(f"Passed: {results['passed_tests']}")
-        print(f"Failed: {results['failed_tests']}")
-        print(f"Success Rate: {results['success_rate']:.1%}")
-        print(f"Duration: {results['total_duration']:.2f}s")
-        print(f"Overall Result: {'PASS' if results['overall_passed'] else 'FAIL'}")
-        print("=" * 60)
 
         # Print failed tests
         if results["failed_tests"] > 0:
-            print("\nFAILED TESTS:")
             for result in results["results"]:
                 if not result["passed"]:
-                    print(f"- {result['test_name']}: {result.get('error', 'Unknown error')}")
+                    pass
 
         # Exit with appropriate code
         sys.exit(0 if results["overall_passed"] else 1)
 
     except KeyboardInterrupt:
-        print("\nValidation interrupted by user")
         sys.exit(1)
-    except Exception as e:
-        print(f"\nValidation failed with error: {e}")
+    except Exception:
         traceback.print_exc()
         sys.exit(1)
 

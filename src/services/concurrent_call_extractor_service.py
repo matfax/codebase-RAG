@@ -468,6 +468,6 @@ class ConcurrentCallExtractor:
         self._extractor_pool.clear()
 
         # Reset statistics
-        self._stats = {key: 0 if isinstance(value, (int, float)) else value for key, value in self._stats.items()}
+        self._stats = {key: 0 if isinstance(value, int | float) else value for key, value in self._stats.items()}
 
         self.logger.info("ConcurrentCallExtractor shutdown complete")

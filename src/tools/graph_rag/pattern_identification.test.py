@@ -471,7 +471,7 @@ class TestGraphPatternIdentification:
             patterns = result["patterns_identified"]
 
             # Should identify naming patterns
-            naming_patterns = [p for p in patterns if p.get("pattern_type") == "naming"]
+            [p for p in patterns if p.get("pattern_type") == "naming"]
             # May or may not find patterns depending on naming consistency
 
     @pytest.mark.asyncio
@@ -547,7 +547,7 @@ class TestGraphPatternIdentification:
 
             if "pattern_comparisons" in result:
                 comparisons = result["pattern_comparisons"]
-                assert isinstance(comparisons, (list, dict))
+                assert isinstance(comparisons, list | dict)
 
     @pytest.mark.asyncio
     async def test_pattern_improvements(self, mock_graph_rag_service_factory):
@@ -566,7 +566,7 @@ class TestGraphPatternIdentification:
 
             if "pattern_improvements" in result:
                 improvements = result["pattern_improvements"]
-                assert isinstance(improvements, (list, dict))
+                assert isinstance(improvements, list | dict)
 
     @pytest.mark.asyncio
     async def test_analysis_depth_comprehensive(self, mock_graph_rag_service_factory):

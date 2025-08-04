@@ -201,7 +201,7 @@ class TestKeyManager:
         key_id = "expiring_key"
 
         # Generate key with short expiration
-        key = key_manager.generate_key(key_id, expires_in_seconds=1)
+        key_manager.generate_key(key_id, expires_in_seconds=1)
 
         # Key should be valid immediately
         assert key_manager.is_key_valid(key_id) is True
@@ -398,7 +398,7 @@ class TestSecureCacheOperations:
         for i in range(100):
             start_time = time.time()
             key = generate_encryption_key()
-            encrypted = encrypt_data(f"data_{i}", key)
+            encrypt_data(f"data_{i}", key)
             metrics.record_operation(operation="encrypt", duration=time.time() - start_time, data_size=len(f"data_{i}"))
 
         stats = metrics.get_statistics()

@@ -87,7 +87,7 @@ class CallResolutionErrorHandler:
         self.enable_error_recovery = True
 
         # Error statistics
-        self.error_stats = {error_type: 0 for error_type in ResolutionErrorType}
+        self.error_stats = dict.fromkeys(ResolutionErrorType, 0)
 
         self.logger.info("CallResolutionErrorHandler initialized")
 
@@ -554,7 +554,7 @@ class CallResolutionErrorHandler:
 
     def reset_error_statistics(self):
         """Reset error statistics."""
-        self.error_stats = {error_type: 0 for error_type in ResolutionErrorType}
+        self.error_stats = dict.fromkeys(ResolutionErrorType, 0)
         self.logger.info("Error statistics reset")
 
     def configure_degradation_factor(self, error_type: ResolutionErrorType, factor: float):

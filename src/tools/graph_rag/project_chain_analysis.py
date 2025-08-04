@@ -11,7 +11,7 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 from src.models.code_chunk import ChunkType
 from src.services.breadcrumb_resolver_service import BreadcrumbResolver
@@ -142,7 +142,7 @@ async def analyze_project_chains(
     complexity_weights: dict[str, float] = None,
     chain_types: list[str] = None,
     min_complexity_threshold: float = 0.3,
-    max_functions_to_analyze: int = 1000,
+    max_functions_to_analyze: int = 5000,  # Increased for large projects
     include_refactoring_suggestions: bool = True,
     output_format: str = "comprehensive",
     performance_monitoring: bool = True,
@@ -471,7 +471,7 @@ def _validate_analysis_parameters(
                     "suggestions": [f"Valid weight keys: {', '.join(required_keys)}"],
                 }
 
-            if not isinstance(complexity_weights[key], (int, float)) or complexity_weights[key] < 0:
+            if not isinstance(complexity_weights[key], int | float) or complexity_weights[key] < 0:
                 return {
                     "valid": False,
                     "error": f"Invalid complexity weight value for {key}: {complexity_weights[key]}",
@@ -488,7 +488,7 @@ def _validate_analysis_parameters(
                     "suggestions": [f"Valid chain types: {', '.join(valid_chain_types)}"],
                 }
 
-    if not isinstance(min_complexity_threshold, (int, float)) or min_complexity_threshold < 0.0 or min_complexity_threshold > 1.0:
+    if not isinstance(min_complexity_threshold, int | float) or min_complexity_threshold < 0.0 or min_complexity_threshold > 1.0:
         return {
             "valid": False,
             "error": f"Invalid min_complexity_threshold: {min_complexity_threshold}. Must be between 0.0 and 1.0",
@@ -2127,7 +2127,6 @@ async def _generate_refactoring_recommendations(
     logger.info("Generating comprehensive refactoring recommendations")
 
     recommendations = []
-    refactoring_patterns = {}
 
     # Advanced complexity-based recommendations
     if "complexity_analysis" in analysis_results:
@@ -2395,7 +2394,6 @@ def _generate_coverage_refactoring_recommendations(coverage_analysis: dict[str, 
     """Generate refactoring recommendations based on coverage analysis."""
     recommendations = []
     uncovered_functions = coverage_analysis.get("uncovered_functions", [])
-    connectivity_statistics = coverage_analysis.get("connectivity_statistics", {})
 
     for func in uncovered_functions:
         isolation_reasons = func.get("isolation_reasons", [])
@@ -2521,7 +2519,6 @@ def _generate_architectural_recommendations(analysis_results: dict[str, Any], fu
     recommendations = []
 
     # Analyze project-level patterns
-    project_metrics = analysis_results.get("project_metrics", {})
     coverage_analysis = analysis_results.get("coverage_analysis", {})
 
     # High isolation rate
@@ -2990,8 +2987,8 @@ async def _calculate_basic_project_metrics(
         "total_chain_connections": total_chain_connections,
         "function_distribution": function_distribution,
         "file_distribution": file_distribution,
-        "files_analyzed": len(set(func.get("file_path", "") for func in functions)),
-        "average_functions_per_file": total_functions / max(1, len(set(func.get("file_path", "") for func in functions))),
+        "files_analyzed": len({func.get("file_path", "") for func in functions}),
+        "average_functions_per_file": total_functions / max(1, len({func.get("file_path", "") for func in functions})),
     }
 
 
@@ -3567,7 +3564,6 @@ def _identify_design_pattern_indicators(analysis_results: dict[str, Any], functi
 
     for func in functions:
         name = func.get("name", "").lower()
-        content = func.get("content", "").lower()
 
         # Simple pattern detection based on naming and content
         if "factory" in name or "create" in name:

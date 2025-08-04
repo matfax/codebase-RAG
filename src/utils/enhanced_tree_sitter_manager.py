@@ -217,7 +217,7 @@ class EnhancedTreeSitterManager(TreeSitterManager):
 
         if parser and context:
             # Apply language-specific optimizations
-            lang_opts = self._language_optimizations.get(language, {})
+            self._language_optimizations.get(language, {})
 
             # Adjust parser settings based on context
             if "file_size" in context:
