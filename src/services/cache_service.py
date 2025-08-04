@@ -1048,6 +1048,9 @@ class LRUMemoryCache:
             return result
 
 
+# Add backward compatibility alias
+CacheService = None  # Will be set after MultiTierCacheService definition
+
 class MultiTierCacheService(BaseCacheService):
     """
     Multi-tier cache service with L1 (memory) and L2 (Redis) layers.
@@ -1777,6 +1780,9 @@ async def get_redis_connection_manager() -> RedisConnectionManager:
         await _redis_connection_manager.initialize()
     return _redis_connection_manager
 
+
+# Set backward compatibility alias
+CacheService = MultiTierCacheService
 
 async def get_cache_service() -> RedisCacheService | MultiTierCacheService:
     """
