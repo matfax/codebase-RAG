@@ -386,9 +386,7 @@ class SecurityAuditService:
         # Check for high failure rates
         if not event.success:
             recent_failures = [
-                e
-                for e in self.events[-100:]
-                if not e.success and (now - e.timestamp) < 60  # Last 100 events  # Last minute
+                e for e in self.events[-100:] if not e.success and (now - e.timestamp) < 60  # Last 100 events  # Last minute
             ]
 
             if len(recent_failures) >= self.alert_thresholds["failed_operations_per_minute"]:

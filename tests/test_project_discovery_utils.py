@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+
 from tools.project.project_utils import (
     get_available_project_names,
     get_project_collections,

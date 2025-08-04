@@ -1563,9 +1563,7 @@ class MultiTierCacheService(BaseCacheService):
         try:
             # Get keys with high frequency scores
             frequent_keys = [
-                key
-                for key, pattern in self._access_patterns.items()
-                if pattern["frequency_score"] > 10.0  # More than 10 accesses per hour
+                key for key, pattern in self._access_patterns.items() if pattern["frequency_score"] > 10.0  # More than 10 accesses per hour
             ]
 
             # Sort by frequency and take top keys

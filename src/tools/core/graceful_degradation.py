@@ -134,7 +134,6 @@ class GracefulDegradationManager:
         # Count errors by type and service
         error_counts = defaultdict(lambda: defaultdict(int))
         recent_errors = 0
-        time.time()
 
         for error in self.error_history[-100:]:  # Last 100 errors
             error_counts[error.tool_name][error.error_type] += 1

@@ -141,20 +141,8 @@ class GraphRAGService:
                 self.logger.warning(f"No chunks found for project: {project_name}")
                 return StructureGraph(nodes={}, edges=[], project_name=project_name)
 
-            # AGGRESSIVE performance protection - severely limit chunks for MCP tools
-            max_chunks_for_mcp = 5  # Extremely aggressive limit for MCP tools - prioritize speed over completeness
-            if len(chunks) > max_chunks_for_mcp:
-                self.logger.warning(
-                    f"Large project detected ({len(chunks)} chunks), aggressively limiting to {max_chunks_for_mcp} for MCP tool performance"
-                )
-                # Only use function chunks - skip everything else for speed
-                function_chunks = [c for c in chunks if c.chunk_type.value == "function"][:max_chunks_for_mcp]
-                if len(function_chunks) < max_chunks_for_mcp:
-                    # Add some method chunks if we don't have enough functions
-                    method_chunks = [c for c in chunks if c.chunk_type.value == "method"][: (max_chunks_for_mcp - len(function_chunks))]
-                    function_chunks.extend(method_chunks)
-                chunks = function_chunks
-                self.logger.info(f"MCP performance mode: processing only {len(chunks)} most relevant chunks (functions/methods only)")
+            # Log project size for monitoring - now supporting full project processing
+            self.logger.info(f"Processing {len(chunks)} chunks for project: {project_name}")
 
             # Build the graph structure
             graph = await self.relationship_builder.build_relationship_graph(chunks, project_name)
@@ -689,8 +677,8 @@ class GraphRAGService:
                 content=content,
                 chunk_type=chunk_type,
                 language=payload.get("language", "unknown"),
-                start_line=payload.get("start_line", 0),
-                end_line=payload.get("end_line", 0),
+                start_line=payload.get("line_start", 0),
+                end_line=payload.get("line_end", 0),
                 start_byte=payload.get("start_byte", 0),
                 end_byte=payload.get("end_byte", 0),
                 name=payload.get("name"),
@@ -741,9 +729,29 @@ class GraphRAGService:
         """
         try:
             # Generate embedding for query
-            query_embedding = await self.embedding_service.generate_embeddings([query_text])
-            if not query_embedding:
+            query_embedding_tensor = await self.embedding_service.generate_embeddings("nomic-embed-text", query_text)
+            if query_embedding_tensor is None:
                 return {"error": "Failed to generate query embedding"}
+
+            # Convert tensor to list - ensure proper conversion
+            if hasattr(query_embedding_tensor, "tolist"):
+                query_embedding = query_embedding_tensor.tolist()
+            elif hasattr(query_embedding_tensor, "numpy"):
+                query_embedding = query_embedding_tensor.numpy().tolist()
+            else:
+                return {"error": f"Unexpected embedding type: {type(query_embedding_tensor)}"}
+
+            # Validate embedding format and dimensions
+            if not isinstance(query_embedding, list) or len(query_embedding) == 0:
+                return {
+                    "error": f"Generated query embedding is invalid: type={type(query_embedding)}, "
+                    f"len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
+                }
+
+            if len(query_embedding) != 768:
+                return {"error": f"Query embedding dimension mismatch: expected 768, got {len(query_embedding)}"}
+
+            self.logger.info(f"Successfully generated query embedding: {len(query_embedding)} dimensions")
 
             # Search in Qdrant collections
             search_results = []
@@ -1117,8 +1125,11 @@ def get_graph_rag_service(
     global _graph_rag_service_instance
 
     if _graph_rag_service_instance is None:
-        if qdrant_service is None or embedding_service is None:
-            raise ValueError("qdrant_service and embedding_service are required for first initialization")
+        # Create services if not provided
+        if qdrant_service is None:
+            qdrant_service = QdrantService()
+        if embedding_service is None:
+            embedding_service = EmbeddingService()
         _graph_rag_service_instance = GraphRAGService(qdrant_service, embedding_service)
 
     return _graph_rag_service_instance

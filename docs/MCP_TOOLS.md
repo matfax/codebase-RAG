@@ -2,6 +2,41 @@
 
 Comprehensive documentation for all MCP tools provided by the Codebase RAG MCP Server.
 
+## 🔧 Output Control & Environment Configuration
+
+The MCP server automatically adjusts output detail levels based on environment variables to optimize performance for different use cases:
+
+### Environment Variables
+- **`MCP_ENV`**: Controls overall tool behavior and output detail
+  - `production`: Minimal output optimized for AI agents (faster, concise)
+  - `development`: Full technical details and metadata (debugging-friendly)
+
+- **`MCP_DEBUG_LEVEL`**: Fine-grained control over diagnostic information
+  - `DEBUG`: Includes performance metrics, internal metadata, detailed diagnostics
+  - `INFO`: Standard technical details (default)
+  - `WARNING`/`ERROR`: Minimal output for production use
+
+- **`CACHE_DEBUG_MODE`**: When `true`, includes cache performance data in outputs
+
+### Manual Override with `minimal_output`
+
+Many tools support a `minimal_output` parameter to explicitly request simplified output regardless of environment settings:
+
+**When `minimal_output=true`:**
+- Returns only essential fields: `file_path`, `content`, `breadcrumb`, `chunk_type`, `language`, `line_start`, `line_end`
+- Removes performance metrics, technical scoring details, and internal metadata
+- Optimized for AI agents that need focused, actionable results
+- Reduces response size by ~60-80% for faster processing
+
+**Example:**
+```python
+# Standard output (full details)
+await search("error handling functions")
+
+# Minimal output (agent-optimized)
+await search("error handling functions", minimal_output=true)
+```
+
 ## Core Search Tools
 
 ### `search` - Enhanced Semantic Code Search
@@ -16,6 +51,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `include_context` (optional, default: true): Include surrounding code context
 - `context_chunks` (optional, default: 1): Number of context chunks before/after (0-5)
 - `target_projects` (optional): List of specific project names to search in
+- 🆕 `collection_types` (optional): List of collection types to search in (["code"], ["config"], ["documentation"], or ["code", "config"])
 
 **🆕 Wave 7.0 Enhanced Parameters:**
 - `multi_modal_mode` (optional): Manual mode selection ("local", "global", "hybrid", "mix")
@@ -23,6 +59,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `enable_manual_mode_selection` (optional, default: false): Allow manual override of automatic mode selection
 - `include_query_analysis` (optional, default: false): Include detailed query analysis in response
 - `performance_timeout_seconds` (optional, default: 15): Maximum execution time in seconds
+- `minimal_output` (optional, default: false): Return simplified output optimized for AI agents
 
 **Multi-Modal Retrieval Modes:**
 - **Local Mode**: Deep entity-focused retrieval using low-level keywords
@@ -35,6 +72,12 @@ Search indexed codebases using natural language queries with function-level prec
 - "Show me React components that use useState hook"
 - "Find error handling patterns in Python"
 - "Locate database connection initialization code"
+
+**Collection Filtering Examples:**
+- Search only code files: `collection_types=["code"]`
+- Search only config files: `collection_types=["config"]` for cache configurations
+- Search only documentation: `collection_types=["documentation"]` for architecture docs
+- Search multiple types: `collection_types=["code", "config"]` for implementation + configuration
 
 ### `multi_modal_search` - Advanced Multi-Modal Retrieval
 
@@ -825,3 +868,422 @@ similar = await graph_find_similar_implementations_tool(
 3. Index with `index_directory` using recommended settings
 4. Search with `search` using various query strategies
 5. Monitor with progress tools during long operations
+
+## Advanced Cache Management Tools
+
+### Cache Inspection & Statistics Tools
+
+### `inspect_cache_state_tool` - Cache State Inspection
+
+Inspect current cache state with comprehensive debugging information.
+
+**Returns:** Detailed cache state analysis including memory usage, hit rates, and performance metrics.
+
+### `debug_cache_key_tool` - Cache Key Debugging
+
+Debug specific cache keys across all services with detailed analysis.
+
+**Parameters:**
+- `cache_key` (required): The cache key to debug
+- `include_content` (optional, default: false): Whether to include cached content in response
+
+**Returns:** Detailed debugging information for the specified cache key.
+
+### `get_cache_invalidation_stats_tool` - Invalidation Statistics
+
+Get comprehensive cache invalidation statistics and metrics.
+
+**Returns:** Invalidation statistics including frequencies, patterns, and performance impact.
+
+### `get_comprehensive_cache_stats_tool` - Comprehensive Statistics
+
+Get comprehensive cache statistics across all services and cache types.
+
+**Returns:** Complete cache statistics including hit rates, memory usage, and performance metrics.
+
+### `generate_cache_report_tool` - Cache Performance Reports
+
+Generate detailed cache performance reports for analysis.
+
+**Parameters:**
+- `report_type` (optional, default: "comprehensive"): Type of report to generate
+- `time_range_hours` (optional, default: 24): Time range for report data
+- `include_recommendations` (optional, default: true): Include optimization recommendations
+
+**Returns:** Detailed cache performance report with analysis and recommendations.
+
+### Cache Control & Invalidation Tools
+
+### `manual_invalidate_file_cache_tool` - File Cache Invalidation
+
+Manually invalidate cache entries for specific files.
+
+**Parameters:**
+- `file_path` (required): Path to the file to invalidate
+- `reason` (optional, default: "manual_invalidation"): Reason for invalidation
+- `cascade` (optional, default: true): Whether to cascade invalidation to dependent caches
+- `project_name` (optional): Project name for scoped invalidation
+
+**Returns:** Invalidation results and statistics.
+
+### `manual_invalidate_project_cache_tool` - Project Cache Invalidation
+
+Invalidate all cache entries for a specific project.
+
+**Parameters:**
+- `project_name` (required): Name of the project to invalidate
+- `reason` (optional, default: "manual_invalidation"): Reason for invalidation
+- `cascade` (optional, default: true): Whether to cascade invalidation
+
+**Returns:** Project invalidation results and statistics.
+
+### `manual_invalidate_cache_keys_tool` - Specific Key Invalidation
+
+Invalidate specific cache keys across services.
+
+**Parameters:**
+- `cache_keys` (required): List of cache keys to invalidate
+- `reason` (optional, default: "manual_invalidation"): Reason for invalidation
+- `services` (optional): List of specific services to target
+
+**Returns:** Key-by-key invalidation results.
+
+### `manual_invalidate_cache_pattern_tool` - Pattern-based Invalidation
+
+Invalidate cache keys matching specific patterns.
+
+**Parameters:**
+- `pattern` (required): Pattern to match cache keys (supports wildcards)
+- `reason` (optional, default: "manual_invalidation"): Reason for invalidation
+- `max_keys` (optional, default: 1000): Maximum number of keys to invalidate
+
+**Returns:** Pattern invalidation results and affected keys count.
+
+### `invalidate_chunks_tool` - Chunk-specific Invalidation
+
+Invalidate specific chunks within files for granular cache control.
+
+**Parameters:**
+- `file_path` (required): Path to the file containing chunks
+- `chunk_ids` (optional): Specific chunk IDs to invalidate
+- `chunk_types` (optional): Types of chunks to invalidate
+
+**Returns:** Chunk invalidation results and statistics.
+
+### Cache Configuration Tools
+
+### `get_cache_configuration_tool` - Configuration Retrieval
+
+Get current cache configuration across all services.
+
+**Returns:** Complete cache configuration including TTL settings, memory limits, and policies.
+
+### `update_cache_configuration_tool` - Configuration Updates
+
+Update cache settings and policies.
+
+**Parameters:**
+- `configuration` (required): Dictionary of configuration updates
+- `services` (optional): List of specific services to update
+- `validate_only` (optional, default: false): Only validate configuration without applying
+
+**Returns:** Configuration update results and validation status.
+
+### `export_cache_configuration_tool` - Configuration Export
+
+Export current cache configuration to file for backup or sharing.
+
+**Parameters:**
+- `export_path` (required): Path to export configuration file
+- `include_runtime_stats` (optional, default: false): Include runtime statistics
+- `format` (optional, default: "json"): Export format ("json", "yaml")
+
+**Returns:** Export operation results and file location.
+
+### `import_cache_configuration_tool` - Configuration Import
+
+Import cache configuration from external file.
+
+**Parameters:**
+- `import_path` (required): Path to configuration file to import
+- `validate_only` (optional, default: false): Only validate without applying
+- `merge_strategy` (optional, default: "replace"): How to merge with existing config
+
+**Returns:** Import operation results and applied changes.
+
+### Cache Monitoring & Alerts
+
+### `configure_cache_alerts_tool` - Alert Configuration
+
+Configure monitoring alerts for cache performance and health.
+
+**Parameters:**
+- `alert_rules` (required): Dictionary of alert rules and thresholds
+- `notification_channels` (optional): List of notification channels
+- `enable_alerts` (optional, default: true): Whether to enable alerts
+
+**Returns:** Alert configuration results and validation status.
+
+### `get_cache_alerts_tool` - Recent Alerts
+
+Get recent cache alerts and notifications.
+
+**Parameters:**
+- `time_range_hours` (optional, default: 24): Time range for alert history
+- `severity_filter` (optional): Filter by alert severity
+- `service_filter` (optional): Filter by specific services
+
+**Returns:** List of recent cache alerts with details and recommendations.
+
+### Cache Optimization Tools
+
+### `preload_embedding_cache_tool` - Embedding Cache Preloading
+
+Preload embedding cache with commonly used vectors.
+
+**Parameters:**
+- `project_name` (optional): Specific project to preload
+- `preload_strategy` (optional, default: "smart"): Preloading strategy
+- `max_embeddings` (optional, default: 1000): Maximum embeddings to preload
+
+**Returns:** Preloading results and cache performance improvement.
+
+### `preload_search_cache_tool` - Search Cache Preloading
+
+Preload search result cache with common queries.
+
+**Parameters:**
+- `common_queries` (optional): List of queries to preload
+- `project_name` (optional): Specific project context
+- `preload_depth` (optional, default: 3): Depth of related searches to preload
+
+**Returns:** Search cache preloading results and performance metrics.
+
+### `backup_cache_data_tool` - Cache Backup
+
+Create comprehensive backup of cache data.
+
+**Parameters:**
+- `backup_path` (required): Path for backup storage
+- `include_content` (optional, default: false): Whether to backup cached content
+- `compress` (optional, default: true): Whether to compress backup
+
+**Returns:** Backup operation results and backup file information.
+
+### `restore_cache_data_tool` - Cache Restoration
+
+Restore cache data from backup.
+
+**Parameters:**
+- `backup_path` (required): Path to backup file
+- `selective_restore` (optional): List of specific caches to restore
+- `merge_strategy` (optional, default: "replace"): How to merge with existing data
+
+**Returns:** Restoration results and recovered cache statistics.
+
+### `migrate_cache_data_tool` - Cache Migration
+
+Migrate cache data between different configurations or versions.
+
+**Parameters:**
+- `source_config` (required): Source cache configuration
+- `target_config` (required): Target cache configuration
+- `migration_strategy` (optional, default: "safe"): Migration strategy
+
+**Returns:** Migration results and data transfer statistics.
+
+### `get_migration_status_tool` - Migration Status
+
+Get status of ongoing or recent cache migrations.
+
+**Returns:** Current migration status, progress, and estimated completion time.
+
+## File Monitoring Tools
+
+Real-time file monitoring tools for automatic cache invalidation and project synchronization.
+
+### `setup_project_monitoring` - Project Monitoring Setup
+
+Set up real-time file monitoring for a project with automatic cache invalidation.
+
+**Parameters:**
+- `project_name` (required): Name of the project to monitor
+- `root_directory` (required): Root directory of the project
+- `auto_detect` (optional, default: true): Auto-detect project characteristics
+- `file_patterns` (optional): File patterns to monitor (e.g., ["*.py", "*.js"])
+- `exclude_patterns` (optional): Patterns to exclude (e.g., ["*.pyc", "node_modules/*"])
+- `polling_interval` (optional, default: 5.0): Polling interval in seconds
+- `enable_real_time` (optional, default: true): Enable real-time monitoring
+- `enable_polling` (optional, default: true): Enable polling-based monitoring
+
+**Returns:** Monitoring setup results and configuration details.
+
+### `remove_project_monitoring` - Remove Monitoring
+
+Remove file monitoring for a project.
+
+**Parameters:**
+- `project_name` (required): Name of the project to stop monitoring
+- `cleanup_resources` (optional, default: true): Whether to cleanup monitoring resources
+
+**Returns:** Monitoring removal results and cleanup status.
+
+### `get_monitoring_status` - Monitoring Status
+
+Get current monitoring status for all projects.
+
+**Parameters:**
+- `project_name` (optional): Specific project to check
+- `include_statistics` (optional, default: true): Include monitoring statistics
+
+**Returns:** Comprehensive monitoring status and performance metrics.
+
+### `trigger_manual_scan` - Manual File Scan
+
+Trigger manual file system scan for changes.
+
+**Parameters:**
+- `project_name` (required): Project to scan
+- `scan_type` (optional, default: "incremental"): Type of scan ("full", "incremental")
+- `force_invalidation` (optional, default: false): Force cache invalidation for all files
+
+**Returns:** Scan results and detected changes.
+
+### `configure_monitoring_mode` - Monitoring Configuration
+
+Configure global monitoring mode and settings.
+
+**Parameters:**
+- `monitoring_mode` (required): Global monitoring mode ("real_time", "polling", "hybrid", "disabled")
+- `global_settings` (optional): Global monitoring settings
+- `apply_to_existing` (optional, default: true): Apply to existing project monitors
+
+**Returns:** Configuration results and affected projects.
+
+### `update_project_monitoring_config` - Update Project Config
+
+Update monitoring configuration for a specific project.
+
+**Parameters:**
+- `project_name` (required): Project to update
+- `config_updates` (required): Configuration updates to apply
+- `restart_monitoring` (optional, default: true): Whether to restart monitoring
+
+**Returns:** Configuration update results and new settings.
+
+### `trigger_file_invalidation` - Manual File Invalidation
+
+Manually trigger file cache invalidation through monitoring system.
+
+**Parameters:**
+- `file_path` (required): Path to file to invalidate
+- `invalidation_reason` (optional, default: "manual_trigger"): Reason for invalidation
+- `cascade` (optional, default: true): Whether to cascade invalidation
+
+**Returns:** File invalidation results and affected caches.
+
+## Cascade Invalidation Tools
+
+Advanced cascade invalidation management for handling complex cache dependencies.
+
+### `add_cascade_dependency_rule` - Dependency Rule Creation
+
+Add cascade invalidation dependency rules for automatic cache management.
+
+**Parameters:**
+- `source_pattern` (required): Pattern matching source cache keys (supports wildcards)
+- `target_pattern` (required): Pattern matching dependent cache keys
+- `dependency_type` (optional, default: "file_content"): Type of dependency
+- `cascade_strategy` (optional, default: "immediate"): Cascade strategy
+- `condition` (optional): Optional condition for dependency
+- `metadata` (optional): Additional metadata for the rule
+
+**Returns:** Rule creation results and validation status.
+
+### `add_explicit_cascade_dependency` - Explicit Dependencies
+
+Add explicit cascade dependencies between specific cache keys.
+
+**Parameters:**
+- `source_key` (required): Source cache key
+- `target_keys` (required): List of dependent cache keys
+- `dependency_strength` (optional, default: 1.0): Strength of dependency (0.0-1.0)
+- `bidirectional` (optional, default: false): Whether dependency is bidirectional
+
+**Returns:** Explicit dependency creation results.
+
+### `get_cascade_stats` - Cascade Statistics
+
+Get comprehensive cascade invalidation statistics and performance metrics.
+
+**Parameters:**
+- `time_range_hours` (optional, default: 24): Time range for statistics
+- `include_patterns` (optional, default: true): Include pattern-based stats
+- `include_performance` (optional, default: true): Include performance metrics
+
+**Returns:** Detailed cascade invalidation statistics and analysis.
+
+### `get_dependency_graph` - Dependency Graph Analysis
+
+Get visual representation of cache dependency relationships.
+
+**Parameters:**
+- `graph_format` (optional, default: "json"): Output format ("json", "dot", "mermaid")
+- `max_depth` (optional, default: 5): Maximum depth for graph traversal
+- `include_weights` (optional, default: true): Include dependency weights
+
+**Returns:** Cache dependency graph in requested format.
+
+### `detect_circular_dependencies` - Circular Dependency Detection
+
+Detect and analyze circular dependencies in cache invalidation rules.
+
+**Parameters:**
+- `include_resolution` (optional, default: true): Include resolution suggestions
+- `max_cycles` (optional, default: 10): Maximum number of cycles to detect
+
+**Returns:** Circular dependency analysis and resolution recommendations.
+
+### `test_cascade_invalidation` - Cascade Testing
+
+Test cascade invalidation behavior for specific cache keys.
+
+**Parameters:**
+- `test_key` (required): Cache key to test invalidation for
+- `dry_run` (optional, default: true): Whether to perform dry run only
+- `max_cascade_depth` (optional, default: 10): Maximum cascade depth to test
+
+**Returns:** Cascade test results and affected keys analysis.
+
+### `configure_cascade_settings` - Cascade Configuration
+
+Configure global cascade invalidation settings and policies.
+
+**Parameters:**
+- `cascade_settings` (required): Dictionary of cascade configuration updates
+- `apply_immediately` (optional, default: true): Whether to apply settings immediately
+- `validate_rules` (optional, default: true): Validate existing rules with new settings
+
+**Returns:** Configuration results and rule validation status.
+
+## Progress Monitoring Tools
+
+### `get_indexing_progress_tool` - Real-time Indexing Progress
+
+Get current progress of any ongoing indexing operations with detailed metrics.
+
+**Returns:**
+- Real-time progress updates including percentage completion
+- Estimated time to completion (ETA)
+- Processing rate (files/second, chunks/second)
+- Memory usage during indexing
+- Error counts and recovery status
+
+### `reset_chunking_metrics_tool` - Reset Performance Metrics
+
+Reset session-specific chunking performance metrics for fresh measurement.
+
+**Returns:**
+- Confirmation of metrics reset
+- Previous metrics summary before reset
+- Timestamp of reset operation

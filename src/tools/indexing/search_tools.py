@@ -36,6 +36,7 @@ from src.tools.core.errors import (
 from src.tools.core.graceful_degradation import simple_search_fallback, with_graceful_degradation
 from src.tools.core.performance_monitor import with_performance_monitoring
 from src.tools.core.retry_utils import retry_operation
+from src.utils.output_control import filter_search_results, get_output_config
 
 from ..project.project_utils import get_available_project_names
 
@@ -672,12 +673,16 @@ async def search(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    # Collection filtering parameter
+    collection_types: list[str] | None = None,
     # New multi-modal parameters
     multi_modal_mode: str | None = None,
     enable_multi_modal: bool = False,
     enable_manual_mode_selection: bool = False,
     include_query_analysis: bool = False,
     performance_timeout_seconds: int = 15,
+    # Output control parameter
+    minimal_output: bool = False,
 ) -> dict[str, Any]:
     """
     Search indexed content using natural language queries with cache support and multi-modal retrieval.
@@ -694,17 +699,25 @@ async def search(
         include_context: Whether to include surrounding code context (default: True)
         context_chunks: Number of context chunks to include before/after results (default: 1)
         target_projects: List of specific project names to search in (optional)
+        collection_types: List of collection types to search in (optional)
+                        - ["code"] - Only search source code files
+                        - ["config"] - Only search configuration files (JSON, YAML, TOML, etc.)
+                        - ["documentation"] - Only search documentation files (Markdown, text, etc.)
+                        - ["code", "config"] - Search both code and configuration files
+                        - None - Search all collection types (default behavior)
         multi_modal_mode: Multi-modal retrieval mode - "local", "global", "hybrid", "mix" (optional)
         enable_multi_modal: Enable multi-modal retrieval for enhanced search (default: False)
         enable_manual_mode_selection: Allow manual mode override for multi-modal (default: False)
         include_query_analysis: Include detailed query analysis in response (default: False)
         performance_timeout_seconds: Timeout for search operations (default: 15)
+        minimal_output: Return simplified output for Agent use (default: False)
 
     Returns:
-        Dictionary containing search results with metadata, scores, context, and optional multi-modal analysis
+        Dictionary containing search results with metadata, scores, context, and optional multi-modal analysis.
+        Output detail level is controlled by environment variables (MCP_ENV, MCP_DEBUG_LEVEL) and minimal_output flag.
     """
-    # Delegate to the proper cached search implementation
-    return await search_async_cached(
+    # Get raw search results from cached implementation
+    raw_results = await search_async_cached(
         query=query,
         n_results=n_results,
         cross_project=cross_project,
@@ -712,12 +725,16 @@ async def search(
         include_context=include_context,
         context_chunks=context_chunks,
         target_projects=target_projects,
+        collection_types=collection_types,
         multi_modal_mode=multi_modal_mode,
         enable_multi_modal=enable_multi_modal,
         enable_manual_mode_selection=enable_manual_mode_selection,
         include_query_analysis=include_query_analysis,
         performance_timeout_seconds=performance_timeout_seconds,
     )
+
+    # Apply output filtering based on environment variables and minimal_output flag
+    return filter_search_results(raw_results, minimal_output=minimal_output)
 
 
 async def search_async_cached(
@@ -728,6 +745,7 @@ async def search_async_cached(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    collection_types: list[str] | None = None,
     # New multi-modal parameters
     multi_modal_mode: str | None = None,
     enable_multi_modal: bool = False,
@@ -745,6 +763,15 @@ async def search_async_cached(
     import time
 
     try:
+        # [DEBUG] Log initial search configuration
+        logger.info(
+            f"[SEARCH_CONFIG] Query: '{query[:30]}...', "
+            f"enable_multi_modal: {enable_multi_modal}, "
+            f"requested_mode: {multi_modal_mode}, "
+            f"search_mode: {search_mode}, "
+            f"n_results: {n_results}"
+        )
+
         # Auto-configuration: Determine if multi-modal should be enabled automatically
         if not enable_multi_modal:
             try:
@@ -752,19 +779,26 @@ async def search_async_cached(
 
                 auto_config = await get_recommended_configuration()
 
+                logger.debug(f"[AUTO_CONFIG] Retrieved configuration: {auto_config}")
+
                 # Auto-enable multi-modal if recommended and not explicitly disabled
                 if auto_config["search"]["enable_multi_modal_by_default"]:
                     enable_multi_modal = True
                     if not multi_modal_mode:
                         multi_modal_mode = auto_config["search"]["default_multi_modal_mode"]
-                    logger.info("Auto-enabled multi-modal search based on system analysis")
+
+                    logger.info(
+                        f"[MODAL_DECISION] Auto-enabled multi-modal search - "
+                        f"mode: {multi_modal_mode}, reason: system_analysis_recommended"
+                    )
 
                 # Auto-adjust timeout if not specified
                 if performance_timeout_seconds == 15:  # Default value
                     performance_timeout_seconds = auto_config["search"]["performance_timeout_seconds"]
 
             except Exception as e:
-                logger.debug(f"Auto-configuration failed, using defaults: {e}")
+                logger.debug(f"[AUTO_CONFIG] Auto-configuration failed, using defaults: {e}")
+                logger.info(f"[MODAL_DECISION] Multi-modal disabled - reason: auto_config_failed ({str(e)[:50]})")
 
         # Check if multi-modal search is enabled and delegate to multi-modal search
         if enable_multi_modal:
@@ -781,10 +815,13 @@ async def search_async_cached(
                     current_project = get_current_project()
                     project_names = [current_project["name"]] if current_project else None
 
-                logger.info(f"Delegating to multi-modal search with mode: {multi_modal_mode or 'auto'}")
+                logger.info(f"[SERVICE_CALL] Delegating to multi-modal search with mode: {multi_modal_mode or 'auto'}")
 
                 # Call multi-modal search with timeout
+                start_time = time.time()
                 try:
+                    logger.debug("[SERVICE_CALL] search_tools → multi_modal_search_tools.multi_modal_search")
+
                     multi_modal_result = await asyncio.wait_for(
                         multi_modal_search(
                             query=query,
@@ -799,22 +836,49 @@ async def search_async_cached(
                         timeout=performance_timeout_seconds,
                     )
 
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.debug(f"[SERVICE_RESPONSE] multi_modal_search → success ({duration_ms:.1f}ms)")
+
                     # Return multi-modal result with enhanced metadata
                     if not multi_modal_result.get("error"):
                         multi_modal_result["search_method"] = "multi_modal"
                         multi_modal_result["fallback_available"] = True
                         multi_modal_result["execution_time_within_limit"] = True
+
+                        logger.info(
+                            f"[MODAL_SUCCESS] Multi-modal search completed successfully - "
+                            f"mode: {multi_modal_mode or 'auto'}, "
+                            f"results: {multi_modal_result.get('total', 0)}"
+                        )
                         return multi_modal_result
                     else:
-                        logger.warning(f"Multi-modal search failed: {multi_modal_result.get('error')}, falling back to standard search")
+                        error_msg = multi_modal_result.get("error", "unknown_error")
+                        logger.warning(
+                            f"[MODAL_FALLBACK] Multi-modal search failed - "
+                            f"mode: {multi_modal_mode or 'auto'} → standard_hybrid, "
+                            f"reason: execution_failed, "
+                            f"error: {error_msg[:100]}"
+                        )
                         # Continue to standard search as fallback
 
                 except asyncio.TimeoutError:
-                    logger.warning(f"Multi-modal search timed out after {performance_timeout_seconds}s, falling back to standard search")
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.debug(f"[SERVICE_RESPONSE] multi_modal_search → timeout ({duration_ms:.1f}ms)")
+                    logger.warning(
+                        f"[MODAL_FALLBACK] Multi-modal search timed out - "
+                        f"mode: {multi_modal_mode or 'auto'} → standard_hybrid, "
+                        f"reason: timeout_exceeded, "
+                        f"timeout: {performance_timeout_seconds}s"
+                    )
                     # Continue to standard search as fallback
 
             except Exception as e:
-                logger.warning(f"Multi-modal search error: {e}, falling back to standard search")
+                logger.warning(
+                    f"[MODAL_FALLBACK] Multi-modal search error - "
+                    f"mode: {multi_modal_mode or 'auto'} → standard_hybrid, "
+                    f"reason: unexpected_error, "
+                    f"error: {str(e)[:100]}"
+                )
                 # Continue to standard search as fallback
 
         # Input validation (same as sync version)
@@ -956,6 +1020,10 @@ async def search_async_cached(
                 # Fallback to global collections
                 search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
 
+        # Apply collection type filtering if specified
+        if collection_types:
+            search_collections = filter_collections_by_type(search_collections, collection_types)
+
         if not search_collections:
             return {
                 "results": [],
@@ -975,8 +1043,13 @@ async def search_async_cached(
         current_project = get_current_project()
         current_project_name = current_project.get("name", "") if current_project else ""
 
-        # Perform cached search
-        logger.info(f"Searching {len(search_collections)} collections for query: '{query[:50]}...'")
+        # Perform cached search (standard fallback mode)
+        logger.info(
+            f"[STANDARD_SEARCH] Executing standard hybrid search - "
+            f"collections: {len(search_collections)}, "
+            f"query: '{query[:50]}...', "
+            f"mode: {search_mode}"
+        )
 
         search_results = await _perform_hybrid_search_cached(
             qdrant_client=qdrant_client,
@@ -1055,7 +1128,23 @@ async def search_async_cached(
                 "Use more general terms instead of very specific ones",
             ]
 
-        logger.info(f"Search completed: {len(search_results)} results found for query '{query[:30]}...'")
+        logger.info(
+            f"[SEARCH_COMPLETE] Standard search completed - "
+            f"results: {len(search_results)}, "
+            f"query: '{query[:30]}...', "
+            f"search_method: standard_hybrid"
+        )
+
+        # [DEBUG] Log final configuration summary
+        final_config = {
+            "execution_path": "standard_hybrid",
+            "multi_modal_attempted": locals().get("enable_multi_modal", False),
+            "multi_modal_mode_requested": locals().get("multi_modal_mode"),
+            "collections_searched": len(response.get("collections_searched", [])),
+            "context_expanded": include_context and context_chunks > 0,
+            "cross_project": cross_project,
+        }
+        logger.debug(f"[FINAL_CONFIG] {final_config}")
 
         return response
 
@@ -1117,6 +1206,7 @@ async def search_sync(
     include_context: bool = True,
     context_chunks: int = 1,
     target_projects: list[str] | None = None,
+    collection_types: list[str] | None = None,
     # New multi-modal parameters (for fallback compatibility)
     multi_modal_mode: str | None = None,
     enable_multi_modal: bool = False,
@@ -1279,6 +1369,10 @@ async def search_sync(
                 # Fallback to global collections
                 search_collections = [c for c in all_collections if c.startswith("global_") and not c.endswith("_file_metadata")]
 
+        # Apply collection type filtering if specified
+        if collection_types:
+            search_collections = filter_collections_by_type(search_collections, collection_types)
+
         if not search_collections:
             return {
                 "results": [],
@@ -1364,7 +1458,23 @@ async def search_sync(
                 "Use more general terms instead of very specific ones",
             ]
 
-        logger.info(f"Search completed: {len(search_results)} results found for query '{query[:30]}...'")
+        logger.info(
+            f"[SEARCH_COMPLETE] Standard search completed - "
+            f"results: {len(search_results)}, "
+            f"query: '{query[:30]}...', "
+            f"search_method: standard_hybrid"
+        )
+
+        # [DEBUG] Log final configuration summary
+        final_config = {
+            "execution_path": "standard_hybrid",
+            "multi_modal_attempted": locals().get("enable_multi_modal", False),
+            "multi_modal_mode_requested": locals().get("multi_modal_mode"),
+            "collections_searched": len(response.get("collections_searched", [])),
+            "context_expanded": include_context and context_chunks > 0,
+            "cross_project": cross_project,
+        }
+        logger.debug(f"[FINAL_CONFIG] {final_config}")
 
         return response
 
@@ -1484,6 +1594,44 @@ def get_search_collections(cross_project: bool = False, project_context: str | N
     except Exception as e:
         logger.error(f"Failed to get search collections: {e}")
         return []
+
+
+def filter_collections_by_type(collections: list[str], collection_types: list[str] | None) -> list[str]:
+    """Filter collections based on specified collection types.
+
+    Args:
+        collections: List of all available collection names
+        collection_types: List of collection types to include ("code", "config", "documentation")
+                         None means include all types
+
+    Returns:
+        Filtered list of collection names
+    """
+    if not collection_types:
+        return collections
+
+    # Normalize collection types to lowercase
+    normalized_types = [t.lower() for t in collection_types]
+    filtered_collections = []
+
+    for collection in collections:
+        # Skip metadata collections
+        if collection.endswith("_file_metadata"):
+            continue
+
+        # Check each requested type
+        for collection_type in normalized_types:
+            if collection_type == "code" and collection.endswith("_code"):
+                filtered_collections.append(collection)
+                break
+            elif collection_type == "config" and collection.endswith("_config"):
+                filtered_collections.append(collection)
+                break
+            elif collection_type == "documentation" and collection.endswith("_documentation"):
+                filtered_collections.append(collection)
+                break
+
+    return filtered_collections
 
 
 def validate_search_parameters(query: str, n_results: int, search_mode: str, context_chunks: int) -> list[str]:

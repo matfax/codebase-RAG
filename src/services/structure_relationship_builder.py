@@ -185,7 +185,7 @@ class StructureRelationshipBuilder:
         self.confidence_threshold = 0.7  # Minimum confidence for relationships
 
         # Function call detection configuration (Task 4.5)
-        self.enable_function_call_detection = True  # Feature toggle
+        self.enable_function_call_detection = False  # Feature toggle - DISABLED for performance
         self.function_call_confidence_threshold = 0.5  # Lower threshold for function calls
 
         # Initialize function call resolver
@@ -230,9 +230,9 @@ class StructureRelationshipBuilder:
             interface_edges = await self._build_interface_relationships(chunks, nodes)
             edges.extend(interface_edges)
 
-            # Phase 5: Identify sibling relationships
-            sibling_edges = await self._build_sibling_relationships(nodes)
-            edges.extend(sibling_edges)
+            # Phase 5: Identify sibling relationships - DISABLED for performance
+            # sibling_edges = await self._build_sibling_relationships(nodes)
+            # edges.extend(sibling_edges)
 
             # Phase 6: Build function call relationships (if enabled)
             if self.enable_function_call_detection:

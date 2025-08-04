@@ -898,9 +898,22 @@ class QdrantService:
         try:
             from qdrant_client.http.models import SearchRequest
 
+            # Log search parameters
+            self.logger.info(
+                f"Qdrant client search - collection: {collection_name}, "
+                f"vector_len: {len(query_vector) if query_vector else 'None'}, "
+                f"limit: {limit}, score_threshold: {score_threshold}, "
+                f"kwargs: {kwargs}"
+            )
+
             # Perform vector search
             search_result = self.client.search(
                 collection_name=collection_name, query_vector=query_vector, limit=limit, score_threshold=score_threshold, **kwargs
+            )
+
+            # Log raw search result
+            self.logger.info(
+                f"Raw search_result type: {type(search_result)}, length: {len(search_result) if hasattr(search_result, '__len__') else 'N/A'}"
             )
 
             # Format results
