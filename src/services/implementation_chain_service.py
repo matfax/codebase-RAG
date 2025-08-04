@@ -500,12 +500,19 @@ class ImplementationChainService:
         """Find a component in the graph by its breadcrumb."""
         for node in graph.nodes:
             # Safety check: ensure node is an object with breadcrumb attribute
-            if hasattr(node, "breadcrumb") and node.breadcrumb == breadcrumb:
-                return node
-            elif isinstance(node, str) and node == breadcrumb:
-                # Handle case where node itself is a string breadcrumb
-                # This shouldn't happen but provides fallback
-                self.logger.warning(f"Found string node in graph: {node}")
+            try:
+                if hasattr(node, "breadcrumb") and node.breadcrumb == breadcrumb:
+                    return node
+                elif isinstance(node, str) and node == breadcrumb:
+                    # Handle case where node itself is a string breadcrumb
+                    # This shouldn't happen but provides fallback
+                    self.logger.warning(f"Found string node in graph: {node}")
+                    continue
+                elif isinstance(node, dict) and node.get("breadcrumb") == breadcrumb:
+                    # Handle dict-based nodes
+                    return node
+            except (AttributeError, TypeError) as e:
+                self.logger.debug(f"Skipping malformed node in graph: {node}, error: {e}")
                 continue
         return None
 
@@ -926,15 +933,26 @@ class ImplementationChainService:
             # Collect all breadcrumbs
             breadcrumbs = []
             for link in links:
-                if hasattr(link.source_component, "breadcrumb") and link.source_component.breadcrumb:
-                    breadcrumbs.append(link.source_component.breadcrumb)
-                elif link.source_component:
-                    breadcrumbs.append(str(link.source_component))
+                # Safe attribute access with comprehensive error handling
+                try:
+                    if hasattr(link.source_component, "breadcrumb") and link.source_component.breadcrumb:
+                        breadcrumbs.append(link.source_component.breadcrumb)
+                    elif isinstance(link.source_component, dict) and link.source_component.get("breadcrumb"):
+                        breadcrumbs.append(link.source_component["breadcrumb"])
+                    elif link.source_component:
+                        breadcrumbs.append(str(link.source_component))
+                except (AttributeError, TypeError, KeyError) as e:
+                    self.logger.debug(f"Failed to extract source breadcrumb: {e}")
 
-                if hasattr(link.target_component, "breadcrumb") and link.target_component.breadcrumb:
-                    breadcrumbs.append(link.target_component.breadcrumb)
-                elif link.target_component:
-                    breadcrumbs.append(str(link.target_component))
+                try:
+                    if hasattr(link.target_component, "breadcrumb") and link.target_component.breadcrumb:
+                        breadcrumbs.append(link.target_component.breadcrumb)
+                    elif isinstance(link.target_component, dict) and link.target_component.get("breadcrumb"):
+                        breadcrumbs.append(link.target_component["breadcrumb"])
+                    elif link.target_component:
+                        breadcrumbs.append(str(link.target_component))
+                except (AttributeError, TypeError, KeyError) as e:
+                    self.logger.debug(f"Failed to extract target breadcrumb: {e}")
 
             if not breadcrumbs:
                 return ""

@@ -993,7 +993,19 @@ class PatternRecognitionService:
 
             # Factor 1: Component type match
             required_types = signature.required_components
-            actual_types = [comp.chunk_type.value for comp in candidate["components"]]
+            # Fix attribute access with proper type validation
+            actual_types = []
+            for comp in candidate["components"]:
+                if hasattr(comp, 'chunk_type'):
+                    if hasattr(comp.chunk_type, 'value'):
+                        actual_types.append(comp.chunk_type.value)
+                    else:
+                        actual_types.append(str(comp.chunk_type))
+                elif isinstance(comp, dict) and 'chunk_type' in comp:
+                    actual_types.append(comp['chunk_type'])
+                else:
+                    # Handle string components or other types
+                    actual_types.append('unknown')
 
             type_matches = 0
             for req_type in required_types:
