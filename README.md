@@ -40,6 +40,82 @@ This project implements a **Retrieval-Augmented Generation (RAG) Model-Controlle
 - **Graph RAG Architecture**: Advanced code relationship analysis with on-demand graph building
 - **Backward Compatibility**: All existing MCP tool interfaces remain unchanged
 
+## Getting Started
+
+This guide will walk you through setting up the Codebase RAG MCP Server.
+
+### 1. Prerequisites
+
+Ensure you have the following installed:
+
+- **Python 3.10+**
+- **uv**: A fast Python package manager. Install it via `pip`:
+  ```bash
+  pip install uv
+  ```
+- **Docker**: For running the Qdrant vector database.
+- **Ollama**: For running local language and embedding models. Download it from [ollama.com](https://ollama.com/).
+
+### 2. Environment Setup
+
+#### Running Dependencies
+1.  **Start Qdrant**: Open a terminal and run the following Docker command to start the Qdrant database:
+    ```bash
+    docker run -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_data:/qdrant/storage qdrant/qdrant
+    ```
+    This will store database data in a `qdrant_data` folder in your current directory.
+
+2.  **Start Ollama & Pull Model**:
+    - Launch the Ollama application.
+    - Pull the default embedding model required for the server:
+      ```bash
+      ollama pull nomic-embed-text
+      ```
+
+### 3. Installation and Configuration
+
+1.  **Clone the Repository**:
+    ```bash
+    git clone <repository_url>
+    cd codebase-rag-mcp-server # Or your project directory name
+    ```
+
+2.  **Create Virtual Environment & Install Packages**:
+    Use `uv` to create a virtual environment and install all dependencies from the lock file.
+    ```bash
+    uv sync
+    ```
+    This command creates a `.venv` folder in your project directory.
+
+3.  **Configure Environment Variables**:
+    Copy the example `.env` file and customize it if needed.
+    ```bash
+    cp .env.example .env
+    ```
+    The default settings should work for a local setup. For detailed configuration options, see our [Detailed Setup Guide](docs/SETUP.md).
+
+### 4. Quick Start: Indexing and Querying
+
+Once the setup is complete, you can start using the MCP server.
+
+1.  **Activate the Virtual Environment**:
+    ```bash
+    source .venv/bin/activate
+    ```
+
+2.  **Run Manual Indexing**:
+    Before querying, you need to index your codebase. The following command indexes the current directory (`.`) and clears any previously indexed data to ensure freshness.
+    ```bash
+    python manual_indexing.py -d "." -m clear_existing
+    ```
+
+3.  **Query Your Codebase**:
+    After indexing, you can use registered MCP tools to explore your project. For example, if you are using an environment like Claude Code that supports custom prompts, you can run a command like this:
+    ```
+    /codebase-rag-mcp:explore_project (MCP) ., Graph RAG, detailed
+    ```
+    This command explores the codebase (`.`) for information related to "Graph RAG" with a "detailed" level of output, allowing you or an AI agent to quickly understand the project's structure and features.
+
 ### Documentation
 - **[MCP Tools Reference](docs/MCP_TOOLS.md)**: Complete guide to all MCP tools and Wave 7.0 enhancements
 - **[Wave 7.0 Enhancements](docs/WAVE_7_0_ENHANCEMENTS.md)**: Comprehensive Wave 7.0 feature guide
