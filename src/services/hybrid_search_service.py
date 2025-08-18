@@ -18,9 +18,7 @@ from typing import Any, Optional, Union
 from ..models.code_chunk import ChunkType, CodeChunk
 from .cross_project_search_service import CrossProjectMatch, CrossProjectSearchFilter
 from .embedding_service import EmbeddingService
-from .graph_rag_service import GraphRAGService
 from .qdrant_service import QdrantService
-from .structure_relationship_builder import GraphNode, StructureGraph
 
 
 class HybridSearchStrategy(Enum):
@@ -30,7 +28,6 @@ class HybridSearchStrategy(Enum):
     STRUCTURAL_FIRST = "structural_first"  # Structural relationships as primary, semantic as secondary
     BALANCED = "balanced"  # Equal weight to semantic and structural factors
     ADAPTIVE = "adaptive"  # Dynamically adjust weights based on query characteristics
-    GRAPH_ENHANCED = "graph_enhanced"  # Use graph traversal to expand search scope
 
 
 @dataclass
@@ -48,10 +45,6 @@ class HybridSearchParameters:
     # Similarity thresholds
     min_semantic_similarity: float = 0.1  # Minimum semantic similarity threshold (lowered for testing)
     min_structural_similarity: float = 0.4  # Minimum structural similarity threshold
-
-    # Graph traversal parameters
-    max_traversal_depth: int = 3  # Maximum depth for graph traversal
-    expand_search_scope: bool = True  # Whether to use graph traversal to expand search
 
     # Result filtering
     max_results: int = 20  # Maximum number of results to return
@@ -85,8 +78,6 @@ class HybridSearchResult:
     final_score: float
 
     # Supporting information
-    related_nodes: list[GraphNode] = None
-    structural_path: list[str] = None  # Path through structure graph
     semantic_matches: list[str] = None  # Semantic match explanations
     context_factors: dict[str, float] = None  # Context scoring factors
 
@@ -96,10 +87,6 @@ class HybridSearchResult:
 
     def __post_init__(self):
         """Initialize default values for mutable fields."""
-        if self.related_nodes is None:
-            self.related_nodes = []
-        if self.structural_path is None:
-            self.structural_path = []
         if self.semantic_matches is None:
             self.semantic_matches = []
         if self.context_factors is None:
@@ -128,7 +115,6 @@ class HybridSearchSummary:
 
     # Strategy effectiveness
     weight_adjustments_made: dict[str, float] = None  # If adaptive strategy
-    graph_expansion_used: bool = False
     cache_hit_rate: float = 0.0
 
     def __post_init__(self):
@@ -163,18 +149,15 @@ class HybridSearchService:
         self,
         qdrant_service: QdrantService,
         embedding_service: EmbeddingService,
-        graph_rag_service: GraphRAGService,
     ):
         """Initialize the hybrid search service.
 
         Args:
             qdrant_service: Service for vector database operations
             embedding_service: Service for generating embeddings
-            graph_rag_service: Service for graph operations and structural analysis
         """
         self.qdrant_service = qdrant_service
         self.embedding_service = embedding_service
-        self.graph_rag_service = graph_rag_service
         self.logger = logging.getLogger(__name__)
 
         # Cache for search results (in-memory for now)
@@ -247,7 +230,6 @@ class HybridSearchService:
                 semantic_search_time_ms=semantic_time_ms,
                 structural_analysis_time_ms=structural_time_ms,
                 total_execution_time_ms=total_time_ms,
-                graph_expansion_used=adjusted_params.expand_search_scope,
                 cache_hit_rate=self._calculate_cache_hit_rate(),
             )
 
@@ -279,55 +261,6 @@ class HybridSearchService:
                 structural_analysis_time_ms=0.0,
                 total_execution_time_ms=total_time_ms,
             )
-
-    async def search_with_graph_expansion(
-        self,
-        query: str,
-        seed_breadcrumbs: list[str],
-        project_names: list[str],
-        search_params: HybridSearchParameters,
-    ) -> HybridSearchSummary:
-        """
-        Perform search starting from specific breadcrumbs and expanding through graph.
-
-        Args:
-            query: Natural language search query
-            seed_breadcrumbs: Starting points for graph expansion
-            project_names: List of project names to search in
-            search_params: Parameters controlling search behavior
-
-        Returns:
-            HybridSearchSummary with expanded search results
-        """
-        self.logger.info(f"Starting graph-expanded search from {len(seed_breadcrumbs)} seed points")
-
-        # Step 1: Expand search scope using graph traversal
-        expanded_breadcrumbs = []
-        for project_name in project_names:
-            for seed_breadcrumb in seed_breadcrumbs:
-                try:
-                    traversal_result = await self.graph_rag_service.traverse_from_breadcrumb(
-                        breadcrumb=seed_breadcrumb,
-                        project_name=project_name,
-                        max_depth=search_params.max_traversal_depth,
-                        strategy_name="semantic",
-                    )
-
-                    if traversal_result:
-                        expanded_breadcrumbs.extend([node.breadcrumb for node in traversal_result.related_components])
-
-                except Exception as e:
-                    self.logger.error(f"Error expanding from breadcrumb {seed_breadcrumb}: {e}")
-
-        # Step 2: Create filters based on expanded breadcrumbs
-        expanded_filters = CrossProjectSearchFilter(
-            target_projects=project_names,
-            # Add any specific filtering based on expanded scope
-        )
-
-        # Step 3: Perform hybrid search with expanded scope
-        search_params.graph_expansion_used = True
-        return await self.hybrid_search(query, project_names, search_params, expanded_filters)
 
     async def _adapt_search_strategy(
         self,
@@ -411,11 +344,6 @@ class HybridSearchService:
             "implementation",
             "best practice",
         ]
-
-        if any(keyword in query_lower for keyword in pattern_keywords):
-            adapted_params.expand_search_scope = True
-            adapted_params.max_traversal_depth = min(4, adapted_params.max_traversal_depth + 1)
-            self.logger.info("Adapted strategy: Enabled graph expansion for pattern search")
 
         # Renormalize weights
         total_weight = adapted_params.semantic_weight + adapted_params.structural_weight + adapted_params.context_weight
@@ -598,29 +526,7 @@ class HybridSearchService:
             else:
                 score_factors.append(0.5)  # Neutral if no parent
 
-            # Factor 3: Related components analysis
-            if params.expand_search_scope and chunk.breadcrumb:
-                try:
-                    traversal_result = await self.graph_rag_service.traverse_from_breadcrumb(
-                        breadcrumb=chunk.breadcrumb,
-                        project_name=project_name,
-                        max_depth=2,  # Limited depth for performance
-                        strategy_name="semantic",
-                    )
-
-                    if traversal_result and traversal_result.related_components:
-                        # Score based on number and quality of related components
-                        related_score = min(1.0, len(traversal_result.related_components) / 10.0)
-                        score_factors.append(related_score)
-                    else:
-                        score_factors.append(0.4)  # Some penalty for isolation
-
-                except Exception:
-                    score_factors.append(0.5)  # Neutral if traversal fails
-            else:
-                score_factors.append(0.6)  # Neutral if expansion disabled
-
-            # Factor 4: Chunk type relevance
+            # Factor 3: Chunk type relevance
             # Score based on how likely this chunk type is to be relevant
             chunk_type_scores = {
                 ChunkType.CLASS: 0.9,
@@ -992,7 +898,6 @@ _hybrid_search_service_instance = None
 def get_hybrid_search_service(
     qdrant_service: QdrantService = None,
     embedding_service: EmbeddingService = None,
-    graph_rag_service: GraphRAGService = None,
 ) -> HybridSearchService:
     """
     Get or create a HybridSearchService instance.
@@ -1000,7 +905,6 @@ def get_hybrid_search_service(
     Args:
         qdrant_service: Qdrant service instance (optional, will be created if not provided)
         embedding_service: Embedding service instance (optional, will be created if not provided)
-        graph_rag_service: Graph RAG service instance (optional, will be created if not provided)
 
     Returns:
         HybridSearchService instance
@@ -1009,20 +913,16 @@ def get_hybrid_search_service(
 
     if _hybrid_search_service_instance is None:
         from .embedding_service import EmbeddingService
-        from .graph_rag_service import get_graph_rag_service
         from .qdrant_service import QdrantService
 
         if qdrant_service is None:
             qdrant_service = QdrantService()
         if embedding_service is None:
             embedding_service = EmbeddingService()
-        if graph_rag_service is None:
-            graph_rag_service = get_graph_rag_service()
 
         _hybrid_search_service_instance = HybridSearchService(
             qdrant_service=qdrant_service,
             embedding_service=embedding_service,
-            graph_rag_service=graph_rag_service,
         )
 
     return _hybrid_search_service_instance

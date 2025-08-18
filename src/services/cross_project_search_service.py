@@ -18,9 +18,7 @@ from typing import Any, Optional, Union
 from src.models.code_chunk import ChunkType, CodeChunk
 
 from .embedding_service import EmbeddingService
-from .graph_rag_service import GraphRAGService, GraphTraversalResult
 from .qdrant_service import QdrantService
-from .structure_relationship_builder import GraphNode, StructureGraph
 
 
 @dataclass
@@ -69,14 +67,11 @@ class CrossProjectMatch:
     combined_score: float
 
     # Context information
-    related_components: list[GraphNode] = None
     architectural_context: dict[str, Any] = None
     usage_patterns: list[str] = None
 
     def __post_init__(self):
         """Initialize default values for mutable fields."""
-        if self.related_components is None:
-            self.related_components = []
         if self.architectural_context is None:
             self.architectural_context = {}
         if self.usage_patterns is None:
@@ -138,18 +133,15 @@ class CrossProjectSearchService:
         self,
         qdrant_service: QdrantService,
         embedding_service: EmbeddingService,
-        graph_rag_service: GraphRAGService,
     ):
         """Initialize the cross-project search service.
 
         Args:
             qdrant_service: Service for vector database operations
             embedding_service: Service for generating embeddings
-            graph_rag_service: Service for graph operations and relationship analysis
         """
         self.qdrant_service = qdrant_service
         self.embedding_service = embedding_service
-        self.graph_rag_service = graph_rag_service
         self.logger = logging.getLogger(__name__)
 
     async def search_across_projects(
@@ -498,9 +490,6 @@ class CrossProjectSearchService:
                 semantic_weight = 1.0 - filters.structural_weight
                 combined_score = semantic_weight * similarity_score + filters.structural_weight * structural_score
 
-                # Get related components for context
-                related_components = await self._get_related_components(chunk, project_name)
-
                 # Create enhanced match
                 enhanced_match = CrossProjectMatch(
                     chunk=chunk,
@@ -508,7 +497,6 @@ class CrossProjectSearchService:
                     similarity_score=similarity_score,
                     structural_score=structural_score,
                     combined_score=combined_score,
-                    related_components=related_components,
                     architectural_context=await self._get_architectural_context(chunk, project_name),
                     usage_patterns=self._extract_usage_patterns(chunk),
                 )
@@ -573,26 +561,6 @@ class CrossProjectSearchService:
         except Exception as e:
             self.logger.error(f"Error calculating structural score: {e}")
             return 0.5
-
-    async def _get_related_components(self, chunk: CodeChunk, project_name: str) -> list[GraphNode]:
-        """Get related components for a chunk using Graph RAG traversal."""
-        try:
-            if not chunk.breadcrumb:
-                return []
-
-            # Use Graph RAG service to find related components
-            traversal_result = await self.graph_rag_service.traverse_from_breadcrumb(
-                breadcrumb=chunk.breadcrumb,
-                project_name=project_name,
-                max_depth=2,  # Limit depth for performance
-                strategy_name="semantic",  # Use semantic traversal
-            )
-
-            return traversal_result.related_components if traversal_result else []
-
-        except Exception as e:
-            self.logger.error(f"Error getting related components: {e}")
-            return []
 
     async def _get_architectural_context(self, chunk: CodeChunk, project_name: str) -> dict[str, Any]:
         """Get architectural context for a chunk."""
@@ -765,7 +733,6 @@ _cross_project_search_service_instance = None
 def get_cross_project_search_service(
     qdrant_service: QdrantService = None,
     embedding_service: EmbeddingService = None,
-    graph_rag_service: GraphRAGService = None,
 ) -> CrossProjectSearchService:
     """
     Get or create a CrossProjectSearchService instance.
@@ -773,7 +740,6 @@ def get_cross_project_search_service(
     Args:
         qdrant_service: Qdrant service instance (optional, will be created if not provided)
         embedding_service: Embedding service instance (optional, will be created if not provided)
-        graph_rag_service: Graph RAG service instance (optional, will be created if not provided)
 
     Returns:
         CrossProjectSearchService instance
@@ -782,20 +748,16 @@ def get_cross_project_search_service(
 
     if _cross_project_search_service_instance is None:
         from .embedding_service import EmbeddingService
-        from .graph_rag_service import get_graph_rag_service
         from .qdrant_service import QdrantService
 
         if qdrant_service is None:
             qdrant_service = QdrantService()
         if embedding_service is None:
             embedding_service = EmbeddingService()
-        if graph_rag_service is None:
-            graph_rag_service = get_graph_rag_service()
 
         _cross_project_search_service_instance = CrossProjectSearchService(
             qdrant_service=qdrant_service,
             embedding_service=embedding_service,
-            graph_rag_service=graph_rag_service,
         )
 
     return _cross_project_search_service_instance

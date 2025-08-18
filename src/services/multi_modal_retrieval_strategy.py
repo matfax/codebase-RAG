@@ -27,7 +27,6 @@ from ..models.query_features import (
     RetrievalResult,
 )
 from .embedding_service import EmbeddingService
-from .graph_rag_service import get_graph_rag_service
 from .hybrid_search_service import HybridSearchParameters, HybridSearchStrategy, get_hybrid_search_service
 from .qdrant_service import QdrantService
 from .query_analyzer import get_query_analyzer
@@ -55,15 +54,12 @@ class MultiModalSearchResult:
     # Context information
     local_context: list[str] = None
     global_context: list[str] = None
-    relationship_paths: list[str] = None
 
     def __post_init__(self):
         if self.local_context is None:
             self.local_context = []
         if self.global_context is None:
             self.global_context = []
-        if self.relationship_paths is None:
-            self.relationship_paths = []
 
 
 class MultiModalRetrievalStrategy:
@@ -90,7 +86,6 @@ class MultiModalRetrievalStrategy:
 
         # Initialize dependent services
         self._hybrid_search_service = None
-        self._graph_rag_service = None
         self._query_analyzer = None
 
         # Performance tracking
@@ -121,15 +116,6 @@ class MultiModalRetrievalStrategy:
                 embedding_service=self.embedding_service,
             )
         return self._hybrid_search_service
-
-    async def _get_graph_rag_service(self):
-        """Lazy initialization of graph RAG service."""
-        if self._graph_rag_service is None:
-            self._graph_rag_service = get_graph_rag_service(
-                qdrant_service=self.qdrant_service,
-                embedding_service=self.embedding_service,
-            )
-        return self._graph_rag_service
 
     async def _get_query_analyzer(self):
         """Lazy initialization of query analyzer."""
@@ -322,20 +308,18 @@ class MultiModalRetrievalStrategy:
         - High weight on relationship tokens
         - Broad, interconnected results
         """
+        """
         self.logger.debug(f"Executing global mode retrieval for query: '{query[:50]}...'")
 
         hybrid_service = await self._get_hybrid_search_service()
-        graph_service = await self._get_graph_rag_service()
 
         # Configure for global mode - relationship-focused search
         search_params = HybridSearchParameters(
-            strategy=HybridSearchStrategy.GRAPH_ENHANCED,
+            strategy=HybridSearchStrategy.BALANCED, # Fallback to BALANCED
             semantic_weight=config.weight_local,  # 0.2
             structural_weight=config.weight_global,  # 0.8
             context_weight=0.3,
             max_results=config.max_results,
-            max_traversal_depth=config.expansion_depth,  # 3
-            expand_search_scope=True,
             diversity_factor=0.3,  # Higher diversity for broad results
         )
 
@@ -352,14 +336,6 @@ class MultiModalRetrievalStrategy:
         # Enhance with graph-based relationship discovery
         enhanced_results = []
         for hybrid_result in search_summary.results:
-            # Get relationship paths for global context
-            relationship_paths = await self._get_relationship_paths(
-                hybrid_result.chunk,
-                hybrid_result.project_name,
-                graph_service,
-                depth=config.expansion_depth,
-            )
-
             multi_modal_result = MultiModalSearchResult(
                 chunk=hybrid_result.chunk,
                 project_name=hybrid_result.project_name,
@@ -367,10 +343,9 @@ class MultiModalRetrievalStrategy:
                 local_score=hybrid_result.semantic_score * 0.3,  # De-emphasize local
                 global_score=hybrid_result.structural_score,
                 combined_score=hybrid_result.final_score,
-                retrieval_source="graph_enhanced",
+                retrieval_source="hybrid", # Fallback to hybrid
                 confidence_level=self._determine_confidence_level(hybrid_result.confidence),
                 global_context=self._extract_global_context(hybrid_result),
-                relationship_paths=relationship_paths,
             )
             enhanced_results.append(multi_modal_result)
 
@@ -507,34 +482,6 @@ class MultiModalRetrievalStrategy:
         # Use original query with minimal modification for balanced approach
         return query
 
-    async def _get_relationship_paths(
-        self,
-        chunk: CodeChunk,
-        project_name: str,
-        graph_service,
-        depth: int = 2,
-    ) -> list[str]:
-        """Get relationship paths for global context."""
-        try:
-            if not chunk.breadcrumb:
-                return []
-
-            # Use graph service to find related components
-            traversal_result = await graph_service.traverse_from_breadcrumb(
-                breadcrumb=chunk.breadcrumb,
-                project_name=project_name,
-                max_depth=depth,
-                strategy_name="semantic",
-            )
-
-            if traversal_result and traversal_result.related_components:
-                return [comp.breadcrumb for comp in traversal_result.related_components[:5]]
-
-        except Exception as e:
-            self.logger.debug(f"Error getting relationship paths: {e}")
-
-        return []
-
     def _extract_local_context(self, hybrid_result) -> list[str]:
         """Extract local context information from hybrid result."""
         context = []
@@ -611,7 +558,6 @@ class MultiModalRetrievalStrategy:
                 # Context information
                 "local_context": result.local_context,
                 "global_context": result.global_context,
-                "relationship_paths": result.relationship_paths,
                 # Metadata
                 "line_start": result.chunk.start_line,
                 "line_end": result.chunk.end_line,
