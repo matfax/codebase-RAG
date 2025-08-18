@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from ..models.code_chunk import CodeChunk
 from ..models.query_features import (
@@ -258,8 +258,6 @@ class MultiModalRetrievalStrategy:
             structural_weight=config.weight_global,  # 0.2
             context_weight=0.1,
             max_results=config.max_results,
-            max_traversal_depth=config.expansion_depth,  # 1
-            expand_search_scope=True,
             diversity_factor=0.1,  # Lower diversity for focused results
         )
 
@@ -308,14 +306,13 @@ class MultiModalRetrievalStrategy:
         - High weight on relationship tokens
         - Broad, interconnected results
         """
-        """
         self.logger.debug(f"Executing global mode retrieval for query: '{query[:50]}...'")
 
         hybrid_service = await self._get_hybrid_search_service()
 
         # Configure for global mode - relationship-focused search
         search_params = HybridSearchParameters(
-            strategy=HybridSearchStrategy.BALANCED, # Fallback to BALANCED
+            strategy=HybridSearchStrategy.BALANCED,  # Fallback to BALANCED
             semantic_weight=config.weight_local,  # 0.2
             structural_weight=config.weight_global,  # 0.8
             context_weight=0.3,
@@ -343,7 +340,7 @@ class MultiModalRetrievalStrategy:
                 local_score=hybrid_result.semantic_score * 0.3,  # De-emphasize local
                 global_score=hybrid_result.structural_score,
                 combined_score=hybrid_result.final_score,
-                retrieval_source="hybrid", # Fallback to hybrid
+                retrieval_source="hybrid",  # Fallback to hybrid
                 confidence_level=self._determine_confidence_level(hybrid_result.confidence),
                 global_context=self._extract_global_context(hybrid_result),
             )
@@ -379,8 +376,6 @@ class MultiModalRetrievalStrategy:
             structural_weight=config.weight_global,  # 0.5
             context_weight=0.2,
             max_results=config.max_results,
-            max_traversal_depth=config.expansion_depth,  # 2
-            expand_search_scope=True,
             diversity_factor=0.2,  # Moderate diversity
         )
 
@@ -585,9 +580,9 @@ class MultiModalRetrievalStrategy:
             return 0.0
 
         # Calculate diversity based on different dimensions
-        unique_projects = len(set(result.get("project", "") for result in results))
-        unique_languages = len(set(result.get("language", "") for result in results))
-        unique_chunk_types = len(set(result.get("chunk_type", "") for result in results))
+        unique_projects = len({result.get("project", "") for result in results})
+        unique_languages = len({result.get("language", "") for result in results})
+        unique_chunk_types = len({result.get("chunk_type", "") for result in results})
 
         # Normalize by total results
         total_results = len(results)
