@@ -41,15 +41,7 @@ def register_tools(mcp_app: FastMCP) -> None:
 
     @mcp_app.tool()
     async def health_check_tool():
-        """Check the health of the MCP server and its dependencies.
-
-        Checks the status of:
-        - Qdrant database connectivity
-        - Ollama service availability
-        - Memory usage and system resources
-
-        Returns detailed health information with warnings and issues.
-        """
+        """Check MCP server health: Qdrant, Ollama, memory usage, system resources."""
         return await health_check()
 
     # Register auto-configuration tool
@@ -60,19 +52,9 @@ def register_tools(mcp_app: FastMCP) -> None:
         directory: str = ".",
         usage_pattern: str = "balanced",
     ):
-        """Get automatic configuration recommendations for MCP tools.
+        """Get optimal MCP configuration recommendations based on system and project analysis.
 
-        This tool analyzes system capabilities and project characteristics
-        to provide optimal configuration settings that reduce user configuration
-        burden and improve performance.
-
-        Args:
-            directory: Path to the directory to analyze (default: current directory)
-            usage_pattern: Usage pattern preference - "conservative", "balanced", or "performance"
-
-        Returns:
-            Dictionary containing recommended configurations for search, indexing,
-            caching, and performance settings, along with system recommendations
+        Key params: directory(.), usage_pattern(balanced)
         """
         return await get_recommended_configuration(directory, usage_pattern)
 
@@ -133,26 +115,9 @@ def register_tools(mcp_app: FastMCP) -> None:
         incremental: bool = False,
         project_name: str | None = None,
     ):
-        """Index files in a directory with smart existing data detection
-        and time estimation.
+        """Index files in directory with smart detection. Supports incremental indexing.
 
-        Args:
-            directory: Directory to index (default: current directory)
-            patterns: File patterns to include
-                      (default: common code file types)
-            recursive: Whether to index subdirectories (default: True)
-            clear_existing: Whether to clear existing indexed data
-                            (default: False)
-            If False and existing data is found, returns
-            recommendations instead of indexing
-            incremental: Whether to use incremental indexing
-                         (only process changed files) (default: False)
-            project_name: Optional custom project name for collections
-                          (default: auto-detect)
-
-        Returns:
-            Dictionary with indexing results, time estimates, or
-            recommendations for existing data
+        Key params: directory(.), recursive(True), clear_existing(False), incremental(False)
         """
         return await index_directory_impl(directory, patterns, recursive, clear_existing, incremental, project_name)
 
@@ -177,62 +142,24 @@ def register_tools(mcp_app: FastMCP) -> None:
         include_context: bool = True,
         context_chunks: int = 1,
         target_projects: list[str] | None = None,
-        # Collection filtering parameter
         collection_types: list[str] | None = None,
-        # Multi-modal parameters
         multi_modal_mode: str | None = None,
-        enable_multi_modal: bool = False,
-        enable_manual_mode_selection: bool = False,
         include_query_analysis: bool = False,
         performance_timeout_seconds: int = 15,
-        # Output control parameter
         minimal_output: bool = False,
     ):
-        """Search indexed content using natural language queries with multi-modal retrieval support.
-
-        This tool provides function-level precision search with intelligent chunking,
-        supporting multiple search modes, context expansion, and advanced multi-modal
-        retrieval strategies (Local, Global, Hybrid, Mix) for enhanced search performance.
+        """Search indexed content with semantic, keyword, and hybrid modes.
+        English queries recommended for optimal performance.
 
         Args:
-            query: Natural language search query
-            n_results: Number of results to return (1-100, default: 5)
-            cross_project: Whether to search across all projects
-                           (default: False - current project only)
-            search_mode: Search strategy - "semantic", "keyword", or
-                         "hybrid" (default: "hybrid")
-            include_context: Whether to include surrounding code context
-                             (default: True)
-            context_chunks: Number of context chunks to include before/after
-                            results (0-5, default: 1)
-            target_projects: List of specific project names to search in
-                             (optional)
-            collection_types: List of collection types to search in (optional)
-                             - ["code"] - Only search source code files
-                             - ["config"] - Only search configuration files
-                             - ["documentation"] - Only search documentation files
-                             - ["code", "config"] - Search both code and config files
-                             - None - Search all collection types (default)
-            multi_modal_mode: Multi-modal retrieval mode - "local", "global",
-                             "hybrid", "mix" (optional, auto-detected if enabled)
-            enable_multi_modal: Enable enhanced multi-modal retrieval for better results
-                               (default: False - uses standard search)
-            enable_manual_mode_selection: Allow manual override of auto-detected mode
-                                         (default: False - uses AI recommendation)
-            include_query_analysis: Include detailed query analysis in response
-                                   (default: False)
-            performance_timeout_seconds: Timeout for search operations in seconds
-                                        (default: 15)
-            minimal_output: Return simplified output suitable for Agent use
-                          (default: False - controlled by MCP_ENV and MCP_DEBUG_LEVEL)
-
-        Returns:
-            Dictionary containing search results with metadata, scores, context,
-            and optional multi-modal analysis and performance metrics.
-            Output detail level is automatically controlled by environment variables:
-            - MCP_ENV=production: Minimal output by default
-            - MCP_ENV=development: Full technical details
-            - MCP_DEBUG_LEVEL=DEBUG: Includes performance metrics
+            query: Search query (English preferred)
+            n_results: Results to return (default: 5)
+            cross_project: Search across all projects (default: False)
+            search_mode: "semantic", "keyword", or "hybrid" (default: "hybrid")
+            collection_types: Filter by ["code"], ["config"], ["documentation"]
+            target_projects: Specific project names to search
+            include_context: Include surrounding code context (default: True)
+            context_chunks: Context chunks before/after results (0-5, default: 1)
         """
         return await search_impl(
             query,
@@ -244,8 +171,8 @@ def register_tools(mcp_app: FastMCP) -> None:
             target_projects,
             collection_types,
             multi_modal_mode,
-            enable_multi_modal,
-            enable_manual_mode_selection,
+            multi_modal_mode is not None,  # enable_multi_modal
+            False,  # enable_manual_mode_selection (deprecated)
             include_query_analysis,
             performance_timeout_seconds,
             minimal_output,
@@ -253,21 +180,7 @@ def register_tools(mcp_app: FastMCP) -> None:
 
     @mcp_app.tool()
     async def analyze_repository_tool(directory: str = "."):
-        """Analyze repository structure and provide detailed statistics
-        for indexing planning.
-
-        This tool helps assess repository complexity, file distribution,
-        and provides recommendations for optimal indexing strategies.
-
-        Args:
-            directory: Path to the directory to analyze
-                       (default: current directory)
-
-        Returns:
-            Detailed analysis including file counts, size distribution,
-            language breakdown, complexity assessment, and indexing
-            recommendations.
-        """
+        """Analyze repository structure: file counts, language breakdown, complexity, indexing recommendations."""
         return await analyze_repository_impl(directory)
 
     @mcp_app.tool()
@@ -290,19 +203,7 @@ def register_tools(mcp_app: FastMCP) -> None:
 
     @mcp_app.tool()
     async def check_index_status(directory: str = "."):
-        """Check if a directory already has indexed data and provide
-        recommendations.
-
-        This tool helps users understand the current indexing state and
-        make informed decisions about whether to reindex or use existing data.
-
-        Args:
-            directory: Path to the directory to check
-                       (default: current directory)
-
-        Returns:
-            Status information and recommendations for the indexed data
-        """
+        """Check indexing status and provide reindexing recommendations."""
         return await check_index_status_impl(directory)
 
     # Register multi-modal search tools
@@ -324,30 +225,25 @@ def register_tools(mcp_app: FastMCP) -> None:
             mode: str | None = None,
             target_projects: list[str] | None = None,
             cross_project: bool = False,
-            enable_manual_mode_selection: bool = False,
             include_analysis: bool = True,
             include_performance_metrics: bool = False,
         ):
-            """Perform advanced multi-modal search using LightRAG-inspired retrieval modes.
+            """Advanced multi-modal search with LightRAG modes. Provides intelligent
+            mode selection and query analysis. English queries strongly recommended.
 
-            This tool implements four distinct retrieval modes for enhanced search:
-            - Local: Deep entity-focused retrieval using low-level keywords
-            - Global: Broad relationship-focused retrieval using high-level keywords
-            - Hybrid: Combined local+global with balanced context
-            - Mix: Intelligent automatic mode selection based on query analysis
+            Modes:
+                - local: Entity-focused retrieval
+                - global: Relationship-focused retrieval
+                - hybrid: Balanced approach
+                - mix: Automatic mode selection
 
             Args:
-                query: Natural language search query
-                n_results: Number of results to return (1-50, default: 10)
-                mode: Manual mode selection ('local', 'global', 'hybrid', 'mix')
-                target_projects: List of specific project names to search in
-                cross_project: Whether to search across all projects (default: False)
-                enable_manual_mode_selection: Whether to allow manual mode override
-                include_analysis: Whether to include query analysis in response
-                include_performance_metrics: Whether to include performance metrics
-
-            Returns:
-                Dictionary containing search results with multi-modal metadata and analysis
+                query: Search query (English strongly recommended)
+                mode: Retrieval mode or None for auto-selection
+                n_results: Results to return (default: 10)
+                cross_project: Search across projects (default: False)
+                target_projects: Specific project names to search
+                include_analysis: Include query analysis (default: True)
             """
             return await multi_modal_search_impl(
                 query,
@@ -355,24 +251,14 @@ def register_tools(mcp_app: FastMCP) -> None:
                 mode,
                 target_projects,
                 cross_project,
-                enable_manual_mode_selection,
+                mode is not None,  # enable_manual_mode_selection: True if mode specified
                 include_analysis,
                 include_performance_metrics,
             )
 
         @mcp_app.tool()
         async def analyze_query_features(query: str):
-            """Analyze query features and recommend optimal retrieval mode.
-
-            This tool provides detailed analysis of a search query to understand
-            its characteristics and recommend the best retrieval strategy.
-
-            Args:
-                query: The search query to analyze
-
-            Returns:
-                Dictionary containing comprehensive query analysis with mode recommendations
-            """
+            """Analyze query features and recommend optimal retrieval mode."""
             return await analyze_query_features_impl(query)
 
         @mcp_app.tool()
@@ -436,16 +322,7 @@ def register_tools(mcp_app: FastMCP) -> None:
         reason: str = "manual_invalidation",
         confirm: bool = False,
     ):
-        """Clear all caches across all services (DESTRUCTIVE OPERATION).
-
-        Args:
-            reason: Reason for clearing all caches
-                    (manual_invalidation, system_upgrade, cache_corruption)
-            confirm: Must be True to confirm this destructive operation
-
-        Returns:
-            Dictionary with clearing results and statistics
-        """
+        """Clear all caches (DESTRUCTIVE). Requires confirm=True."""
         return await clear_all_caches(reason, confirm)
 
     @mcp_app.tool()
@@ -1092,28 +969,10 @@ def register_tools(mcp_app: FastMCP) -> None:
         include_recommendations: bool = True,
         enable_performance_optimization: bool = True,
     ):
-        """Analyze the structural relationships of a specific breadcrumb in the codebase.
+        """Analyze structural relationships of code components using Graph RAG. Provides
+        hierarchical relationships and connectivity patterns.
 
-        This tool leverages Graph RAG capabilities to provide deep structural analysis
-        of code components, including hierarchical relationships, connectivity patterns,
-        and related components within the codebase structure.
-
-        Args:
-            breadcrumb: The breadcrumb path to analyze (e.g., "MyClass.method_name")
-            project_name: Name of the project to analyze within
-            analysis_type: Type of analysis ("comprehensive", "hierarchy", "connectivity", "overview")
-            max_depth: Maximum depth for relationship traversal (1-10, default: 3)
-            include_siblings: Whether to include sibling components in the analysis
-            include_connectivity: Whether to analyze component connectivity patterns
-            force_rebuild_graph: Whether to force rebuild the structure graph
-            generate_report: Whether to generate a comprehensive analysis report with recommendations
-            include_recommendations: Whether to include optimization recommendations in the report
-            enable_performance_optimization: Whether to enable performance optimizations for large projects
-
-        Returns:
-            Dictionary containing structural analysis results with hierarchical relationships,
-            connectivity patterns, and related components. If generate_report=True, includes
-            a comprehensive report with statistics and recommendations.
+        Key params: breadcrumb, project_name, analysis_type(comprehensive), max_depth(3)
         """
         return await graph_analyze_structure(
             breadcrumb,
@@ -1340,31 +1199,10 @@ def register_tools(mcp_app: FastMCP) -> None:
         enable_complexity_weighting: bool = True,
         complexity_weights: dict[str, float] = None,
     ):
-        """Analyze function chains across an entire project with comprehensive insights.
+        """Analyze function chains across project. Provides complexity analysis, hotspot
+        identification, and pattern detection. Supports Mermaid diagrams.
 
-        This tool provides project-wide analysis of function chains, patterns, complexity,
-        and architecture, supporting pattern matching, hotspot identification, and
-        refactoring recommendations.
-
-        Args:
-            project_name: Name of the project to analyze
-            analysis_scope: Scope of analysis ("full_project", "scoped_breadcrumbs",
-                          "specific_modules", "function_patterns")
-            breadcrumb_patterns: List of breadcrumb patterns to focus analysis on
-            analysis_types: Types of analysis to perform ("complexity_analysis",
-                          "hotspot_identification", "pattern_detection", "architectural_analysis")
-            max_functions_per_chain: Maximum functions to include per chain (default: 50)
-            complexity_threshold: Complexity threshold for highlighting (0.0-1.0, default: 0.7)
-            output_format: Output format ("comprehensive", "summary", "detailed")
-            include_mermaid: Whether to include Mermaid diagram outputs
-            include_hotspot_analysis: Whether to identify complexity hotspots
-            include_refactoring_suggestions: Whether to provide refactoring recommendations
-            enable_complexity_weighting: Whether to use weighted complexity calculations
-            complexity_weights: Custom complexity weights (branching_factor, cyclomatic_complexity, etc.)
-
-        Returns:
-            Dictionary containing comprehensive project chain analysis with patterns,
-            complexity metrics, hotspots, and optional refactoring suggestions
+        Key params: project_name, analysis_scope(full_project), complexity_threshold(0.7)
         """
         return await analyze_project_chains(
             project_name,
