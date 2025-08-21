@@ -7,7 +7,7 @@ with four distinct retrieval modes: Local, Global, Hybrid, and Mix.
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from ...models.query_features import QueryFeatures
 from ...services.embedding_service import EmbeddingService
@@ -32,6 +32,7 @@ async def multi_modal_search(
     enable_manual_mode_selection: bool = False,
     include_analysis: bool = True,
     include_performance_metrics: bool = False,
+    minimal_output: bool = True,
 ) -> dict[str, Any]:
     """
     Perform multi-modal search using LightRAG-inspired retrieval modes.
@@ -51,6 +52,7 @@ async def multi_modal_search(
         enable_manual_mode_selection: Whether to allow manual mode override
         include_analysis: Whether to include query analysis in response
         include_performance_metrics: Whether to include performance metrics
+        minimal_output: If True, return a simplified output (default: True)
 
     Returns:
         Dictionary containing search results with multi-modal metadata and analysis
@@ -211,7 +213,7 @@ async def multi_modal_search(
             performance_monitor.record_query_result(retrieval_result)
 
         # Build response
-        response = {
+        full_response = {
             "query": query,
             "mode_used": retrieval_result.mode_used,
             "results": retrieval_result.results,
@@ -237,8 +239,7 @@ async def multi_modal_search(
             try:
                 query_analyzer = await get_query_analyzer()
                 query_features = await query_analyzer.analyze_query(query)
-
-                response["query_analysis"] = {
+                full_response["query_analysis"] = {
                     "query_type": query_features.query_type.value,
                     "complexity": query_features.complexity.value,
                     "confidence_score": query_features.confidence_score,
@@ -262,27 +263,48 @@ async def multi_modal_search(
                 }
             except Exception as e:
                 logger.warning(f"Failed to add query analysis: {e}")
-                response["query_analysis"] = {"error": str(e)}
+                full_response["query_analysis"] = {"error": str(e)}
 
         # Add performance metrics if requested
         if include_performance_metrics:
             try:
                 performance_monitor = get_performance_monitor()
                 mode_stats = performance_monitor.get_mode_statistics(retrieval_result.mode_used.split("(")[0])
-                response["performance_context"] = mode_stats
+                full_response["performance_context"] = mode_stats
             except Exception as e:
                 logger.warning(f"Failed to add performance context: {e}")
 
         # Add error information if present
         if retrieval_result.error_message:
-            response["error"] = retrieval_result.error_message
+            full_response["error"] = retrieval_result.error_message
 
         logger.info(
             f"Multi-modal search completed: {retrieval_result.total_results} results "
             f"in {retrieval_result.total_execution_time_ms:.2f}ms using {retrieval_result.mode_used} mode"
         )
 
-        return response
+        if minimal_output:
+            simplified_results = [
+                {
+                    "file_path": r.get("file_path"),
+                    "content": r.get("content"),
+                    "breadcrumb": r.get("breadcrumb"),
+                    "chunk_type": r.get("chunk_type"),
+                    "language": r.get("language"),
+                    "line_start": r.get("line_start"),
+                    "line_end": r.get("line_end"),
+                }
+                for r in full_response.get("results", [])
+            ]
+            return {
+                "query": query,
+                "mode_used": retrieval_result.mode_used,
+                "results": simplified_results,
+                "total": retrieval_result.total_results,
+                "projects_searched": project_names,
+            }
+        else:
+            return full_response
 
     except (ValidationError, SearchError) as e:
         logger.error(f"Multi-modal search failed with known error: {e}")

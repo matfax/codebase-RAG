@@ -92,6 +92,7 @@ Search indexed codebases using natural language queries with function-level prec
 - `enable_manual_mode_selection` (optional, default: false): Allow manual mode override
 - `include_analysis` (optional, default: true): Include query analysis in response
 - `include_performance_metrics` (optional, default: false): Include performance metrics
+- `minimal_output` (optional, default: true): Return simplified output optimized for AI agents
 
 **Mode Selection Strategy:**
 - **Automatic**: Uses query analysis to select optimal mode

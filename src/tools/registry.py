@@ -227,6 +227,7 @@ def register_tools(mcp_app: FastMCP) -> None:
             cross_project: bool = False,
             include_analysis: bool = True,
             include_performance_metrics: bool = False,
+            minimal_output: bool = True,  # Added this line
         ):
             """Advanced multi-modal search with LightRAG modes. Provides intelligent
             mode selection and query analysis. English queries strongly recommended.
@@ -244,16 +245,18 @@ def register_tools(mcp_app: FastMCP) -> None:
                 cross_project: Search across projects (default: False)
                 target_projects: Specific project names to search
                 include_analysis: Include query analysis (default: True)
+                minimal_output: Return minimal output (default: True)
             """
             return await multi_modal_search_impl(
-                query,
-                n_results,
-                mode,
-                target_projects,
-                cross_project,
-                mode is not None,  # enable_manual_mode_selection: True if mode specified
-                include_analysis,
-                include_performance_metrics,
+                query=query,
+                n_results=n_results,
+                mode=mode,
+                target_projects=target_projects,
+                cross_project=cross_project,
+                enable_manual_mode_selection=(mode is not None),
+                include_analysis=include_analysis,
+                include_performance_metrics=include_performance_metrics,
+                minimal_output=minimal_output,  # Pass the new parameter
             )
 
         @mcp_app.tool()
