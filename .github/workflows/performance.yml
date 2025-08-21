@@ -30,7 +30,7 @@ jobs:
   performance-baseline:
     name: Performance Baseline
     runs-on: ubuntu-latest
-    
+
     services:
       redis:
         image: redis:7-alpine
@@ -41,7 +41,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       qdrant:
         image: qdrant/qdrant:v1.9.0
         ports:
@@ -86,12 +86,12 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           echo "📈 Running indexing performance benchmarks..."
-          
+
           # Create benchmark script for indexing
           cat > performance_indexing_benchmark.py << 'EOF'
           #!/usr/bin/env python3
           """Indexing performance benchmark suite."""
-          
+
           import time
           import psutil
           import json
@@ -100,34 +100,34 @@ jobs:
           import tempfile
           import subprocess
           import sys
-          
+
           def create_test_codebase(size='small'):
               """Create test codebase of different sizes."""
               test_dir = Path(tempfile.mkdtemp())
-              
+
               file_counts = {
                   'small': 50,
                   'medium': 200,
                   'large': 500
               }
-              
+
               file_count = file_counts.get(size, 50)
-              
+
               for i in range(file_count):
                   # Create Python files with various complexities
                   file_content = f'''"""Test module {i}."""
-          
+
           import os
           import sys
           from typing import Dict, List, Optional
-          
+
           class TestClass{i}:
               """Test class for benchmarking."""
-              
+
               def __init__(self):
                   self.data = {{}}
                   self.counter = 0
-              
+
               def process_data(self, input_data: List[str]) -> Dict[str, int]:
                   """Process input data and return statistics."""
                   result = {{}}
@@ -137,13 +137,13 @@ jobs:
                       else:
                           result[item] = 1
                   return result
-              
+
               def complex_computation(self, n: int) -> int:
                   """Perform some complex computation."""
                   if n <= 1:
                       return n
                   return self.complex_computation(n-1) + self.complex_computation(n-2)
-              
+
               def data_transformation(self, data: Dict) -> Dict:
                   """Transform data structure."""
                   transformed = {{}}
@@ -153,19 +153,19 @@ jobs:
                       else:
                           transformed[f"processed_{{key}}"] = str(value).upper()
                   return transformed
-          
+
           def utility_function_{i}(param1, param2=None):
               """Utility function for testing."""
               if param2 is None:
                   param2 = []
-              
+
               result = []
               for item in param1:
                   if item not in param2:
                       result.append(item.lower() if isinstance(item, str) else item)
-              
+
               return result
-          
+
           # Global variable for testing
           GLOBAL_CONFIG_{i} = {{
               "setting1": "value1",
@@ -173,31 +173,31 @@ jobs:
               "setting3": [1, 2, 3, 4, 5]
           }}
           '''
-                  
+
                   file_path = test_dir / f"test_module_{i}.py"
                   file_path.write_text(file_content)
-              
+
               # Create some configuration files
               config_files = [
                   ("config.json", '{"test": true, "value": 123}'),
                   ("settings.yaml", "test: true\nvalue: 123\n"),
                   ("README.md", "# Test Project\n\nThis is a test project for benchmarking.\n")
               ]
-              
+
               for filename, content in config_files:
                   (test_dir / filename).write_text(content)
-              
+
               return test_dir
-          
+
           def benchmark_indexing(test_dir, size_name):
               """Benchmark indexing operation."""
               print(f"Benchmarking indexing for {size_name} codebase...")
-              
+
               # Record start time and memory
               start_time = time.time()
               process = psutil.Process()
               start_memory = process.memory_info().rss / 1024 / 1024  # MB
-              
+
               # Run indexing
               try:
                   cmd = [
@@ -205,55 +205,55 @@ jobs:
                       f"""
           import sys
           sys.path.insert(0, '{os.path.join(os.getcwd(), 'src')}')
-          
+
           from services.indexing_service import IndexingService
           from pathlib import Path
-          
+
           # Mock indexing service initialization
           print("Starting indexing benchmark...")
-          
+
           # Simulate file discovery and processing
           import time
           import os
-          
+
           file_count = 0
           total_size = 0
-          
+
           for root, dirs, files in os.walk('{test_dir}'):
               for file in files:
                   if file.endswith('.py'):
                       file_path = os.path.join(root, file)
                       file_count += 1
                       total_size += os.path.getsize(file_path)
-                      
+
                       # Simulate processing time
                       time.sleep(0.001)  # 1ms per file
-          
+
           print(f"Processed {{file_count}} files, {{total_size}} bytes total")
           """
                   ]
-                  
+
                   result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                  
+
                   if result.returncode != 0:
                       print(f"Warning: Indexing subprocess failed: {result.stderr}")
                       # Fallback to simple file counting
                       file_count = len(list(Path(test_dir).rglob("*.py")))
                       print(f"Fallback: Found {file_count} Python files")
-              
+
               except Exception as e:
                   print(f"Error during indexing: {e}")
                   # Fallback to simple file counting
                   file_count = len(list(Path(test_dir).rglob("*.py")))
                   print(f"Fallback: Found {file_count} Python files")
-              
+
               # Record end time and memory
               end_time = time.time()
               end_memory = process.memory_info().rss / 1024 / 1024  # MB
-              
+
               duration = end_time - start_time
               memory_delta = end_memory - start_memory
-              
+
               return {
                   'size': size_name,
                   'duration_seconds': duration,
@@ -261,37 +261,37 @@ jobs:
                   'files_processed': len(list(Path(test_dir).rglob("*.py"))),
                   'total_size_bytes': sum(f.stat().st_size for f in Path(test_dir).rglob("*") if f.is_file())
               }
-          
+
           def main():
               """Main benchmark runner."""
               print("Starting indexing performance benchmarks...")
-              
+
               results = []
-              
+
               # Test different codebase sizes
               sizes = ['small', 'medium', 'large']
-              
+
               for size in sizes:
                   print(f"\n=== Benchmarking {size} codebase ===")
-                  
+
                   # Create test codebase
                   test_dir = create_test_codebase(size)
-                  
+
                   try:
                       # Run benchmark
                       result = benchmark_indexing(test_dir, size)
                       results.append(result)
-                      
+
                       print(f"Results for {size}:")
                       print(f"  Duration: {result['duration_seconds']:.2f}s")
                       print(f"  Memory: {result['memory_usage_mb']:.2f}MB")
                       print(f"  Files: {result['files_processed']}")
-                      
+
                   finally:
                       # Cleanup
                       import shutil
                       shutil.rmtree(test_dir, ignore_errors=True)
-              
+
               # Save results
               with open('performance-results/indexing-benchmark.json', 'w') as f:
                   json.dump({
@@ -299,14 +299,14 @@ jobs:
                       'benchmark_type': 'indexing',
                       'results': results
                   }, f, indent=2)
-              
+
               print("\nIndexing benchmark completed!")
               return results
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python performance_indexing_benchmark.py
 
       - name: Run search performance benchmarks
@@ -316,17 +316,17 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           echo "🔍 Running search performance benchmarks..."
-          
+
           cat > performance_search_benchmark.py << 'EOF'
           #!/usr/bin/env python3
           """Search performance benchmark suite."""
-          
+
           import time
           import psutil
           import json
           import random
           import string
-          
+
           def generate_test_queries():
               """Generate test queries of different complexities."""
               queries = {
@@ -353,16 +353,16 @@ jobs:
                   ]
               }
               return queries
-          
+
           def benchmark_search_query(query, complexity):
               """Benchmark a single search query."""
               print(f"Benchmarking {complexity} query: '{query[:50]}...'")
-              
+
               # Record start time and memory
               start_time = time.time()
               process = psutil.Process()
               start_memory = process.memory_info().rss / 1024 / 1024  # MB
-              
+
               # Simulate search operation
               try:
                   # Simulate different search operations
@@ -375,7 +375,7 @@ jobs:
                   else:  # complex
                       time.sleep(0.8)  # 800ms for complex queries
                       result_count = random.randint(20, 100)
-                  
+
                   # Simulate result processing
                   results = []
                   for i in range(result_count):
@@ -384,19 +384,19 @@ jobs:
                           'score': random.uniform(0.5, 1.0),
                           'content': ''.join(random.choices(string.ascii_letters + ' ', k=100))
                       })
-                  
+
               except Exception as e:
                   print(f"Error during search: {e}")
                   result_count = 0
                   results = []
-              
+
               # Record end time and memory
               end_time = time.time()
               end_memory = process.memory_info().rss / 1024 / 1024  # MB
-              
+
               duration = end_time - start_time
               memory_delta = end_memory - start_memory
-              
+
               return {
                   'query': query,
                   'complexity': complexity,
@@ -405,34 +405,34 @@ jobs:
                   'result_count': result_count,
                   'results_per_second': result_count / duration if duration > 0 else 0
               }
-          
+
           def main():
               """Main search benchmark runner."""
               print("Starting search performance benchmarks...")
-              
+
               all_results = []
               queries = generate_test_queries()
-              
+
               for complexity, query_list in queries.items():
                   print(f"\n=== Benchmarking {complexity} queries ===")
-                  
+
                   complexity_results = []
-                  
+
                   for query in query_list:
                       result = benchmark_search_query(query, complexity)
                       complexity_results.append(result)
-                      
+
                       print(f"  Duration: {result['duration_seconds']:.3f}s")
                       print(f"  Results: {result['result_count']}")
                       print(f"  Rate: {result['results_per_second']:.1f} results/sec")
-                  
+
                   all_results.extend(complexity_results)
-              
+
               # Calculate summary statistics
               total_queries = len(all_results)
               avg_duration = sum(r['duration_seconds'] for r in all_results) / total_queries
               avg_memory = sum(r['memory_usage_mb'] for r in all_results) / total_queries
-              
+
               summary = {
                   'total_queries': total_queries,
                   'average_duration_seconds': avg_duration,
@@ -443,7 +443,7 @@ jobs:
                       for complexity in ['simple', 'moderate', 'complex']
                   }
               }
-              
+
               # Save results
               with open('performance-results/search-benchmark.json', 'w') as f:
                   json.dump({
@@ -452,17 +452,17 @@ jobs:
                       'summary': summary,
                       'detailed_results': all_results
                   }, f, indent=2)
-              
+
               print(f"\nSearch benchmark completed!")
               print(f"Average query time: {avg_duration:.3f}s")
               print(f"Average memory usage: {avg_memory:.2f}MB")
-              
+
               return all_results
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python performance_search_benchmark.py
 
       - name: Run cache performance benchmarks
@@ -471,17 +471,17 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           echo "💾 Running cache performance benchmarks..."
-          
+
           cat > performance_cache_benchmark.py << 'EOF'
           #!/usr/bin/env python3
           """Cache performance benchmark suite."""
-          
+
           import time
           import psutil
           import json
           import random
           import string
-          
+
           def generate_cache_data():
               """Generate test data for cache operations."""
               data_sets = {
@@ -498,68 +498,68 @@ jobs:
                       'value_size': 102400  # 100KB
                   }
               }
-              
+
               return data_sets
-          
+
           def benchmark_cache_operations(data_set_name, config):
               """Benchmark cache operations."""
               print(f"Benchmarking {data_set_name} cache operations...")
-              
+
               # Generate test data
               test_data = {}
               for i in range(config['key_count']):
                   key = f"test_key_{i}"
-                  value = ''.join(random.choices(string.ascii_letters + string.digits, 
+                  value = ''.join(random.choices(string.ascii_letters + string.digits,
                                                 k=config['value_size']))
                   test_data[key] = value
-              
+
               results = {}
-              
+
               # Benchmark SET operations
               print(f"  Benchmarking SET operations ({len(test_data)} keys)...")
               start_time = time.time()
               process = psutil.Process()
               start_memory = process.memory_info().rss / 1024 / 1024  # MB
-              
+
               # Simulate cache SET operations
               set_count = 0
               for key, value in test_data.items():
                   # Simulate cache write time
                   time.sleep(random.uniform(0.0001, 0.001))  # 0.1-1ms per operation
                   set_count += 1
-              
+
               set_end_time = time.time()
               set_duration = set_end_time - start_time
-              
+
               results['set_operations'] = {
                   'count': set_count,
                   'duration_seconds': set_duration,
                   'operations_per_second': set_count / set_duration,
                   'memory_usage_mb': process.memory_info().rss / 1024 / 1024 - start_memory
               }
-              
+
               # Benchmark GET operations
               print(f"  Benchmarking GET operations...")
               keys_to_get = list(test_data.keys())
               random.shuffle(keys_to_get)
-              
+
               get_start_time = time.time()
               get_hits = 0
               get_misses = 0
-              
+
               for key in keys_to_get:
                   # Simulate cache read time
                   time.sleep(random.uniform(0.00005, 0.0005))  # 0.05-0.5ms per operation
-                  
+
                   # Simulate cache hit/miss (90% hit rate)
                   if random.random() < 0.9:
                       get_hits += 1
                   else:
                       get_misses += 1
-              
+
               get_end_time = time.time()
               get_duration = get_end_time - get_start_time
-              
+
               results['get_operations'] = {
                   'hits': get_hits,
                   'misses': get_misses,
@@ -568,58 +568,58 @@ jobs:
                   'duration_seconds': get_duration,
                   'operations_per_second': (get_hits + get_misses) / get_duration
               }
-              
+
               # Benchmark DELETE operations
               print(f"  Benchmarking DELETE operations...")
               keys_to_delete = random.sample(keys_to_get, min(100, len(keys_to_get)))
-              
+
               delete_start_time = time.time()
               delete_count = 0
-              
+
               for key in keys_to_delete:
                   # Simulate cache delete time
                   time.sleep(random.uniform(0.0001, 0.001))  # 0.1-1ms per operation
                   delete_count += 1
-              
+
               delete_end_time = time.time()
               delete_duration = delete_end_time - delete_start_time
-              
+
               results['delete_operations'] = {
                   'count': delete_count,
                   'duration_seconds': delete_duration,
                   'operations_per_second': delete_count / delete_duration
               }
-              
+
               # Overall statistics
               total_time = time.time() - start_time
               end_memory = process.memory_info().rss / 1024 / 1024
-              
+
               results['overall'] = {
                   'dataset_name': data_set_name,
                   'total_duration_seconds': total_time,
                   'total_memory_usage_mb': end_memory - start_memory,
                   'data_volume_mb': (config['key_count'] * config['value_size']) / 1024 / 1024
               }
-              
+
               return results
-          
+
           def main():
               """Main cache benchmark runner."""
               print("Starting cache performance benchmarks...")
-              
+
               data_sets = generate_cache_data()
               all_results = {}
-              
+
               for data_set_name, config in data_sets.items():
                   print(f"\n=== Benchmarking {data_set_name} dataset ===")
                   result = benchmark_cache_operations(data_set_name, config)
                   all_results[data_set_name] = result
-                  
+
                   # Print summary
                   print(f"  SET: {result['set_operations']['operations_per_second']:.1f} ops/sec")
                   print(f"  GET: {result['get_operations']['operations_per_second']:.1f} ops/sec (hit rate: {result['get_operations']['hit_rate']:.1%})")
                   print(f"  DELETE: {result['delete_operations']['operations_per_second']:.1f} ops/sec")
-              
+
               # Save results
               with open('performance-results/cache-benchmark.json', 'w') as f:
                   json.dump({
@@ -627,14 +627,14 @@ jobs:
                       'benchmark_type': 'cache',
                       'results': all_results
                   }, f, indent=2)
-              
+
               print("\nCache benchmark completed!")
               return all_results
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python performance_cache_benchmark.py
 
       - name: Run memory usage analysis
@@ -642,32 +642,32 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           echo "🧠 Running memory usage analysis..."
-          
+
           cat > memory_analysis.py << 'EOF'
           #!/usr/bin/env python3
           """Memory usage analysis."""
-          
+
           import psutil
           import time
           import json
           import gc
           import sys
           from pathlib import Path
-          
+
           def analyze_memory_usage():
               """Analyze memory usage patterns."""
               print("Starting memory usage analysis...")
-              
+
               process = psutil.Process()
               initial_memory = process.memory_info()
-              
+
               results = {
                   'initial_memory_mb': initial_memory.rss / 1024 / 1024,
                   'memory_timeline': [],
                   'gc_stats': [],
                   'peak_memory_mb': 0
               }
-              
+
               # Monitor memory over time with different workloads
               workloads = [
                   ('baseline', lambda: time.sleep(1)),
@@ -676,14 +676,14 @@ jobs:
                   ('string_operations', lambda: ''.join(['test' * 100 for i in range(1000)])),
                   ('file_operations', lambda: [Path('.').glob('**/*.py')])
               ]
-              
+
               for workload_name, workload_func in workloads:
                   print(f"  Running workload: {workload_name}")
-                  
+
                   # Record memory before
                   gc.collect()  # Force garbage collection
                   memory_before = process.memory_info().rss / 1024 / 1024
-                  
+
                   # Run workload
                   start_time = time.time()
                   try:
@@ -693,14 +693,14 @@ jobs:
                           temp_ref = result
                   except Exception as e:
                       print(f"    Warning: {e}")
-                  
+
                   # Record memory after
                   memory_after = process.memory_info().rss / 1024 / 1024
                   duration = time.time() - start_time
-                  
+
                   # Update peak memory
                   results['peak_memory_mb'] = max(results['peak_memory_mb'], memory_after)
-                  
+
                   # Record timeline data
                   results['memory_timeline'].append({
                       'workload': workload_name,
@@ -709,30 +709,30 @@ jobs:
                       'memory_delta_mb': memory_after - memory_before,
                       'duration_seconds': duration
                   })
-                  
+
                   # Force cleanup
                   if 'temp_ref' in locals():
                       del temp_ref
                   gc.collect()
-              
+
               # Final memory state
               final_memory = process.memory_info().rss / 1024 / 1024
               results['final_memory_mb'] = final_memory
               results['total_memory_delta_mb'] = final_memory - results['initial_memory_mb']
-              
+
               # GC statistics
               results['gc_stats'] = {
                   'collections': gc.get_stats(),
                   'garbage_count': len(gc.garbage),
                   'reference_count': sys.getrefcount(None)  # Rough indicator
               }
-              
+
               return results
-          
+
           def main():
               """Main memory analysis runner."""
               results = analyze_memory_usage()
-              
+
               # Save results
               with open('performance-results/memory-analysis.json', 'w') as f:
                   json.dump({
@@ -740,44 +740,44 @@ jobs:
                       'analysis_type': 'memory',
                       'results': results
                   }, f, indent=2)
-              
+
               print("Memory analysis completed!")
               print(f"Initial memory: {results['initial_memory_mb']:.1f}MB")
               print(f"Peak memory: {results['peak_memory_mb']:.1f}MB")
               print(f"Final memory: {results['final_memory_mb']:.1f}MB")
               print(f"Total delta: {results['total_memory_delta_mb']:.1f}MB")
-              
+
               return results
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python memory_analysis.py
 
       - name: Generate performance baseline report
         run: |
           echo "📊 Generating performance baseline report..."
-          
+
           cat > generate_baseline_report.py << 'EOF'
           #!/usr/bin/env python3
           """Generate performance baseline report."""
-          
+
           import json
           import time
           from pathlib import Path
-          
+
           def load_benchmark_results():
               """Load all benchmark result files."""
               results = {}
-              
+
               result_files = [
                   ('indexing', 'performance-results/indexing-benchmark.json'),
                   ('search', 'performance-results/search-benchmark.json'),
                   ('cache', 'performance-results/cache-benchmark.json'),
                   ('memory', 'performance-results/memory-analysis.json')
               ]
-              
+
               for benchmark_type, file_path in result_files:
                   if Path(file_path).exists():
                       try:
@@ -789,53 +789,53 @@ jobs:
                   else:
                       print(f"Warning: {file_path} not found")
                       results[benchmark_type] = None
-              
+
               return results
-          
+
           def generate_report(results):
               """Generate comprehensive performance report."""
               report_lines = []
-              
+
               report_lines.append("# Performance Baseline Report")
               report_lines.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
               report_lines.append("")
-              
+
               # Executive Summary
               report_lines.append("## Executive Summary")
               report_lines.append("")
-              
+
               benchmarks_run = sum(1 for r in results.values() if r is not None)
               report_lines.append(f"- Benchmarks completed: {benchmarks_run}/4")
               report_lines.append("- Performance baseline established for regression testing")
               report_lines.append("- All metrics within acceptable ranges")
               report_lines.append("")
-              
+
               # Indexing Performance
               if results.get('indexing'):
                   indexing_data = results['indexing']
                   report_lines.append("## 📈 Indexing Performance")
                   report_lines.append("")
-                  
+
                   if 'results' in indexing_data:
                       for result in indexing_data['results']:
                           size = result['size']
                           duration = result['duration_seconds']
                           files = result['files_processed']
                           memory = result['memory_usage_mb']
-                          
+
                           report_lines.append(f"### {size.title()} Codebase")
                           report_lines.append(f"- **Duration**: {duration:.2f}s")
                           report_lines.append(f"- **Files processed**: {files}")
                           report_lines.append(f"- **Memory usage**: {memory:.2f}MB")
                           report_lines.append(f"- **Processing rate**: {files/duration:.1f} files/sec")
                           report_lines.append("")
-              
+
               # Search Performance
               if results.get('search'):
                   search_data = results['search']
                   report_lines.append("## 🔍 Search Performance")
                   report_lines.append("")
-                  
+
                   if 'summary' in search_data:
                       summary = search_data['summary']
                       report_lines.append(f"- **Total queries**: {summary['total_queries']}")
@@ -843,42 +843,42 @@ jobs:
                       report_lines.append(f"- **Average memory**: {summary['average_memory_usage_mb']:.2f}MB")
                       report_lines.append(f"- **Total results**: {summary['total_results']}")
                       report_lines.append("")
-                      
+
                       for complexity, count in summary['queries_per_complexity'].items():
                           report_lines.append(f"- **{complexity.title()} queries**: {count}")
                       report_lines.append("")
-              
+
               # Cache Performance
               if results.get('cache'):
                   cache_data = results['cache']
                   report_lines.append("## 💾 Cache Performance")
                   report_lines.append("")
-                  
+
                   if 'results' in cache_data:
                       for dataset_name, dataset_results in cache_data['results'].items():
                           report_lines.append(f"### {dataset_name.title()} Dataset")
-                          
+
                           if 'set_operations' in dataset_results:
                               set_ops = dataset_results['set_operations']
                               report_lines.append(f"- **SET operations**: {set_ops['operations_per_second']:.0f} ops/sec")
-                          
+
                           if 'get_operations' in dataset_results:
                               get_ops = dataset_results['get_operations']
                               report_lines.append(f"- **GET operations**: {get_ops['operations_per_second']:.0f} ops/sec")
                               report_lines.append(f"- **Cache hit rate**: {get_ops['hit_rate']:.1%}")
-                          
+
                           if 'delete_operations' in dataset_results:
                               del_ops = dataset_results['delete_operations']
                               report_lines.append(f"- **DELETE operations**: {del_ops['operations_per_second']:.0f} ops/sec")
-                          
+
                           report_lines.append("")
-              
+
               # Memory Analysis
               if results.get('memory'):
                   memory_data = results['memory']
                   report_lines.append("## 🧠 Memory Analysis")
                   report_lines.append("")
-                  
+
                   if 'results' in memory_data:
                       mem_results = memory_data['results']
                       report_lines.append(f"- **Initial memory**: {mem_results['initial_memory_mb']:.1f}MB")
@@ -886,7 +886,7 @@ jobs:
                       report_lines.append(f"- **Final memory**: {mem_results['final_memory_mb']:.1f}MB")
                       report_lines.append(f"- **Memory delta**: {mem_results['total_memory_delta_mb']:.1f}MB")
                       report_lines.append("")
-                      
+
                       if 'memory_timeline' in mem_results:
                           report_lines.append("### Memory Usage by Workload")
                           for timeline_item in mem_results['memory_timeline']:
@@ -895,7 +895,7 @@ jobs:
                               duration = timeline_item['duration_seconds']
                               report_lines.append(f"- **{workload}**: {delta:+.1f}MB in {duration:.3f}s")
                           report_lines.append("")
-              
+
               # Performance Thresholds
               report_lines.append("## ⚡ Performance Thresholds")
               report_lines.append("")
@@ -906,7 +906,7 @@ jobs:
               report_lines.append("- **Cache**: > 1000 ops/sec for basic operations")
               report_lines.append("- **Memory**: < 100MB baseline usage")
               report_lines.append("")
-              
+
               # Next Steps
               report_lines.append("## 📋 Next Steps")
               report_lines.append("")
@@ -915,42 +915,42 @@ jobs:
               report_lines.append("3. Configure alerts for performance degradation")
               report_lines.append("4. Regular performance review and optimization")
               report_lines.append("")
-              
+
               return "\n".join(report_lines)
-          
+
           def main():
               """Main report generator."""
               results = load_benchmark_results()
               report = generate_report(results)
-              
+
               # Save report
               with open('performance-results/baseline-report.md', 'w') as f:
                   f.write(report)
-              
+
               print("Performance baseline report generated!")
               return report
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python generate_baseline_report.py
 
       - name: Store performance baselines
         run: |
           echo "💾 Storing performance baselines for regression testing..."
-          
+
           # Create baseline storage structure
           mkdir -p performance-baselines/$(date +%Y-%m)
-          
+
           # Store current results as baseline if this is main branch
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             cp -r performance-results/* performance-baselines/$(date +%Y-%m)/
-            
+
             # Create symlink to latest baseline
             rm -f performance-baselines/latest
             ln -sf $(date +%Y-%m) performance-baselines/latest
-            
+
             echo "Baseline stored for $(date +%Y-%m)"
           fi
 
@@ -969,7 +969,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [performance-baseline]
     if: github.event_name == 'pull_request'
-    
+
     services:
       redis:
         image: redis:7-alpine
@@ -980,7 +980,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       qdrant:
         image: qdrant/qdrant:v1.9.0
         ports:
@@ -1014,27 +1014,27 @@ jobs:
       - name: Get baseline performance data
         run: |
           echo "📊 Fetching performance baseline data..."
-          
+
           # Try to get baseline from main branch
           git fetch origin main:main >/dev/null 2>&1 || true
-          
+
           # Create script to fetch baseline data
           cat > fetch_baseline.py << 'EOF'
           #!/usr/bin/env python3
           """Fetch baseline performance data."""
-          
+
           import json
           import subprocess
           import sys
           from pathlib import Path
-          
+
           def get_baseline_from_main():
               """Try to get baseline data from main branch."""
               try:
                   # Check if we can access main branch data
                   cmd = ['git', 'show', 'main:performance-baselines/latest']
                   result = subprocess.run(cmd, capture_output=True, text=True)
-                  
+
                   if result.returncode == 0:
                       latest_baseline = result.stdout.strip()
                       print(f"Found latest baseline: {latest_baseline}")
@@ -1042,11 +1042,11 @@ jobs:
                   else:
                       print("Could not fetch baseline from main branch")
                       return None
-                      
+
               except Exception as e:
                   print(f"Error fetching baseline: {e}")
                   return None
-          
+
           def create_mock_baseline():
               """Create mock baseline data for comparison."""
               mock_baseline = {
@@ -1086,24 +1086,24 @@ jobs:
                       }
                   }
               }
-              
+
               return mock_baseline
-          
+
           def main():
               baseline_dir = Path('baseline-performance')
               baseline_dir.mkdir(exist_ok=True)
-              
+
               # Try to get real baseline, fall back to mock
               baseline_ref = get_baseline_from_main()
-              
+
               if baseline_ref:
                   print("Using baseline from main branch")
                   # In a real scenario, we'd fetch the actual files
                   # For now, use mock data
-              
+
               print("Creating mock baseline for comparison...")
               mock_baseline = create_mock_baseline()
-              
+
               # Save individual baseline files
               for benchmark_type, data in mock_baseline.items():
                   with open(baseline_dir / f'{benchmark_type}-benchmark.json', 'w') as f:
@@ -1112,40 +1112,40 @@ jobs:
                           'benchmark_type': benchmark_type,
                           **data
                       }, f, indent=2)
-              
+
               print("Baseline data prepared for comparison")
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python fetch_baseline.py
 
       - name: Compare performance with baseline
         run: |
           echo "🔍 Comparing current performance with baseline..."
-          
+
           cat > performance_comparison.py << 'EOF'
           #!/usr/bin/env python3
           """Compare current performance with baseline."""
-          
+
           import json
           import time
           from pathlib import Path
           from typing import Dict, Any
-          
+
           def load_results(directory: str) -> Dict[str, Any]:
               """Load benchmark results from directory."""
               results = {}
               result_dir = Path(directory)
-              
+
               benchmark_files = [
                   'indexing-benchmark.json',
-                  'search-benchmark.json', 
+                  'search-benchmark.json',
                   'cache-benchmark.json',
                   'memory-analysis.json'
               ]
-              
+
               for filename in benchmark_files:
                   file_path = result_dir / filename
                   if file_path.exists():
@@ -1156,16 +1156,16 @@ jobs:
                               results[benchmark_type] = data
                       except Exception as e:
                           print(f"Warning: Could not load {filename}: {e}")
-              
+
               return results
-          
+
           def calculate_performance_change(current_value: float, baseline_value: float) -> tuple:
               """Calculate performance change percentage and status."""
               if baseline_value == 0:
                   return 0.0, "unknown"
-              
+
               change_percent = ((current_value - baseline_value) / baseline_value) * 100
-              
+
               # Determine status based on change
               if abs(change_percent) < 5:
                   status = "stable"
@@ -1173,30 +1173,30 @@ jobs:
                   status = "degraded"  # Worse performance (higher time/memory)
               else:
                   status = "improved"  # Better performance (lower time/memory)
-              
+
               return change_percent, status
-          
+
           def compare_indexing_performance(current: Dict, baseline: Dict) -> Dict:
               """Compare indexing performance."""
               comparisons = []
-              
+
               if 'results' in current and 'results' in baseline:
                   current_results = {r['size']: r for r in current['results']}
                   baseline_results = {r['size']: r for r in baseline['results']}
-                  
+
                   for size in current_results:
                       if size in baseline_results:
                           curr = current_results[size]
                           base = baseline_results[size]
-                          
+
                           duration_change, duration_status = calculate_performance_change(
                               curr['duration_seconds'], base['duration_seconds']
                           )
-                          
+
                           memory_change, memory_status = calculate_performance_change(
                               curr['memory_usage_mb'], base['memory_usage_mb']
                           )
-                          
+
                           comparisons.append({
                               'size': size,
                               'duration_change_percent': duration_change,
@@ -1208,27 +1208,27 @@ jobs:
                               'current_memory': curr['memory_usage_mb'],
                               'baseline_memory': base['memory_usage_mb']
                           })
-              
+
               return {'comparisons': comparisons}
-          
+
           def compare_search_performance(current: Dict, baseline: Dict) -> Dict:
               """Compare search performance."""
               comparison = {}
-              
+
               if 'summary' in current and 'summary' in baseline:
                   curr_summary = current['summary']
                   base_summary = baseline['summary']
-                  
+
                   duration_change, duration_status = calculate_performance_change(
                       curr_summary['average_duration_seconds'],
                       base_summary['average_duration_seconds']
                   )
-                  
+
                   memory_change, memory_status = calculate_performance_change(
                       curr_summary['average_memory_usage_mb'],
                       base_summary['average_memory_usage_mb']
                   )
-                  
+
                   comparison = {
                       'duration_change_percent': duration_change,
                       'duration_status': duration_status,
@@ -1239,29 +1239,29 @@ jobs:
                       'current_avg_memory': curr_summary['average_memory_usage_mb'],
                       'baseline_avg_memory': base_summary['average_memory_usage_mb']
                   }
-              
+
               return comparison
-          
+
           def compare_cache_performance(current: Dict, baseline: Dict) -> Dict:
               """Compare cache performance."""
               comparisons = {}
-              
+
               if 'results' in current and 'results' in baseline:
                   for dataset_name in current['results']:
                       if dataset_name in baseline['results']:
                           curr_data = current['results'][dataset_name]
                           base_data = baseline['results'][dataset_name]
-                          
+
                           set_ops_change, set_ops_status = calculate_performance_change(
                               base_data['set_operations']['operations_per_second'],  # Inverted: higher is better
                               curr_data['set_operations']['operations_per_second']
                           )
-                          
+
                           get_ops_change, get_ops_status = calculate_performance_change(
                               base_data['get_operations']['operations_per_second'],  # Inverted: higher is better
                               curr_data['get_operations']['operations_per_second']
                           )
-                          
+
                           comparisons[dataset_name] = {
                               'set_ops_change_percent': set_ops_change,
                               'set_ops_status': set_ops_status,
@@ -1272,27 +1272,27 @@ jobs:
                               'current_get_ops': curr_data['get_operations']['operations_per_second'],
                               'baseline_get_ops': base_data['get_operations']['operations_per_second']
                           }
-              
+
               return comparisons
-          
+
           def compare_memory_performance(current: Dict, baseline: Dict) -> Dict:
               """Compare memory performance."""
               comparison = {}
-              
+
               if 'results' in current and 'results' in baseline:
                   curr_results = current['results']
                   base_results = baseline['results']
-                  
+
                   peak_change, peak_status = calculate_performance_change(
                       curr_results['peak_memory_mb'],
                       base_results['peak_memory_mb']
                   )
-                  
+
                   delta_change, delta_status = calculate_performance_change(
                       curr_results['total_memory_delta_mb'],
                       base_results['total_memory_delta_mb']
                   )
-                  
+
                   comparison = {
                       'peak_memory_change_percent': peak_change,
                       'peak_memory_status': peak_status,
@@ -1303,21 +1303,21 @@ jobs:
                       'current_memory_delta': curr_results['total_memory_delta_mb'],
                       'baseline_memory_delta': base_results['total_memory_delta_mb']
                   }
-              
+
               return comparison
-          
+
           def generate_comparison_report(comparisons: Dict) -> str:
               """Generate human-readable comparison report."""
               report_lines = []
-              
+
               report_lines.append("# Performance Regression Analysis")
               report_lines.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
               report_lines.append("")
-              
+
               # Overall status
               all_statuses = []
-              
-              # Collect all status indicators 
+
+              # Collect all status indicators
               for benchmark_type, data in comparisons.items():
                   if isinstance(data, dict):
                       if 'comparisons' in data:  # Indexing
@@ -1332,7 +1332,7 @@ jobs:
                                       dataset_data.get('set_ops_status', 'stable'),
                                       dataset_data.get('get_ops_status', 'stable')
                                   ])
-              
+
               # Determine overall status
               if 'degraded' in all_statuses:
                   overall_status = "⚠️ PERFORMANCE REGRESSION DETECTED"
@@ -1340,57 +1340,57 @@ jobs:
                   overall_status = "✅ PERFORMANCE IMPROVEMENTS DETECTED"
               else:
                   overall_status = "✅ PERFORMANCE STABLE"
-              
+
               report_lines.append(f"## Overall Status: {overall_status}")
               report_lines.append("")
-              
+
               # Detailed comparisons
               for benchmark_type, data in comparisons.items():
                   report_lines.append(f"## {benchmark_type.title()} Performance")
                   report_lines.append("")
-                  
+
                   if benchmark_type == 'indexing' and 'comparisons' in data:
                       for comp in data['comparisons']:
                           size = comp['size'].title()
                           duration_symbol = "⬆️" if comp['duration_status'] == 'degraded' else "⬇️" if comp['duration_status'] == 'improved' else "➡️"
                           memory_symbol = "⬆️" if comp['memory_status'] == 'degraded' else "⬇️" if comp['memory_status'] == 'improved' else "➡️"
-                          
+
                           report_lines.append(f"### {size} Codebase")
                           report_lines.append(f"- **Duration**: {comp['current_duration']:.2f}s (baseline: {comp['baseline_duration']:.2f}s) {duration_symbol} {comp['duration_change_percent']:+.1f}%")
                           report_lines.append(f"- **Memory**: {comp['current_memory']:.1f}MB (baseline: {comp['baseline_memory']:.1f}MB) {memory_symbol} {comp['memory_change_percent']:+.1f}%")
                           report_lines.append("")
-                  
+
                   elif benchmark_type == 'search' and 'duration_status' in data:
                       duration_symbol = "⬆️" if data['duration_status'] == 'degraded' else "⬇️" if data['duration_status'] == 'improved' else "➡️"
                       memory_symbol = "⬆️" if data['memory_status'] == 'degraded' else "⬇️" if data['memory_status'] == 'improved' else "➡️"
-                      
+
                       report_lines.append(f"- **Average Duration**: {data['current_avg_duration']:.3f}s (baseline: {data['baseline_avg_duration']:.3f}s) {duration_symbol} {data['duration_change_percent']:+.1f}%")
                       report_lines.append(f"- **Average Memory**: {data['current_avg_memory']:.1f}MB (baseline: {data['baseline_avg_memory']:.1f}MB) {memory_symbol} {data['memory_change_percent']:+.1f}%")
                       report_lines.append("")
-                  
+
                   elif benchmark_type == 'cache':
                       for dataset_name, dataset_data in data.items():
                           if isinstance(dataset_data, dict):
                               set_symbol = "⬇️" if dataset_data['set_ops_status'] == 'degraded' else "⬆️" if dataset_data['set_ops_status'] == 'improved' else "➡️"
                               get_symbol = "⬇️" if dataset_data['get_ops_status'] == 'degraded' else "⬆️" if dataset_data['get_ops_status'] == 'improved' else "➡️"
-                              
+
                               report_lines.append(f"### {dataset_name.title()} Dataset")
                               report_lines.append(f"- **SET ops/sec**: {dataset_data['current_set_ops']:.0f} (baseline: {dataset_data['baseline_set_ops']:.0f}) {set_symbol} {dataset_data['set_ops_change_percent']:+.1f}%")
                               report_lines.append(f"- **GET ops/sec**: {dataset_data['current_get_ops']:.0f} (baseline: {dataset_data['baseline_get_ops']:.0f}) {get_symbol} {dataset_data['get_ops_change_percent']:+.1f}%")
                               report_lines.append("")
-                  
+
                   elif benchmark_type == 'memory' and 'peak_memory_status' in data:
                       peak_symbol = "⬆️" if data['peak_memory_status'] == 'degraded' else "⬇️" if data['peak_memory_status'] == 'improved' else "➡️"
                       delta_symbol = "⬆️" if data['memory_delta_status'] == 'degraded' else "⬇️" if data['memory_delta_status'] == 'improved' else "➡️"
-                      
+
                       report_lines.append(f"- **Peak Memory**: {data['current_peak_memory']:.1f}MB (baseline: {data['baseline_peak_memory']:.1f}MB) {peak_symbol} {data['peak_memory_change_percent']:+.1f}%")
                       report_lines.append(f"- **Memory Delta**: {data['current_memory_delta']:.1f}MB (baseline: {data['baseline_memory_delta']:.1f}MB) {delta_symbol} {data['memory_delta_change_percent']:+.1f}%")
                       report_lines.append("")
-              
+
               # Recommendations
               report_lines.append("## Recommendations")
               report_lines.append("")
-              
+
               if 'degraded' in all_statuses:
                   report_lines.append("⚠️ **Performance regression detected!**")
                   report_lines.append("")
@@ -1405,60 +1405,60 @@ jobs:
                   report_lines.append("1. Continue with current development practices")
                   report_lines.append("2. Monitor for long-term trends")
                   report_lines.append("3. Update performance baselines if consistently improved")
-              
+
               return "\n".join(report_lines)
-          
+
           def main():
               """Main comparison function."""
               print("Loading current performance results...")
               current_results = load_results('current-performance/performance-results')
-              
+
               print("Loading baseline performance results...")
               baseline_results = load_results('baseline-performance')
-              
+
               print("Comparing performance metrics...")
-              
+
               comparisons = {}
-              
+
               # Compare each benchmark type
               if 'indexing' in current_results and 'indexing' in baseline_results:
                   comparisons['indexing'] = compare_indexing_performance(
                       current_results['indexing'], baseline_results['indexing']
                   )
-              
+
               if 'search' in current_results and 'search' in baseline_results:
                   comparisons['search'] = compare_search_performance(
                       current_results['search'], baseline_results['search']
                   )
-              
+
               if 'cache' in current_results and 'cache' in baseline_results:
                   comparisons['cache'] = compare_cache_performance(
                       current_results['cache'], baseline_results['cache']
                   )
-              
+
               if 'memory' in current_results and 'memory' in baseline_results:
                   comparisons['memory'] = compare_memory_performance(
                       current_results['memory'], baseline_results['memory']
                   )
-              
+
               # Generate report
               report = generate_comparison_report(comparisons)
-              
+
               # Save comparison results
-              mkdir -p performance-regression
-              
+              Path('performance-regression').mkdir(exist_ok=True)
+
               with open('performance-regression/comparison-data.json', 'w') as f:
                   json.dump({
                       'timestamp': time.time(),
                       'comparison_type': 'regression_analysis',
                       'comparisons': comparisons
                   }, f, indent=2)
-              
+
               with open('performance-regression/regression-report.md', 'w') as f:
                   f.write(report)
-              
+
               print("Performance comparison completed!")
-              
+
               # Check for significant regressions
               regression_detected = False
               for benchmark_type, data in comparisons.items():
@@ -1471,18 +1471,18 @@ jobs:
                       elif 'duration_change_percent' in data:  # Search, Memory
                           if data['duration_change_percent'] > 10 or data.get('memory_change_percent', 0) > 10:
                               regression_detected = True
-              
+
               if regression_detected:
                   print("⚠️ Significant performance regression detected!")
                   return 1
               else:
                   print("✅ No significant performance regression detected")
                   return 0
-          
+
           if __name__ == '__main__':
               exit(main())
           EOF
-          
+
           uv run python performance_comparison.py
 
       - name: Upload regression analysis
@@ -1500,20 +1500,20 @@ jobs:
           script: |
             const fs = require('fs');
             const path = 'performance-regression/regression-report.md';
-            
+
             if (fs.existsSync(path)) {
               const reportContent = fs.readFileSync(path, 'utf8');
-              
+
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: `## 📊 Performance Regression Analysis
-                
+
                 ${reportContent}
-                
+
                 ---
-                
+
                 *This comment was automatically generated by the performance monitoring workflow.*`
               });
             }
@@ -1522,7 +1522,7 @@ jobs:
     name: Continuous Performance Monitoring
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    
+
     services:
       redis:
         image: redis:7-alpine
@@ -1533,7 +1533,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       qdrant:
         image: qdrant/qdrant:v1.9.0
         ports:
@@ -1563,12 +1563,12 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
           echo "📊 Running comprehensive performance monitoring..."
-          
+
           # Create monitoring script
           cat > performance_monitoring.py << 'EOF'
           #!/usr/bin/env python3
           """Comprehensive performance monitoring."""
-          
+
           import time
           import psutil
           import json
@@ -1576,23 +1576,23 @@ jobs:
           import sys
           from datetime import datetime, timedelta
           from pathlib import Path
-          
+
           def monitor_system_resources():
               """Monitor system resource usage."""
               print("Monitoring system resources...")
-              
+
               # CPU usage
               cpu_percent = psutil.cpu_percent(interval=1)
-              
+
               # Memory usage
               memory = psutil.virtual_memory()
-              
+
               # Disk usage
               disk = psutil.disk_usage('/')
-              
+
               # Network I/O
               network = psutil.net_io_counters()
-              
+
               return {
                   'cpu_percent': cpu_percent,
                   'memory_total_gb': memory.total / 1024**3,
@@ -1604,20 +1604,20 @@ jobs:
                   'network_bytes_sent': network.bytes_sent,
                   'network_bytes_recv': network.bytes_recv
               }
-          
+
           def run_performance_tests():
               """Run quick performance tests."""
               print("Running performance tests...")
-              
+
               test_results = {}
-              
+
               # Quick indexing test
               start_time = time.time()
               # Simulate indexing operation
               time.sleep(2)  # Simulate 2s indexing
               indexing_time = time.time() - start_time
               test_results['indexing_time_seconds'] = indexing_time
-              
+
               # Quick search test
               start_time = time.time()
               # Simulate search operations
@@ -1626,7 +1626,7 @@ jobs:
               search_time = time.time() - start_time
               test_results['search_time_seconds'] = search_time
               test_results['searches_per_second'] = 10 / search_time
-              
+
               # Cache performance test
               start_time = time.time()
               # Simulate cache operations
@@ -1635,13 +1635,13 @@ jobs:
               cache_time = time.time() - start_time
               test_results['cache_time_seconds'] = cache_time
               test_results['cache_operations_per_second'] = 100 / cache_time
-              
+
               return test_results
-          
+
           def check_performance_trends():
               """Check performance trends over time."""
               print("Analyzing performance trends...")
-              
+
               # This would normally load historical data
               # For demo purposes, we'll simulate trend analysis
               trends = {
@@ -1650,17 +1650,17 @@ jobs:
                   'cache_trend': 'improving',
                   'memory_trend': 'stable'
               }
-              
+
               return trends
-          
+
           def generate_monitoring_report(system_resources, performance_tests, trends):
               """Generate monitoring report."""
               report_lines = []
-              
+
               report_lines.append("# Performance Monitoring Report")
               report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
               report_lines.append("")
-              
+
               # System Resources
               report_lines.append("## System Resources")
               report_lines.append("")
@@ -1668,7 +1668,7 @@ jobs:
               report_lines.append(f"- **Memory Usage**: {system_resources['memory_used_gb']:.1f}GB / {system_resources['memory_total_gb']:.1f}GB ({system_resources['memory_percent']:.1f}%)")
               report_lines.append(f"- **Disk Usage**: {system_resources['disk_used_gb']:.1f}GB / {system_resources['disk_total_gb']:.1f}GB ({system_resources['disk_percent']:.1f}%)")
               report_lines.append("")
-              
+
               # Performance Tests
               report_lines.append("## Performance Tests")
               report_lines.append("")
@@ -1676,7 +1676,7 @@ jobs:
               report_lines.append(f"- **Search Performance**: {performance_tests['searches_per_second']:.1f} searches/sec")
               report_lines.append(f"- **Cache Performance**: {performance_tests['cache_operations_per_second']:.0f} ops/sec")
               report_lines.append("")
-              
+
               # Trends
               report_lines.append("## Performance Trends")
               report_lines.append("")
@@ -1684,11 +1684,11 @@ jobs:
                   trend_emoji = "📈" if trend == "improving" else "📉" if trend == "degrading" else "➡️"
                   report_lines.append(f"- **{component.replace('_', ' ').title()}**: {trend_emoji} {trend}")
               report_lines.append("")
-              
+
               # Health Status
               report_lines.append("## Overall Health Status")
               report_lines.append("")
-              
+
               # Determine overall health
               if system_resources['cpu_percent'] > 80:
                   cpu_status = "⚠️ High"
@@ -1696,14 +1696,14 @@ jobs:
                   cpu_status = "⚠️ Moderate"
               else:
                   cpu_status = "✅ Normal"
-              
+
               if system_resources['memory_percent'] > 80:
                   memory_status = "⚠️ High"
               elif system_resources['memory_percent'] > 60:
                   memory_status = "⚠️ Moderate"
               else:
                   memory_status = "✅ Normal"
-              
+
               degrading_trends = sum(1 for trend in trends.values() if trend == 'degrading')
               if degrading_trends > 1:
                   trend_status = "⚠️ Multiple degrading trends"
@@ -1711,12 +1711,12 @@ jobs:
                   trend_status = "⚠️ One degrading trend"
               else:
                   trend_status = "✅ Stable trends"
-              
+
               report_lines.append(f"- **CPU**: {cpu_status}")
               report_lines.append(f"- **Memory**: {memory_status}")
               report_lines.append(f"- **Performance Trends**: {trend_status}")
               report_lines.append("")
-              
+
               # Recommendations
               if any(status.startswith("⚠️") for status in [cpu_status, memory_status, trend_status]):
                   report_lines.append("## ⚠️ Recommendations")
@@ -1729,24 +1729,24 @@ jobs:
                   report_lines.append("## ✅ Status: All Systems Normal")
                   report_lines.append("")
                   report_lines.append("System is performing within normal parameters.")
-              
+
               return "\n".join(report_lines)
-          
+
           def main():
               """Main monitoring function."""
               print("Starting performance monitoring...")
-              
+
               # Collect monitoring data
               system_resources = monitor_system_resources()
               performance_tests = run_performance_tests()
               trends = check_performance_trends()
-              
+
               # Generate report
               report = generate_monitoring_report(system_resources, performance_tests, trends)
-              
+
               # Save results
-              mkdir -p performance-monitoring
-              
+              Path('performance-monitoring').mkdir(exist_ok=True)
+
               monitoring_data = {
                   'timestamp': time.time(),
                   'datetime': datetime.now().isoformat(),
@@ -1754,24 +1754,24 @@ jobs:
                   'performance_tests': performance_tests,
                   'trends': trends
               }
-              
+
               with open('performance-monitoring/monitoring-data.json', 'w') as f:
                   json.dump(monitoring_data, f, indent=2)
-              
+
               with open('performance-monitoring/monitoring-report.md', 'w') as f:
                   f.write(report)
-              
+
               print("Performance monitoring completed!")
               print(f"CPU: {system_resources['cpu_percent']:.1f}%")
               print(f"Memory: {system_resources['memory_percent']:.1f}%")
               print(f"Cache ops/sec: {performance_tests['cache_operations_per_second']:.0f}")
-              
+
               return monitoring_data
-          
+
           if __name__ == '__main__':
               main()
           EOF
-          
+
           uv run python performance_monitoring.py
 
       - name: Upload monitoring results
@@ -1789,32 +1789,32 @@ jobs:
           script: |
             const fs = require('fs');
             const path = 'performance-monitoring/monitoring-report.md';
-            
+
             if (fs.existsSync(path)) {
               const reportContent = fs.readFileSync(path, 'utf8');
-              
+
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `🚨 Performance Alert - ${new Date().toISOString().split('T')[0]}`,
                 body: `## Performance Monitoring Alert
-                
+
                 Performance monitoring has detected issues that require attention.
-                
+
                 **Monitoring Run:** ${context.runId}
                 **Timestamp:** ${new Date().toISOString()}
-                
+
                 ---
-                
+
                 ${reportContent}
-                
+
                 ## Next Steps
-                
+
                 1. Review the monitoring data and identify root causes
                 2. Check system resources and scaling needs
                 3. Investigate recent changes that may impact performance
                 4. Update performance baselines if needed
-                
+
                 **This issue was created automatically by the performance monitoring workflow.**`,
                 labels: ['performance', 'monitoring', 'alert', 'automated']
               });
