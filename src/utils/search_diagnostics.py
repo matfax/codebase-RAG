@@ -42,9 +42,16 @@ class SearchDiagnostics:
         self.qdrant_client = qdrant_client
 
         if not self.qdrant_client:
-            host = os.getenv("QDRANT_HOST", "localhost")
-            port = int(os.getenv("QDRANT_PORT", "6333"))
-            self.qdrant_client = QdrantClient(host=host, port=port)
+            # Check if QDRANT_URL is provided (takes precedence)
+            url = os.getenv("QDRANT_URL")
+            api_key = os.getenv("QDRANT_API_KEY")
+
+            if url:
+                self.qdrant_client = QdrantClient(url=url, api_key=api_key)
+            else:
+                host = os.getenv("QDRANT_HOST", "localhost")
+                port = int(os.getenv("QDRANT_PORT", "6333"))
+                self.qdrant_client = QdrantClient(host=host, port=port, api_key=api_key)
 
     def run_comprehensive_diagnostics(self, project_name: str | None = None) -> dict[str, SearchDiagnosticResult]:
         """Run all diagnostic tests and return comprehensive results.

@@ -10,7 +10,6 @@ import time
 import traceback
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Generator
-from .async_fix import fix_async_generator_issue
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Union
@@ -42,6 +41,8 @@ from src.utils.memory_utils import (
     should_cleanup_memory,
 )
 
+from .async_fix import fix_async_generator_issue
+
 # Load environment variables
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 if env_path.exists():
@@ -63,13 +64,23 @@ def get_qdrant_client():
     """Get or create Qdrant client with connection validation."""
     global _qdrant_client
     if _qdrant_client is None:
-        host = os.getenv("QDRANT_HOST", "localhost")
-        port = int(os.getenv("QDRANT_PORT", "6333"))
+        # Check if QDRANT_URL is provided (takes precedence)
+        url = os.getenv("QDRANT_URL")
+        api_key = os.getenv("QDRANT_API_KEY")
+
         try:
-            _qdrant_client = QdrantClient(host=host, port=port)
+            if url:
+                _qdrant_client = QdrantClient(url=url, api_key=api_key)
+                connection_info = f"Qdrant at {url}"
+            else:
+                host = os.getenv("QDRANT_HOST", "localhost")
+                port = int(os.getenv("QDRANT_PORT", "6333"))
+                _qdrant_client = QdrantClient(host=host, port=port, api_key=api_key)
+                connection_info = f"Qdrant at {host}:{port}"
+
             retry_operation(lambda: _qdrant_client.get_collections())
         except Exception as e:
-            raise QdrantConnectionError(f"Failed to connect to Qdrant at {host}:{port}", details=str(e))
+            raise QdrantConnectionError(f"Failed to connect to {connection_info}", details=str(e))
     return _qdrant_client
 
 

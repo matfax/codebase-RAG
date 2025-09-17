@@ -110,12 +110,20 @@ def health_check_sync() -> dict[str, Any]:
     try:
         from qdrant_client import QdrantClient
 
-        host = os.getenv("QDRANT_HOST", "localhost")
-        port = int(os.getenv("QDRANT_PORT", "6333"))
+        # Check if QDRANT_URL is provided (takes precedence)
+        url = os.getenv("QDRANT_URL")
+        api_key = os.getenv("QDRANT_API_KEY")
 
         # Create client with connection check
         try:
-            client = QdrantClient(host=host, port=port)
+            if url:
+                client = QdrantClient(url=url, api_key=api_key)
+                connection_info = f"{url}"
+            else:
+                host = os.getenv("QDRANT_HOST", "localhost")
+                port = int(os.getenv("QDRANT_PORT", "6333"))
+                client = QdrantClient(host=host, port=port, api_key=api_key)
+                connection_info = f"{host}:{port}"
 
             # Import database utils here to avoid circular imports
             from ..database.qdrant_utils import (
@@ -144,11 +152,11 @@ def health_check_sync() -> dict[str, Any]:
             services_status["qdrant"] = {
                 "healthy": False,
                 "error": str(e),
-                "host": f"{host}:{port}",
+                "connection": connection_info,
                 "timestamp": datetime.now().isoformat(),
             }
             overall_status = "error"
-            issues.append(f"Cannot connect to Qdrant at {host}:{port}")
+            issues.append(f"Cannot connect to Qdrant at {connection_info}")
 
     except ImportError:
         services_status["qdrant"] = {
