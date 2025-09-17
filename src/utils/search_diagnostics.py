@@ -458,7 +458,7 @@ class SearchDiagnostics:
                     vector_size = collection_info.config.params.vectors.size
 
                     # Check if vector size matches expected dimensions
-                    if vector_size not in [384, 768, 1024, 1536]:  # Common embedding dimensions
+                    if vector_size not in [384, 768, 1024, 1536, 2560, 4096]:  # Common embedding dimensions
                         dimension_issues.append(
                             {
                                 "collection": collection_name,

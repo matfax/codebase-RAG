@@ -6,6 +6,7 @@ change detection, processing, embedding generation, and storage operations.
 """
 
 import logging
+import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -460,16 +461,44 @@ class IndexingPipeline:
         except Exception as e:
             self._report_error("metadata", directory, f"Error storing file metadata: {str(e)}")
 
+    async def _get_embedding_dimension(self) -> int:
+        """Get the actual embedding dimension from the current embedding model."""
+        try:
+            # Get embedding model
+            model_name = os.getenv("OLLAMA_DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+
+            # Generate a test embedding to determine dimension
+            test_embedding = await self.embedding_service.generate_embeddings(model_name, "test")
+
+            if test_embedding is not None:
+                # Handle both single tensor and list of tensors
+                if isinstance(test_embedding, list):
+                    return len(test_embedding[0]) if test_embedding else 768
+                else:
+                    return len(test_embedding)
+            else:
+                self.logger.warning("Could not determine embedding dimension, using default 768")
+                return 768
+
+        except Exception as e:
+            self.logger.warning(f"Error determining embedding dimension: {e}, using default 768")
+            return 768
+
     async def _ensure_collection_exists(self, collection_name: str):
         """Ensure collection exists before storing data."""
         try:
             if not await self.qdrant_service.collection_exists(collection_name):
                 from qdrant_client.http.models import Distance, VectorParams
 
+                # Get the actual embedding dimension from the model
+                embedding_dimension = await self._get_embedding_dimension()
+
                 self.qdrant_service.client.create_collection(
                     collection_name=collection_name,
-                    vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+                    vectors_config=VectorParams(size=embedding_dimension, distance=Distance.COSINE),
                 )
+
+                self.logger.info(f"Created collection {collection_name} with dimension {embedding_dimension}")
 
         except Exception as e:
             self.logger.error(f"Failed to ensure collection {collection_name} exists: {e}")

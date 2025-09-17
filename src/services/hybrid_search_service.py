@@ -378,16 +378,12 @@ class HybridSearchService:
                 self.logger.error(f"Unexpected embedding type: {type(query_embedding_tensor)}")
                 return []
 
-            # Validate embedding format and dimensions
+            # Validate embedding format
             if not isinstance(query_embedding, list) or len(query_embedding) == 0:
                 self.logger.error(
                     f"Generated query embedding is invalid: type={type(query_embedding)}, "
                     f"len={len(query_embedding) if hasattr(query_embedding, '__len__') else 'N/A'}"
                 )
-                return []
-
-            if len(query_embedding) != 768:
-                self.logger.error(f"Query embedding dimension mismatch: expected 768, got {len(query_embedding)}")
                 return []
 
             self.logger.info(f"Successfully generated query embedding: {len(query_embedding)} dimensions")
