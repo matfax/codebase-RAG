@@ -10,8 +10,9 @@ import functools
 import logging
 import threading
 import weakref
+from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Coroutine, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,9 @@ async def safe_async_context():
         loop = get_or_create_event_loop()
         with _loop_lock:
             _active_loops.add(loop)
-        
+
         yield loop
-        
+
     except Exception as e:
         logger.error(f"Error in async context: {e}")
         raise AsyncContextError(f"Async context failed: {e}") from e
@@ -89,7 +90,7 @@ async def safe_async_context():
                         logger.debug(f"Cancelling {len(pending_tasks)} pending tasks")
                         for task in pending_tasks:
                             task.cancel()
-                        
+
                         # Wait for tasks to be cancelled
                         try:
                             await asyncio.gather(*pending_tasks, return_exceptions=True)
@@ -112,7 +113,7 @@ def run_in_thread_pool(coro_func: Callable[..., Coroutine[Any, Any, T]], *args, 
         Result of the async function
     """
     import concurrent.futures
-    
+
     def run_in_new_loop():
         """Run coroutine in a new event loop."""
         new_loop = asyncio.new_event_loop()
@@ -125,14 +126,14 @@ def run_in_thread_pool(coro_func: Callable[..., Coroutine[Any, Any, T]], *args, 
                 pending = asyncio.all_tasks(new_loop)
                 for task in pending:
                     task.cancel()
-                
+
                 if pending:
                     new_loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             except Exception as e:
                 logger.debug(f"Error cleaning up event loop: {e}")
             finally:
                 new_loop.close()
-    
+
     # Check if we're in an async context
     try:
         asyncio.get_running_loop()
@@ -158,7 +159,7 @@ def async_to_sync(func: Callable[..., Coroutine[Any, Any, T]]) -> Callable[..., 
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> T:
         return run_in_thread_pool(func, *args, **kwargs)
-    
+
     return wrapper
 
 
@@ -177,11 +178,11 @@ def sync_to_async(func: Callable[..., T]) -> Callable[..., Coroutine[Any, Any, T
         loop = asyncio.get_running_loop()
         # Run sync function in thread pool to avoid blocking the event loop
         return await loop.run_in_executor(None, func, *args, **kwargs)
-    
+
     return wrapper
 
 
-def ensure_async_safe(func: Optional[Callable] = None, *, timeout: float = 300):
+def ensure_async_safe(func: Callable | None = None, *, timeout: float = 300):
     """
     Decorator to ensure async operations are safe across different contexts.
     
@@ -208,9 +209,9 @@ def ensure_async_safe(func: Optional[Callable] = None, *, timeout: float = 300):
             @functools.wraps(f)
             def wrapper(*args, **kwargs):
                 return f(*args, **kwargs)
-        
+
         return wrapper
-    
+
     if func is None:
         return decorator
     return decorator(func)
@@ -218,7 +219,7 @@ def ensure_async_safe(func: Optional[Callable] = None, *, timeout: float = 300):
 
 class AsyncExecutor:
     """Helper class for executing async operations safely."""
-    
+
     def __init__(self, timeout: float = 300):
         """
         Initialize async executor.
@@ -228,8 +229,8 @@ class AsyncExecutor:
         """
         self.timeout = timeout
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-    
-    def run(self, coro: Coroutine[Any, Any, T], timeout: Optional[float] = None) -> T:
+
+    def run(self, coro: Coroutine[Any, Any, T], timeout: float | None = None) -> T:
         """
         Run coroutine safely with proper event loop handling.
         
@@ -241,7 +242,7 @@ class AsyncExecutor:
             Result of the coroutine
         """
         timeout = timeout or self.timeout
-        
+
         try:
             # Check if we're in an async context
             asyncio.get_running_loop()
@@ -252,7 +253,7 @@ class AsyncExecutor:
             async def run_with_timeout():
                 return await asyncio.wait_for(coro, timeout=timeout)
             return asyncio.run(run_with_timeout())
-    
+
     async def run_sync(self, func: Callable[..., T], *args, **kwargs) -> T:
         """
         Run sync function in async context.
@@ -301,7 +302,7 @@ def handle_async_errors(func: Callable) -> Callable:
         except Exception as e:
             logger.error(f"Unexpected error in {func.__name__}: {e}")
             raise
-    
+
     @functools.wraps(func)
     def sync_wrapper(*args, **kwargs):
         try:
@@ -309,5 +310,5 @@ def handle_async_errors(func: Callable) -> Callable:
         except Exception as e:
             logger.error(f"Error in {func.__name__}: {e}")
             raise
-    
+
     return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper

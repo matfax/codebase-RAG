@@ -46,8 +46,12 @@ class BatchInsertionStats:
 
 
 class QdrantService:
-    def __init__(self, host="localhost", port=6333):
-        self.client = QdrantClient(host=host, port=port)
+    def __init__(self, host="localhost", port=6333, api_key=None):
+        # Use environment variable if api_key not explicitly provided
+        if api_key is None:
+            api_key = os.getenv("QDRANT_API_KEY")
+
+        self.client = QdrantClient(host=host, port=port, api_key=api_key)
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         # Configuration

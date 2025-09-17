@@ -112,10 +112,11 @@ def health_check_sync() -> dict[str, Any]:
 
         host = os.getenv("QDRANT_HOST", "localhost")
         port = int(os.getenv("QDRANT_PORT", "6333"))
+        api_key = os.getenv("QDRANT_API_KEY")
 
         # Create client with connection check
         try:
-            client = QdrantClient(host=host, port=port)
+            client = QdrantClient(host=host, port=port, api_key=api_key)
 
             # Import database utils here to avoid circular imports
             from ..database.qdrant_utils import (

@@ -63,8 +63,9 @@ def get_qdrant_client():
     if _qdrant_client is None:
         host = os.getenv("QDRANT_HOST", "localhost")
         port = int(os.getenv("QDRANT_PORT", "6333"))
+        api_key = os.getenv("QDRANT_API_KEY")
         try:
-            _qdrant_client = QdrantClient(host=host, port=port)
+            _qdrant_client = QdrantClient(host=host, port=port, api_key=api_key)
             retry_operation(lambda: _qdrant_client.get_collections())
         except Exception as e:
             raise QdrantConnectionError(f"Failed to connect to Qdrant at {host}:{port}", details=str(e))
